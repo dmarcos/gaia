@@ -41,6 +41,7 @@ ViewfinderController.prototype.bindEvents = function() {
   this.app.settings.on('change:grid', this.viewfinder.setter('grid'));
   this.viewfinder.on('click', this.app.firer('viewfinder:click'));
   this.viewfinder.on('click', this.onViewfinderClick);
+  this.viewfinder.on('scaleChange', this.onScaleChange);
   this.app.on('camera:configured', this.loadStream);
   this.app.on('camera:configured', this.updatePreview);
   this.app.on('blur', this.onBlur);
@@ -58,6 +59,39 @@ ViewfinderController.prototype.updatePreview = function() {
   // Fade in 100ms later to avoid
   // seeing viewfinder being resized
   setTimeout(this.viewfinder.fadeIn, 150);
+};
+
+ViewfinderController.prototype.onScaleChange = function(scale) {
+  this.camera.mozCamera.zoom = scale;
+
+  var previewSize = this.camera.previewSize();
+  var maxPreviewSize = this.camera.mozCamera.capabilities.previewSizes[0];
+
+  var maxHardwareScaleX = maxPreviewSize.width  / previewSize.width;
+  var maxHardwareScaleY = maxPreviewSize.height / previewSize.height;
+  var maxHardwareScale = Math.max(maxHardwareScaleX, maxHardwareScaleY);
+  
+  if (scale <= maxHardwareScale) {
+    this.viewfinder.setScaleAdjustment(1);
+    return;
+  }
+  
+  var virtualPreviewSize = {
+    width:  previewSize.width  * maxHardwareScale,
+    height: previewSize.height * maxHardwareScale
+  };
+  var targetPreviewSize = {
+    width:  previewSize.width  * scale,
+    height: previewSize.height * scale
+  };
+  var scaleAdjustmentX = targetPreviewSize.width /
+                         virtualPreviewSize.width;
+  var scaleAdjustmentY = targetPreviewSize.height /
+                         virtualPreviewSize.height;
+  var scaleAdjustment = Math.max(scaleAdjustmentX,
+                                 scaleAdjustmentY);
+  
+  this.viewfinder.setScaleAdjustment(scaleAdjustment);
 };
 
 /**
