@@ -25,7 +25,12 @@ var EmergencyCbManager = {
   cancelButton: null,
 
   init: function ecm_init() {
-    this._conn = navigator.mozMobileConnection;
+
+    // XXX: check bug-926169
+    // this is used to keep all tests passing while introducing multi-sim APIs
+    this._conn = navigator.mozMobileConnection ||
+      navigator.mozMobileConnections &&
+        navigator.mozMobileConnections[0];
 
     // Dom elements
     this.notification =
@@ -65,6 +70,7 @@ var EmergencyCbManager = {
 
   exitEmergencyCbMode: function ecm_exitEmergencyCbMode() {
     this.warningDialog.classList.remove('visible');
+    this.warningDialog.hidden = true;
     this._conn.exitEmergencyCbMode();
   },
 
@@ -76,6 +82,7 @@ var EmergencyCbManager = {
   toasterClicked: function ecm_toasterClicker() {
     this.showEmergencyCbPrompt();
     this.toaster.classList.remove('displayed');
+    this.toaster.hidden = true;
   },
 
   showEmergencyCbPrompt: function ecm_showEmergencyCbPrompt() {
@@ -87,24 +94,29 @@ var EmergencyCbManager = {
       self.cancelPrompt();
     });
     this.warningDialog.classList.add('visible');
+    this.warningDialog.hidden = false;
   },
 
   cancelPrompt: function ecm_cancelPrompt() {
     this.warningDialog.classList.remove('visible');
+    this.warningDialog.hidden = true;
   },
 
   displayNotificationAndToaster: function ecm_displayNotificationAndToaster() {
     this.displayNotificationIfHidden();
     this.toasterTimer.textContent = this.timerString;
     this.toaster.classList.add('displayed');
+    this.toaster.hidden = false;
     setTimeout(function waitToHide() {
       this.toaster.classList.remove('displayed');
+      this.toaster.hidden = true;
     }.bind(this), this.TOASTER_TIMEOUT);
   },
 
   hideNotificationIfDisplayed: function ecm_hideNotificationIfDisplayed() {
     if (this.notification.classList.contains('displayed')) {
       this.notification.classList.remove('displayed');
+      this.notification.hidden = true;
       StatusBar.updateEmergencyCbNotification();
     }
   },
@@ -112,6 +124,7 @@ var EmergencyCbManager = {
   displayNotificationIfHidden: function ecm_displayNotificationIfHidden() {
     if (!this.notification.classList.contains('displayed')) {
       this.notification.classList.add('displayed');
+      this.notification.hidden = false;
       StatusBar.updateEmergencyCbNotification(true);
     }
   },
@@ -148,6 +161,7 @@ var EmergencyCbManager = {
     } else {
       this.hideNotificationIfDisplayed();
       this.warningDialog.classList.remove('visible');
+      this.warningDialog.hidden = true;
       window.clearInterval(this.timeoutController);
       this.timeoutController = null;
       this._conn.ondataerror = null;
@@ -157,17 +171,27 @@ var EmergencyCbManager = {
 
 window.addEventListener('localized', function startup(evt) {
   window.removeEventListener('localized', startup);
-  var settings = window.navigator.mozSettings;
-  if (!settings) {
+  // XXX: check bug-926169
+  // this is used to keep all tests passing while introducing multi-sim APIs
+  var conn = navigator.mozMobileConnection ||
+    navigator.mozMobileConnections &&
+      navigator.mozMobileConnections[0];
+
+  if (!conn || !conn.getPreferredNetworkType) {
     return;
   }
 
-  // Init EmergencyCbManager only when network type is CDMA.
-  var lock = settings.createLock();
-  var key = 'ril.radio.preferredNetworkType';
-  var request = lock.get(key);
-  request.onsuccess = function() {
-    if (request.result[key] === 'cdma') {
+  // Note: Before having the support for multi ICC card devices we read the
+  // setting 'ril.radio.preferredNetworkType' to check whether the device was
+  // CDMA enabled and therefore init the emergency callback manager. Now we
+  // use the 'getPreferredNetworkType' function in mozMobileConnection API for
+  // the first ICC card. Once we add the support for multi ICC card devices to
+  // the emergency callback manager we should consider also the second ICC card.
+  // This is the minimal fix we added in bug 946548.
+  var request = conn.getPreferredNetworkType();
+  request.onsuccess = function onSuccessHandler() {
+    var networkType = request.result;
+    if (networkType === 'cdma') {
       EmergencyCbManager.init();
     }
   };

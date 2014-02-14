@@ -1,12 +1,22 @@
-/*global MockContact, Contacts */
-
+/*global MockContact, Contacts, mocha, fb, MockFbReaderUtilsObj */
 'use strict';
 
+mocha.globals(['SimplePhoneMatcher', 'fb']);
+
+require('/shared/test/unit/mocks/mock_moz_phone_number_service.js');
+require('/shared/test/unit/mocks/mock_fb_reader_utils.js');
 requireApp('sms/test/unit/mock_contact.js');
 requireApp('sms/js/contacts.js');
 
 suite('Contacts', function(done) {
   var nativeMozContacts = navigator.mozContacts;
+  var realFb = window.fb;
+
+  var targetFbNumber = '+34658789147';
+  var fbContactName = 'Carlos Facebook';
+  var targetLocalNumber = '+34698745123';
+  var localContactName = 'Jose Local';
+  var notFoundNumber = '+34633789102';
 
   suiteSetup(function() {
     // Do not use the native API.
@@ -54,6 +64,17 @@ suite('Contacts', function(done) {
                     return null;
                   }
 
+                  if (filter.filterValue === targetLocalNumber) {
+                    return [{
+                      name: [localContactName]
+                    }];
+                  }
+
+                  if (filter.filterValue === targetFbNumber ||
+                      filter.filterValue === notFoundNumber) {
+                    return [];
+                  }
+
                   // Supports two "no match" cases
                   if (filter.filterValue === '911' ||
                       filter.filterValue === 'wontmatch') {
@@ -77,6 +98,12 @@ suite('Contacts', function(done) {
                     ]);
                   }
 
+                  if (filter.filterValue === 'julien') {
+                    return MockContact.list([
+                      { givenName: ['Julien'] }
+                    ]);
+                  }
+
                   if (filter.filterValue === 'do') {
                     return MockContact.list([
                       // true
@@ -92,6 +119,23 @@ suite('Contacts', function(done) {
                       // true
                       { givenName: ['john'], familyName: ['doland'] }
                     ]);
+                  }
+
+                  if (filter.filterValue === 'doozer') {
+                    return MockContact.list([
+                      { givenName: ['Jane'], familyName: ['Doozer'] }
+                    ]);
+                  }
+
+                  if (filter.filterValue === 'mary') {
+                    return MockContact.list([
+                      { givenName: ['Mary Anne'], familyName: ['Jones'] }
+                    ]);
+                  }
+
+                  // Fake error
+                  if (filter.filterValue === 'callonerror') {
+                    return null;
                   }
 
                   // All other cases
@@ -134,6 +178,11 @@ suite('Contacts', function(done) {
         });
       }
     };
+
+    var mockReaderUtils = new MockFbReaderUtilsObj();
+    mockReaderUtils.targetFbNumber = targetFbNumber;
+    mockReaderUtils.fbContactName = fbContactName;
+    window.fb = mockReaderUtils;
   });
 
   teardown(function() {
@@ -142,6 +191,7 @@ suite('Contacts', function(done) {
 
   suiteTeardown(function() {
     navigator.mozContacts = nativeMozContacts;
+    window.fb = realFb;
   });
 
   suite('Contacts.findByString, single-term', function() {
@@ -182,7 +232,6 @@ suite('Contacts', function(done) {
         done();
       });
     });
-
 
     test('(string[tel], ...) Match', function(done) {
       var mozContacts = navigator.mozContacts;
@@ -321,6 +370,60 @@ suite('Contacts', function(done) {
       });
     });
 
+    test('multi-word name', function(done) {
+      var mozContacts = navigator.mozContacts;
+
+      Contacts.findByString('mary anne', function(contacts) {
+        var mHistory = mozContacts.mHistory;
+
+        // No contacts were found
+        assert.ok(Array.isArray(contacts));
+        assert.equal(contacts.length, 1);
+
+        // navigator.mozContacts.find was called?
+        assert.equal(mHistory.length, 1);
+        done();
+      });
+    });
+
+    test('name first, part of tel number last', function(done) {
+      var mozContacts = navigator.mozContacts;
+
+      Contacts.findByString('Pepito 8888', function(contacts) {
+        var mHistory = mozContacts.mHistory;
+
+        // contacts were found
+        assert.ok(Array.isArray(contacts));
+        assert.equal(contacts.length, 1);
+
+        // navigator.mozContacts.find was called?
+        assert.equal(mHistory.length, 1);
+        done();
+      });
+    });
+
+    test('part of tel number first, name last', function(done) {
+      var mozContacts = navigator.mozContacts;
+
+      Contacts.findByString('8888 Pepito', function(contacts) {
+        var mHistory = mozContacts.mHistory;
+
+        // contacts were found
+        assert.ok(Array.isArray(contacts));
+        assert.equal(contacts.length, 1);
+
+        // navigator.mozContacts.find was called?
+        assert.equal(mHistory.length, 1);
+        done();
+      });
+    });
+
+    test('string search yields a contact without familyName', function(done) {
+      Contacts.findByString('julien 123', function(contacts) {
+        done();
+      });
+    });
+
     test('no matches, predominate first, upper', function(done) {
       var mozContacts = navigator.mozContacts;
 
@@ -386,6 +489,23 @@ suite('Contacts', function(done) {
     });
   });
 
+
+  suite('Contacts.findExact', function() {
+    test('yields a match ', function(done) {
+      Contacts.findExact('jane doozer', function(contacts) {
+        assert.equal(contacts.length, 1);
+        done();
+      });
+    });
+
+    test('yields no matches ', function(done) {
+      Contacts.findExact('j doozer', function(contacts) {
+        assert.equal(contacts.length, 0);
+        done();
+      });
+    });
+  });
+
   suite('Contacts.findByPhoneNumber', function() {
 
     test('removes spaces', function(done) {
@@ -395,6 +515,48 @@ suite('Contacts', function(done) {
         assert.equal(
           mozContacts.mHistory[0].filter.filterValue, '+33123456789'
         );
+        done();
+      });
+    });
+
+    test('The mozContacts find() call returned an error', function(done) {
+      Contacts.findByPhoneNumber('callonerror', function(contacts) {
+        assert.equal(contacts.length, 0);
+        done();
+      });
+    });
+
+    test('Local number found.', function(done) {
+      Contacts.findByPhoneNumber(targetLocalNumber, function(contacts) {
+        assert.equal(contacts.length, 1);
+        assert.isTrue(!contacts[0].isFbContact);
+        assert.equal(contacts[0].name[0], localContactName);
+        done();
+      });
+    });
+
+    test('Local number not found. FB Number found', function(done) {
+      Contacts.findByPhoneNumber(targetFbNumber, function(contacts) {
+        assert.equal(contacts.length, 1);
+        assert.equal(contacts[0].name[0], fbContactName);
+        assert.equal(contacts[0].isFbContact, true);
+        done();
+      });
+    });
+
+    test('Local number not found. FB Number not found either', function(done) {
+      Contacts.findByPhoneNumber(notFoundNumber, function(contacts) {
+        assert.equal(contacts.length, 0);
+        done();
+      });
+    });
+
+    test('Local number not found. FB returns error', function(done) {
+      fb.inError = true;
+
+      Contacts.findByPhoneNumber(targetFbNumber, function(contacts) {
+        assert.equal(contacts.length, 0);
+        delete window.fb.inError;
         done();
       });
     });
@@ -470,7 +632,8 @@ suite('Contacts', function(done) {
 
         // contacts were not found
         assert.ok(Array.isArray(contacts));
-        assert.equal(contacts.length, 3);
+        // This was relaxed by the change from "startsWith" to "contains"
+        assert.equal(contacts.length, 4);
 
         /**
          * The three matching contacts are:

@@ -15,14 +15,16 @@ var PhoneLock = {
 
   settings: {
     passcode: '0000',
-    passcodeEnable: false
+    passcodeEnable: false,
+    lockscreenEnable: false
   },
 
   checkingLength: {
     'create': 8,
     'new': 8,
     'edit': 4,
-    'confirm': 4
+    'confirm': 4,
+    'confirmLock': 4
   },
 
   _passcodeBuffer: '',
@@ -44,6 +46,7 @@ var PhoneLock = {
   init: function pl_init() {
     this.getAllElements();
     this.passcodeEnable.addEventListener('click', this);
+    this.lockscreenEnable.addEventListener('click', this);
     this.passcodeInput.addEventListener('keypress', this);
     this.passcodeEditButton.addEventListener('click', this);
     this.createPasscodeButton.addEventListener('click', this);
@@ -70,10 +73,7 @@ var PhoneLock = {
     var reqLockscreenEnable = lock.get('lockscreen.enabled');
     reqLockscreenEnable.onsuccess = function onLockscreenEnableSuccess() {
       var enable = reqLockscreenEnable.result['lockscreen.enabled'];
-      self.phonelockPanel.dataset.lockscreenEnabled = enable;
-      self.lockscreenEnable.checked = enable;
-      self.phonelockDesc.textContent = enable ? _('enabled') : _('disabled');
-      self.phonelockDesc.dataset.l10nId = enable ? 'enabled' : 'disabled';
+      self.toggleLock(enable);
     };
 
     var reqCode = lock.get('lockscreen.passcode-lock.code');
@@ -93,9 +93,7 @@ var PhoneLock = {
     settings.addObserver('lockscreen.enabled',
       function onLockscreenEnabledChange(event) {
         var enable = event.settingValue;
-        self.phonelockPanel.dataset.lockscreenEnabled = enable;
-        self.phonelockDesc.textContent = enable ? _('enabled') : _('disabled');
-        self.phonelockDesc.dataset.l10nId = enable ? 'enabled' : 'disabled';
+        self.toggleLock(enable);
     });
 
     settings.addObserver('lockscreen.passcode-lock.enabled',
@@ -109,6 +107,16 @@ var PhoneLock = {
       function onPasscodeLockCodeChange(event) {
         self.settings.passcode = event.settingValue;
     });
+
+  },
+
+  toggleLock: function pl_toggleLock(enable) {
+    this.settings.lockscreenEnable = enable;
+    var _ = navigator.mozL10n.get;
+    this.phonelockPanel.dataset.lockscreenEnabled = enable;
+    this.phonelockDesc.textContent = enable ? _('enabled') : _('disabled');
+    this.phonelockDesc.dataset.l10nId = enable ? 'enabled' : 'disabled';
+    this.lockscreenEnable.checked = enable;
   },
 
   showErrorMessage: function pl_showErrorMessage(message) {
@@ -134,10 +142,14 @@ var PhoneLock = {
     if (Settings.currentPanel != '#phoneLock-passcode') {
       Settings.currentPanel = '#phoneLock-passcode'; // show dialog box
 
-      // Open the keyboard after the UI transition. We can't listen for the
-      // ontransitionend event because some of the passcode mode changes, such
-      // as edit->new, do not trigger transition events.
-      setTimeout(function(self) { self.passcodeInput.focus(); }, 0, this);
+      // Open the keyboard after the panel transition finished.
+      var self = this;
+       window.addEventListener('panelready', function inputFocus(e) {
+         window.removeEventListener('panelready', inputFocus);
+         if (e.detail.current === '#phoneLock-passcode') {
+           self.passcodeInput.focus();
+         }
+       });
     }
     this.updatePassCodeUI();
   },
@@ -151,6 +163,14 @@ var PhoneLock = {
           this.changeMode('confirm');
         } else {
           this.changeMode('create');
+        }
+        break;
+      case this.lockscreenEnable:
+        this._passcodeBuffer = '';
+        if (this.settings.lockscreenEnable == true &&
+          this.settings.passcodeEnable == true) {
+          evt.preventDefault();
+          this.changeMode('confirmLock');
         }
         break;
       case this.passcodeInput:
@@ -200,6 +220,19 @@ var PhoneLock = {
                 this.backToPhoneLock();
               } else {
                 this._passcodeBuffer = '';
+              }
+              break;
+            case 'confirmLock':
+              if (this.checkPasscode()) {
+                var settings = navigator.mozSettings;
+                var lock = settings.createLock();
+                var reqSetPasscode = lock.set({
+                  'lockscreen.enabled': false
+                });
+                this.backToPhoneLock();
+              } else {
+                this._passcodeBuffer = '';
+                this.toggleLock(true);
               }
               break;
             case 'edit':

@@ -33,6 +33,27 @@
   transition: none;
 }
 
+#cards-view .no-recent-apps {
+  display: none;
+  position: absolute;
+  top: calc(50% - 1rem);
+  left: 3rem;
+  width: calc(100% - 6rem);
+  height: 2rem;
+  text-align: center;
+  color: #52b6cc;
+  font-size: 2rem;
+  font-weight: 500;
+}
+
+#cards-view.empty .no-recent-apps {
+  display: block;
+}
+
+#cards-view.empty {
+  background-color: rgba(0, 0, 0, .8);
+}
+
 #cards-view ul {
   list-style: none;
   margin: 0;
@@ -127,4 +148,17 @@
   width: 2.6rem;
   background: url(close.png) no-repeat center / 2.6rem;
   transform: scale(1.3);
+}
+
+#screen.task-manager #cards-view {
+  background: transparent;
+  margin-top: 5rem;
+}
+
+#screen.task-manager #cards-view li.card {
+  transform-origin: 50% 30%;
+}
+
+#screen.task-manager #cards-view .card > p {
+  display: none;
 }

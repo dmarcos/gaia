@@ -4,6 +4,17 @@
 'use strict';
 
 window.addEventListener('load', function startup() {
+
+  /**
+   * Register global instances and constructors here.
+   */
+  function registerGlobalEntries() {
+    /** @global */
+    window.secureWindowManager = new SecureWindowManager();
+    /** @global */
+    window.secureWindowFactory = new SecureWindowFactory();
+  }
+
   function safelyLaunchFTU() {
     window.addEventListener('homescreen-ready', function onHomescreenReady() {
       window.removeEventListener('homescreen-ready', onHomescreenReady);
@@ -13,26 +24,38 @@ window.addEventListener('load', function startup() {
   }
 
   if (Applications.ready) {
+    registerGlobalEntries();
     safelyLaunchFTU();
   } else {
     window.addEventListener('applicationready', function appListReady(event) {
       window.removeEventListener('applicationready', appListReady);
+      registerGlobalEntries();
       safelyLaunchFTU();
     });
   }
 
-  window.addEventListener('ftudone', function doneWithFTU() {
+  /**
+   * Enable checkForUpdate after FTU is either done or skipped.
+   */
+  function doneWithFTU() {
     window.removeEventListener('ftudone', doneWithFTU);
-
+    window.removeEventListener('ftuskip', doneWithFTU);
     var lock = window.navigator.mozSettings.createLock();
     lock.set({
       'gaia.system.checkForUpdates': true
     });
-  });
+  }
+
+  window.addEventListener('ftudone', doneWithFTU);
+  // Enable checkForUpdate as well if booted without FTU
+  window.addEventListener('ftuskip', doneWithFTU);
+
 
   SourceView.init();
   Shortcuts.init();
   ScreenManager.turnScreenOn();
+  Places.init();
+  window.ttlView = new TTLView();
 
   // We need to be sure to get the focus in order to wake up the screen
   // if the phone goes to sleep before any user interaction.
@@ -107,7 +130,7 @@ navigator.mozSettings.addObserver(
 // https://bugzilla.mozilla.org/show_bug.cgi?id=783076
 // which stops OOP home screen pannable with left mouse button on
 // B2G/Desktop.
-windows.addEventListener('dragstart', function(evt) {
+window.addEventListener('dragstart', function(evt) {
   evt.preventDefault();
 }, true);
 
@@ -117,15 +140,17 @@ windows.addEventListener('dragstart', function(evt) {
 // not trigger unexpected behaviors those are captured here.
 function cancelHomeTouchstart(e) {
   if (e.touches[0].pageX === 0 && e.touches[0].pageY === 0) {
+    e.preventDefault();
     e.stopImmediatePropagation();
   }
 }
 
 function cancelHomeTouchend(e) {
-  if (e.touches[0].pageX === 0 && e.touches[0].pageY === 0) {
+  if (e.changedTouches[0].pageX === 0 && e.changedTouches[0].pageY === 0) {
+    e.preventDefault();
     e.stopImmediatePropagation();
   }
 }
 
 window.addEventListener('touchstart', cancelHomeTouchstart, true);
-window.addEventListener('touchstart', cancelHomeTouchend, true);
+window.addEventListener('touchend', cancelHomeTouchend, true);

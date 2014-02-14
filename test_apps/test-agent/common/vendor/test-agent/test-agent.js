@@ -1653,21 +1653,35 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
     }
   };
 
-  function RunnerStreamProxy(runner) {
-    var self = this;
+  function RunnerStreamProxy(runner, options) {
+    var self = this,
+        key;
+
+    if (typeof(options) === 'undefined') {
+      options = {};
+    }
+
+    for (key in options) {
+      if (options.hasOwnProperty(key)) {
+        this[key] = options[key];
+      }
+    }
 
     Responder.apply(this, arguments);
 
     this.runner = runner;
 
+    // We ignore log if coverage is enabled
+    if (!this.coverage) {
+      this.on('log', function onLog(data) {
+        console.log.apply(console, data.messages);
+      });
+    }
+
     this.on({
 
       'start': function onStart(data) {
         runner.emit('start', data);
-      },
-
-      'log': function onLog(data) {
-        console.log.apply(console, data.messages);
       },
 
       'end': function onEnd(data) {
@@ -2080,7 +2094,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
       envs: this.envs
     });
 
-    this.proxy = new Proxy(this.runner);
+    this.proxy = new Proxy(this.runner, { coverage: this.coverage });
     this.envs = [];
 
     this.runner.once('start', this._onStart.bind(this));
@@ -2295,7 +2309,6 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
   Blanket.prototype = {
 
     enhance: function enhance(server) {
-      this.server = server;
       server.on('coverage data', this._onCoverageData.bind(this));
 
       if (typeof(window) !== 'undefined') {
@@ -2323,15 +2336,15 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
           originColor = '\033[0m';
 
       // Print title
-      console.info('    ' + titleColor + '-- Blanket.js Test Coverage Result --' + originColor + '\n');
-      console.info('    ' + fileNameColor + 'File Name' + originColor +
+      console.info('\n' + titleColor + '-- Blanket.js Test Coverage Result --' + originColor + '\n');
+      console.info(fileNameColor + 'File Name' + originColor +
         ' - ' + stmtColor + 'Covered/Total Smts' + originColor +
         ' - ' + percentageColor + 'Coverage (\%)\n' + originColor);
 
       // Print coverage result for each file
       coverResults.forEach(function(dataItem) {
         var filename = dataItem.filename,
-            formatPrefix = (filename === "Global Total" ? "\n    " : "      "),
+            formatPrefix = (filename === "Global Total" ? "\n" : "  "),
             seperator = ' - ';
 
         filename = (filename === "Global Total" ? filename : filename.substr(0, filename.indexOf('?')));
@@ -2702,6 +2715,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
       onMessage = this.onMessage.bind(this, worker);
       this.worker = worker;
+      this.runCoverage = false;
 
       worker.on('worker start', function(data) {
         if (data && data.type == self.listenToWorker) {
@@ -2796,7 +2810,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
      * associated tests if a current domain
      * is set.
      */
-    _loadNextDomain: function(runCoverage) {
+    _loadNextDomain: function() {
       var iframe;
       //if we have a current domain
       //remove it it should be finished now.
@@ -2816,8 +2830,6 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
       } else {
         this.currentEnv = null;
       }
-
-      this.runCoverage = runCoverage;
     },
 
     /**
@@ -2877,11 +2889,12 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
      */
     runTests: function(tests, runCoverage) {
       var envs;
+      this.runCoverage = runCoverage;
       this._createTestGroups(tests);
       envs = Object.keys(this.testGroups);
       this.worker.emit('set test envs', envs);
       this.worker.send('set test envs', envs);
-      this._loadNextDomain(runCoverage);
+      this._loadNextDomain();
     }
 
   };
@@ -2921,6 +2934,11 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
      * Test interface for mocha use.
      */
     ui: 'bdd',
+
+    /**
+     * Default test timeout.
+     */
+    timeout: 10000,
 
     /**
      * Mocha reporter to use.
@@ -3030,7 +3048,8 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
         box.mocha.setup({
           globals: globalIgnores,
           ui: self.ui,
-          reporter: self.getReporter(box)
+          reporter: self.getReporter(box),
+          timeout: self.timeout
         });
       });
 
@@ -3244,6 +3263,11 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
     WORKING: 'working',
     EXECUTE: 'execute',
 
+    tasks: {
+      test: 'run tests',
+      coverage: 'run tests with coverage',
+    },
+
     templates: {
       testList: '<ul class="test-list"></ul>',
       testItem: '<li data-url="%s">%s</li>',
@@ -3259,10 +3283,21 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
     },
 
     get execButton() {
-      if(!this._execButton){
+      if (!this._execButton) {
         this._execButton = this.element.querySelector('button');
       }
       return this._execButton;
+    },
+
+    get command() {
+      var covCheckbox = document.querySelector('#test-agent-coverage-checkbox'),
+          covFlag = covCheckbox ? covCheckbox.checked : false;
+
+      if (covFlag) {
+        return this.tasks.coverage;
+      } else {
+        return this.tasks.test;
+      }
     },
 
     enhance: function enhance(worker) {
@@ -3344,6 +3379,8 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
       this.element.appendChild(fragment(templates.testRun));
 
       this.initDomEvents();
+
+      window.dispatchEvent(new CustomEvent('test-agent-list-done'));
     },
 
     initDomEvents: function initDomEvents() {
@@ -3381,7 +3418,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
           }
         }
 
-        self.worker.emit('run tests', {tests: tests});
+        self.worker.emit(self.command, {tests: tests});
       });
     }
 

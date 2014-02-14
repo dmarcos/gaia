@@ -13,15 +13,23 @@
     "120": "/style/icons/Uitest.png"
   },
   "permissions": {
+    "fmradio":{},
+    "browser":{},
+    "geolocation":{},
+    "wifi-manage":{},
+    "mobilenetwork":{},
+    "mobileconnection":{},
     "power":{},
     "backgroundservice":{},
     "attention":{},
     "contacts":{ "access": "readwrite" },
     "settings":{ "access": "readwrite" },
     "desktop-notification":{},
-    "device-storage:sdcard":{ "access": "readonly" },
+    "device-storage:sdcard":{ "access": "readwrite" },
     "settings":{ "access": "readwrite" },
     "audio-capture": {},
-    "bluetooth":{}
+    "video-capture": {},
+    "bluetooth":{},
+    "downloads":{}
   }
 }

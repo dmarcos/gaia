@@ -10,27 +10,53 @@ var TelephonyHelper = (function() {
       displayMessage('BadNumber');
       return;
     }
-    var conn = window.navigator.mozMobileConnection;
-    if (!conn || !conn.voice) {
-      // No voice connection, the call won't make it
-      displayMessage('NoNetwork');
-      return;
-    }
-    startDial(sanitizedNumber, oncall, onconnected, ondisconnected, onerror);
+
+    getConnection(function gotConnection(conn) {
+      if (!conn || !conn.voice) {
+        // No voice connection, the call won't make it
+        displayMessage('NoNetwork');
+        return;
+      }
+
+      var telephony = navigator.mozTelephony;
+      var openLines = telephony.calls.length +
+          (telephony.conferenceGroup.calls.length ? 1 : 0);
+      // User can make call only when there are less than 2 calls by spec.
+      // If the limit reached, return early to prevent holding active call.
+      if (openLines >= 2) {
+        displayMessage('UnableToCall');
+        return;
+      }
+
+      var activeCall = telephony.active;
+      if (!activeCall) {
+        startDial(
+          conn, sanitizedNumber, oncall, onconnected, ondisconnected, onerror);
+        return;
+      }
+      activeCall.onheld = function activeCallHeld() {
+        activeCall.onheld = null;
+        startDial(
+          conn, sanitizedNumber, oncall, onconnected, ondisconnected, onerror);
+      };
+      activeCall.hold();
+    });
   };
 
   function notifyBusyLine() {
-    // ANSI call waiting tone for a 3 seconds window.
-    var sequence = [[480, 620, 500],
-                    [0, 0, 500],
-                    [480, 620, 500],
-                    [0, 0, 500],
-                    [480, 620, 500],
-                    [0, 0, 500]];
+    // ANSI call waiting tone for a 6 seconds window.
+    var sequence = [[480, 620, 500], [0, 0, 500],
+                    [480, 620, 500], [0, 0, 500],
+                    [480, 620, 500], [0, 0, 500],
+                    [480, 620, 500], [0, 0, 500],
+                    [480, 620, 500], [0, 0, 500],
+                    [480, 620, 500], [0, 0, 500]];
     TonePlayer.playSequence(sequence);
   };
 
-  function startDial(sanitizedNumber, oncall, connected, disconnected, error) {
+  function startDial(
+    conn, sanitizedNumber, oncall, connected, disconnected, error) {
+
     var telephony = navigator.mozTelephony;
     if (!telephony) {
       return;
@@ -45,9 +71,9 @@ var TelephonyHelper = (function() {
     }
 
     LazyLoader.load('/shared/js/icc_helper.js', function() {
-      var conn = window.navigator.mozMobileConnection;
       var cardState = IccHelper.cardState;
       var emergencyOnly = conn.voice.emergencyCallsOnly;
+      var hasCard = (conn.iccId !== null);
       var call;
 
       // Note: no need to check for cardState null. While airplane mode is on
@@ -57,7 +83,10 @@ var TelephonyHelper = (function() {
         error();
         return;
       } else if (emergencyOnly) {
-        call = telephony.dialEmergency(sanitizedNumber);
+        // If the mobileConnection has a sim card we let gecko take the
+        // default service, otherwise we force the first slot.
+        var serviceId = hasCard ? undefined : 0;
+        call = telephony.dialEmergency(sanitizedNumber, serviceId);
       } else {
         call = telephony.dial(sanitizedNumber);
       }
@@ -86,7 +115,8 @@ var TelephonyHelper = (function() {
           } else if (errorName === 'BusyError') {
             notifyBusyLine();
             displayMessage('NumberIsBusy');
-          } else if (errorName === 'FDNBlockedError') {
+          } else if (errorName === 'FDNBlockedError' ||
+                     errorName === 'FdnCheckFailure') {
             displayMessage('FixedDialingNumbers');
           } else {
             // If the call failed for some other reason we should still
@@ -103,6 +133,37 @@ var TelephonyHelper = (function() {
   var isValid = function t_isValid(sanitizedNumber) {
     var validExp = /^[0-9#+*]{1,50}$/;
     return validExp.test(sanitizedNumber);
+  };
+
+  var getConnection = function t_getConnection(callback) {
+    var conn = window.navigator.mozMobileConnection;
+    if (conn) {
+      callback(conn);
+      return;
+    }
+
+    var connections = navigator.mozMobileConnections;
+    var settings = navigator.mozSettings;
+    if (!settings || !connections) {
+      callback(null);
+      return;
+    }
+
+    if (connections.length === 1) {
+      callback(connections[0]);
+      return;
+    }
+
+    var req = settings.createLock().get('ril.telephony.defaultServiceId');
+
+    req.onsuccess = function getDefaultServiceId() {
+      var id = req.result['ril.telephony.defaultServiceId'] || 0;
+      callback(connections[id]);
+    };
+
+    req.onerror = function getDefaultServiceIdError() {
+      callback(null);
+    };
   };
 
   var loadConfirm = function t_loadConfirm(cb) {

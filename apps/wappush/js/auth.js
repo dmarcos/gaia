@@ -1,6 +1,10 @@
 /* -*- Mode: js; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- /
 /* vim: set shiftwidth=2 tabstop=2 autoindent cindent expandtab: */
 
+/* global CryptoJS */
+
+/* exported ProvisioningAuthentication */
+
 'use strict';
 
 /**
@@ -58,7 +62,7 @@ var ProvisioningAuthentication = (function() {
   function pa_userPinAuthentication() {
     var mac = auth.mac;
 
-    return mac === pa_sign(pin, auth.data, auth.dataLength);
+    return mac === pa_sign(pin, auth.data, auth.data.length);
   }
 
   /**

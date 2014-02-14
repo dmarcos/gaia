@@ -12,7 +12,11 @@
  *   - onerror: SIM card is empty or could not be read.
  */
 
-function SimContactsImporter() {
+function SimContactsImporter(targetIcc) {
+  if (targetIcc === null) {
+    throw new Error('We need an icc to continue with this operation');
+    return;
+  }
   var pointer = 0;
   var CHUNK_SIZE = 5;
   var numResponses = 0;
@@ -20,6 +24,17 @@ function SimContactsImporter() {
   var _ = navigator.mozL10n.get;
   var mustFinish = false;
   var loadedMatch = false;
+  var DEFAULT_TEL_TYPE = 'other';
+  var icc = targetIcc;
+  var iccId = icc.iccInfo && icc.iccInfo.iccid;
+
+  function generateIccContactUrl(contactid) {
+    var urlValue = 'urn:' + 'uuid:' + (iccId || 'iccId') + '-' + contactid;
+    return [{
+      type: ['source', 'sim'],
+      value: urlValue
+    }];
+  }
 
   function notifyFinish() {
     if (typeof self.onfinish === 'function') {
@@ -65,20 +80,14 @@ function SimContactsImporter() {
       '/shared/js/simple_phone_matcher.js',
       '/contacts/js/contacts_matcher.js',
       '/contacts/js/contacts_merger.js',
+      '/contacts/js/utilities/image_thumbnail.js',
       '/contacts/js/merger_adapter.js'
     ], function loaded() {
       loadedMatch = true;
       document.dispatchEvent(new CustomEvent('matchLoaded'));
     });
 
-    // See bug 870237
-    // To have the backward compatibility for bug 859220.
-    // If we could not get iccManager from navigator,
-    // try to get it from mozMobileConnection.
-    // 'window.navigator.mozMobileConnection.icc' can be dropped
-    // after bug 859220 is landed.
-    var icc = navigator.mozIccManager || (navigator.mozMobileConnection &&
-                                            navigator.mozMobileConnection.icc);
+    var iccManager = navigator.mozIccManager;
     var request;
 
     // request contacts with readContacts() -- valid types are:
@@ -149,7 +158,7 @@ function SimContactsImporter() {
           var aTel = item.tel[j];
           // Filtering out empty values
           if (aTel.value && aTel.value.trim()) {
-            aTel.type = ['mobile'];
+            aTel.type = [DEFAULT_TEL_TYPE];
             telItems.push(aTel);
           }
         }
@@ -157,15 +166,19 @@ function SimContactsImporter() {
       }
 
       item.category = ['sim'];
+      item.url = generateIccContactUrl(item.id);
+      delete item.id;
 
-      var contact = new mozContact(item);
+      // Item is presumably a mozContact but for some reason if
+      // we don't create a new mozContact sometimes the save call fails
+      var contact = utils.misc.toMozContact(item);
 
       var cbs = {
         onmatch: function(results) {
           var mergeCbs = {
             success: continueCb,
             error: function(e) {
-              window.console.error('Error while merging: ', e);
+              window.console.error('Error while merging: ', e.name);
               continueCb();
             }
           };
@@ -188,7 +201,8 @@ function SimContactsImporter() {
         continueCb();
       };
       req.onerror = function saveError() {
-        console.error('SIM Import: Error importing ', item.id);
+        console.error('SIM Import: Error importing ', contact.id,
+                      req.error.name);
         continueCb();
       };
   }

@@ -78,7 +78,7 @@ suite('Time functions', function() {
   suite('#dateMath', function() {
     suiteSetup(function() {
       // The timestamp for "Tue Jul 16 2013 06:00:00" GMT
-      this.sixAm = 1373954400000;
+      this.sixAm = new Date(2013, 5, 16, 6).getTime();
       // Set clock so calls to new Date() and Date.now() will not vary
       // across test locales
       this.dat = new Date(this.sixAm + 15120000);
@@ -453,7 +453,7 @@ suite('Time functions', function() {
 
   });
 
-  suite('safeCpuLock tests', function() {
+  suite('safeWakeLock tests', function() {
 
     setup(function() {
       this.mocklock = new MockRequestWakeLock();
@@ -470,13 +470,13 @@ suite('Time functions', function() {
       var callback = this.sinon.spy(function(unlock) {
         assert.ok(navigator.requestWakeLock.calledOnce);
       });
-      Utils.safeCpuLock(15000, callback);
+      Utils.safeWakeLock({timeoutMs: 15000}, callback);
       this.sinon.clock.tick(16000);
       assert.ok(callback.calledOnce);
     });
 
     test('single unlock', function() {
-      Utils.safeCpuLock(15000, function(unlock) {
+      Utils.safeWakeLock({timeoutMs: 15000}, function(unlock) {
         unlock();
       });
       this.sinon.clock.tick(16000);
@@ -487,7 +487,7 @@ suite('Time functions', function() {
 
     test('no duplicate unlock', function() {
       var here = 0;
-      Utils.safeCpuLock(15000, function(unlock) {
+      Utils.safeWakeLock({timeoutMs: 15000}, function(unlock) {
         setTimeout(function() {
           here++;
           unlock();
@@ -503,7 +503,7 @@ suite('Time functions', function() {
 
     test('timeout unlock', function() {
       var here = false;
-      Utils.safeCpuLock(15000, function(unlock) {
+      Utils.safeWakeLock({timeoutMs: 15000}, function(unlock) {
         here = true;
       });
       this.sinon.clock.tick(16000);
@@ -516,7 +516,7 @@ suite('Time functions', function() {
     test('exception in callback still unlocks CPU', function() {
       var here = false;
       try {
-        Utils.safeCpuLock(15000, function(unlock) {
+        Utils.safeWakeLock({timeoutMs: 15000}, function(unlock) {
           here = true;
           throw new Error('gotcha');
         });
@@ -575,6 +575,15 @@ suite('Time functions', function() {
         assert.equal(formatTime(23, 30), '23:30');
       });
 
+      test('2:30, disable meridian', function() {
+        var opts = {meridian: false};
+        assert.equal(formatTime(2, 30, opts), '2:30');
+      });
+
+      test('02:30, pad hours option', function() {
+        var opts = {padHours: true};
+        assert.equal(formatTime(2, 30, opts), '02:30');
+      });
     });
 
     suite('hms()', function() {

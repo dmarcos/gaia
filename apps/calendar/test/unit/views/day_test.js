@@ -9,7 +9,6 @@ suiteGroup('Views.Day', function() {
       busytimes,
       triggerEvent;
 
-
   suiteSetup(function() {
     triggerEvent = testSupport.calendar.triggerEvent;
   });
@@ -72,6 +71,14 @@ suiteGroup('Views.Day', function() {
       assert.deepEqual(
         calledTime[0], date,
         'move - active time should change'
+      );
+    });
+
+    test('dayChange changes selectedDay', function() {
+      controller.move(date);
+      assert.deepEqual(
+        controller.selectedDay, date,
+        'dayChange - selectedDay should change'
       );
     });
   });

@@ -1,29 +1,16 @@
 'use strict';
 
 var fb = this.fb || {};
-fb.CATEGORY = 'facebook';
-fb.NOT_LINKED = 'not_linked';
-fb.LINKED = 'fb_linked';
+
 fb.PROPAGATED_PREFIX = 'fb_propagated_';
 
 // Types of URLs for FB Information
 fb.PROFILE_PHOTO_URI = 'fb_profile_photo';
 fb.FRIEND_URI = 'fb_friend';
+fb.DEFAULT_PHONE_TYPE = 'other';
+fb.DEFAULT_EMAIL_TYPE = 'other';
 
-fb.CONTACTS_APP_ORIGIN = 'app://communications.gaiamobile.org';
-
-// Some convenience functions follow
-
-fb.isFbContact = function(devContact) {
-  return (devContact && devContact.category &&
-          devContact.category.indexOf(fb.CATEGORY) !== -1);
-};
-
-
-fb.isFbLinked = function(devContact) {
-  return (devContact.category &&
-                        devContact.category.indexOf(fb.LINKED) !== -1);
-};
+fb.CONTACTS_APP_ORIGIN = location.origin;
 
 fb.isPropagated = function fcu_isPropagated(field, devContact) {
   return (devContact.category && devContact.category.
@@ -42,38 +29,6 @@ fb.setPropagatedFlag = function fcu_setPropagatedFlag(field, devContact) {
   if (idx === -1) {
     devContact.category.push(fb.PROPAGATED_PREFIX + field);
   }
-};
-
-fb.getFriendUid = function(devContact) {
-  var out = devContact.uid;
-
-  if (!out) {
-    if (fb.isFbLinked(devContact)) {
-      out = fb.getLinkedTo(devContact);
-    }
-    else if (devContact.category) {
-      var idx = devContact.category.indexOf(fb.CATEGORY);
-      if (idx !== -1) {
-        out = devContact.category[idx + 2];
-      }
-    }
-  }
-
-  return out;
-};
-
-
-fb.getLinkedTo = function(devContact) {
-  var out;
-
-  if (devContact.category) {
-    var idx = devContact.category.indexOf(fb.LINKED);
-    if (idx !== -1) {
-      out = devContact.category[idx + 1];
-    }
-  }
-
-  return out;
 };
 
 
@@ -96,12 +51,14 @@ fb.getFriendPictureUrl = function(devContact) {
 };
 
 fb.setFriendPictureUrl = function(devContact, url) {
-  devContact.url = devContact.url || [];
+  var urls = devContact.url || [];
 
-  devContact.url.push({
+  urls.push({
     type: [fb.PROFILE_PHOTO_URI],
     value: url
   });
+
+  devContact.url = urls;
 };
 
 // Adapts data to the mozContact format names
@@ -131,12 +88,10 @@ fb.friend2mozContact = function(f) {
   delete f.middle_name;
   delete f.first_name;
 
-  var privateType = 'personal';
-
   if (f.email) {
     f.email1 = f.email;
     f.email = [{
-                  type: [privateType],
+                  type: [fb.DEFAULT_EMAIL_TYPE],
                   value: f.email
     }];
   }
@@ -149,7 +104,7 @@ fb.friend2mozContact = function(f) {
     f.shortTelephone = [];
     f.phones.forEach(function(aphone) {
       f.tel.push({
-        type: [privateType],
+        type: [fb.DEFAULT_PHONE_TYPE],
         value: normalizeFbPhoneNumber(aphone)
       });
       // Enabling to find FB phones by short number
@@ -259,108 +214,4 @@ fb.markAsUnlinked = function(devContact) {
   devContact.category = updatedCategory;
 
   return devContact;
-};
-
-// Merge done specifically for dialer and Call Log apps
-fb.mergeContact = function(devContact, fbContact) {
-  var fbPhotos = fbContact.photo;
-
-  var devPhotos = devContact.photo || [];
-
-  if (Array.isArray(fbPhotos) && fbPhotos.length > 0 && fbPhotos[0]) {
-    devPhotos.push(fbPhotos[0]);
-    devContact.photo = devPhotos;
-  }
-
-  var devTels = devContact.tel || [];
-
-  if (Array.isArray(fbContact.tel)) {
-    fbContact.tel.forEach(function(atel) {
-      devTels.push(atel);
-    });
-    devContact.tel = devTels;
-  }
-
-  // It is needed to merge names just in case the contact has no local name
-  fb.mergeNames(devContact, fbContact);
-
-  return devContact;
-};
-
-fb.mergeNames = function(devContact, fbContact) {
-  var namesChanged = false;
-  var nameFields = ['givenName', 'familyName'];
-  nameFields.forEach(function(anameField) {
-    // If the device contact does not have name fields setted
-    // we use the Facebook ones
-    var fieldValue = devContact[anameField];
-    var fbValue = fbContact[anameField];
-    if ((!Array.isArray(fieldValue) || fieldValue.length === 0) &&
-        Array.isArray(fbValue) && fbValue.length > 0) {
-      namesChanged = true;
-      devContact[anameField] = (fieldValue && fieldValue[0]) || [];
-      devContact[anameField].push(fbValue[0]);
-    }
-  });
-
-  if (namesChanged) {
-    var givenName = devContact.givenName[0] || '';
-    var familyName = devContact.familyName[0] || '';
-    devContact.name = [givenName + ' ' + familyName];
-  }
-};
-
-fb.getContactByNumber = function(number, onsuccess, onerror) {
-  var req = fb.contacts.getByPhone(number);
-
-  req.onsuccess = function(e) {
-    onsuccess(e.target.result);
-  };
-
-  req.onerror = onerror;
-};
-
-// Only will be executed in the case of not loading fb.utils previously
-// i.e. dialer and call log FB integration
-fb.utils = this.fb.utils || {};
-
-// Returns the mozContact associated to a UID in FB
-fb.utils.getMozContactByUid = function(uid, onsuccess, onerror) {
-  var filter = {
-    filterBy: ['category'],
-    filterValue: uid,
-    filterOp: 'contains'
-  };
-
-  var req = navigator.mozContacts.find(filter);
-  req.onsuccess = onsuccess;
-  req.onerror = onerror;
-};
-
- /**
-  *   Request auxiliary object to support asynchronous calls
-  *
-  */
-fb.utils.Request = function() {
-  this.done = function(result) {
-    this.result = result;
-    if (typeof this.onsuccess === 'function') {
-      var ev = {};
-      ev.target = this;
-      window.setTimeout(function() {
-        this.onsuccess(ev);
-      }.bind(this), 0);
-    }
-  };
-
-  this.failed = function(error) {
-    this.error = error;
-    if (typeof this.onerror === 'function') {
-      var ev = {};
-      ev.target = this;
-      window.setTimeout(function() {
-        this.onerror(ev);
-      }.bind(this), 0);
-    }
-  };
 };

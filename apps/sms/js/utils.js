@@ -1,6 +1,8 @@
 /* -*- Mode: Java; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- /
 /* vim: set shiftwidth=2 tabstop=2 autoindent cindent expandtab: */
 
+/* globals ContactPhotoHelper */
+
 (function(exports) {
   'use strict';
   var rdashes = /-(.)/g;
@@ -104,8 +106,9 @@
 
         // Add photo
         if (include.photoURL) {
-          if (contact.photo && contact.photo[0]) {
-            details.photoURL = window.URL.createObjectURL(contact.photo[0]);
+          var photo = ContactPhotoHelper.getThumbnail(contact);
+          if (photo) {
+            details.photoURL = window.URL.createObjectURL(photo);
           }
         }
 
@@ -235,8 +238,8 @@
     removeNonDialables: function ut_removeNonDialables(input) {
       return input.replace(rnondialablechars, '');
     },
-    // @param {String} a First number string to compare.
-    // @param {String} b Second number string to compare.
+    // @param {String} a First recipient field.
+    // @param {String} b Second recipient field
     //
     // Based on...
     //  - ITU-T E.123 (http://www.itu.int/rec/T-REC-E.123-200102-I/)
@@ -247,6 +250,11 @@
     probablyMatches: function ut_probablyMatches(a, b) {
       var service = navigator.mozPhoneNumberService;
 
+      // String comparison starts here
+      if (typeof a !== 'string' || typeof b !== 'string') {
+        return false;
+      }
+
       if (service && service.normalize) {
         a = service.normalize(a);
         b = service.normalize(b);
@@ -256,6 +264,36 @@
       }
 
       return a === b || a.slice(-7) === b.slice(-7);
+    },
+
+    /**
+     * multiRecipientMatch
+     *
+     * Check multi-repients without regard to order
+     *
+     * @param {(String|string[])} a First recipient field.
+     * @param {(String|string[])} b Second recipient field
+     *
+     * @return {Boolean} Return true if all recipients match
+     */
+    multiRecipientMatch: function ut_multiRecipientMatch(a, b) {
+      // When ES6 syntax is allowed, replace with
+      // multiRecipientMatch([...a], [...b])
+      a = [].concat(a);
+      b = [].concat(b);
+      var blen = b.length;
+      if (a.length !== blen) {
+        return false;
+      }
+      // Check each recipient in a against each in b
+      // Allows for any order (and fails early)
+      return a.every(function(number) {
+        for (var i = 0; i < blen; i++) {
+          if (Utils.probablyMatches(number, b[i])) {
+            return true;
+          }
+        }
+      });
     },
 
     // Default image size limitation is set to 300KB for MMS user story.
@@ -316,7 +354,7 @@
         var canvas = document.createElement('canvas');
         canvas.width = targetWidth;
         canvas.height = targetHeight;
-        var context = canvas.getContext('2d');
+        var context = canvas.getContext('2d', { willReadFrequently: true });
 
         context.drawImage(img, 0, 0, targetWidth, targetHeight);
         // Bug 889765: Since we couldn't know the quality of the original jpg
@@ -400,43 +438,50 @@
     */
     getContactDisplayInfo: function(resolver, phoneNumber, callback) {
       resolver(phoneNumber, function onContacts(contacts) {
-        var contact;
-        if (Array.isArray(contacts)) {
-          if (contacts.length > 0) {
-            contact = contacts[0];
-          }
-        } else if (contacts !== null) {
-          contact = contacts;
-        }
-
-        // Only exit when no contact and no phone number case.
-        if (!contact && !phoneNumber) {
-          callback(null);
-          return;
-        }
-
-        var telLength = (contact && contact.tel) ? contact.tel.length : 0;
-        var tel;
-        // Look for the right tel. A contact can contains more than
-        // one contact, so we need to identify which one is the right one.
-        for (var i = 0; i < telLength; i++) {
-          if (contact.tel[i].value === phoneNumber) {
-            tel = contact.tel[i];
-            break;
-          }
-        }
-        // If after looking there is no tel. matching, we apply
-        // directly the phoneNumber
-        if (!tel) {
-          tel = {type: [''], value: phoneNumber, carrier: ''};
-        }
-        // Get the title in the standard way
-        var details = Utils.getContactDetails(tel, contact);
-        var info = Utils.getDisplayObject(details.title || null, tel);
-
-        callback(info);
+        callback(Utils.basicContact(phoneNumber, contacts));
       });
     },
+
+    basicContact: function(number, records, callback) {
+      var record;
+      if (Array.isArray(records)) {
+        if (records.length > 0) {
+          record = records[0];
+        }
+      } else if (records !== null) {
+        record = records;
+      }
+
+      // Only exit when no record and no phone number case.
+      if (!record && !number) {
+        if (typeof callback === 'function') {
+          callback(null);
+        }
+        return;
+      }
+
+      var telLength = (record && record.tel) ? record.tel.length : 0;
+      var tel;
+      // Look for the right tel. A record can contains more than
+      // one record, so we need to identify which one is the right one.
+      for (var i = 0; i < telLength; i++) {
+        if (record.tel[i].value === number) {
+          tel = record.tel[i];
+          break;
+        }
+      }
+      // If after looking there is no tel. matching, we apply
+      // directly the number
+      if (!tel) {
+        tel = {type: [''], value: number, carrier: ''};
+      }
+      // Get the title in the standard way
+      var details = Utils.getContactDetails(tel, record);
+      var info = Utils.getDisplayObject(details.title || null, tel);
+
+      return info;
+    },
+
     /*
       Given a title for a contact, a the current information for
       an specific phone, of that contact, creates an object with

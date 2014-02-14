@@ -1,3 +1,8 @@
+/* -*- Mode: js; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- /
+/* vim: set shiftwidth=2 tabstop=2 autoindent cindent expandtab: */
+
+/* global MockNavigatorSettings, StoreProvisioning */
+
 'use strict';
 
 requireApp('wappush/shared/test/unit/mocks/mock_navigator_moz_settings.js');
@@ -9,8 +14,8 @@ suite('StoreProvisioning >', function() {
   suiteSetup(function() {
     realSettings = navigator.mozSettings;
     navigator.mozSettings = MockNavigatorSettings;
-    MockNavigatorSettings.mSettings['operatorvariant.mcc'] = '214';
-    MockNavigatorSettings.mSettings['operatorvariant.mnc'] = '07';
+    MockNavigatorSettings.mSettings['operatorvariant.mcc'] = ['214', '000'];
+    MockNavigatorSettings.mSettings['operatorvariant.mnc'] = ['07', '00'];
   });
 
   suiteTeardown(function() {

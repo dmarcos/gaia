@@ -1,6 +1,7 @@
 'use strict';
 
 var fb = window.fb || {};
+window.fb = fb;
 
   (function(document) {
     var Utils = fb.utils || {};
@@ -67,10 +68,10 @@ var fb = window.fb || {};
       var outReq = new Utils.Request();
 
       window.setTimeout(function get_mozContact_ByUid() {
-        Utils.getMozContactByUid(uid,
-          function onsuccess(e) {
-            if (e.target.result && e.target.result.length > 0) {
-              outReq.done(e.target.result[0]);
+        fb.getMozContactByUid(uid,
+          function onsuccess(result) {
+            if (Array.isArray(result) && result.length > 0) {
+              outReq.done(result[0]);
             } else {
               outReq.done(null);
             }
@@ -89,16 +90,16 @@ var fb = window.fb || {};
       var outReq = new Utils.Request();
 
       window.setTimeout(function get_mozContact_ByUid() {
-        Utils.getMozContactByUid(uid,
-          function onsuccess(e) {
-            if (e.target.result && e.target.result.length > 0) {
-              outReq.done(e.target.result.length);
+        fb.getMozContactByUid(uid,
+          function onsuccess(result) {
+            if (Array.isArray(result)) {
+              outReq.done(result.length);
             } else {
               outReq.done(0);
             }
           },
           function onerror(e) {
-            outReq.failed(e.target.error);
+            outReq.failed(error);
           }
         );
       },0);
@@ -308,43 +309,7 @@ var fb = window.fb || {};
 
             window.addEventListener('message', m_listen);
 
-            var xhr = new XMLHttpRequest({
-              mozSystem: true
-            });
-
-            xhr.open('GET', logoutUrl, true);
-            xhr.responseType = 'json';
-
-            xhr.timeout = TIMEOUT_QUERY;
-
-            xhr.onload = function(e) {
-              if (xhr.status === 200 || xhr.status === 0) {
-                if (!xhr.response || !xhr.response.success) {
-                  window.console.error('FB: Logout unexpected redirect or ' +
-                                       'token expired');
-                }
-                window.asyncStorage.removeItem(STORAGE_KEY);
-                outReq.done();
-              }
-              else {
-                window.console.error('FB: Error executing logout. Status: ',
-                                     xhr.status);
-                outReq.failed(xhr.status.toString());
-              }
-            };
-
-            xhr.ontimeout = function(e) {
-              window.console.error('FB: Timeout!!! while logging out');
-              outReq.failed('Timeout');
-            };
-
-            xhr.onerror = function(e) {
-              window.console.error('FB: Error while logging out',
-                                  JSON.stringify(e));
-              outReq.failed(e.name);
-            };
-
-            xhr.send();
+            window.open(logoutUrl);
           } // if
           else {
             outReq.done();
@@ -440,9 +405,8 @@ var fb = window.fb || {};
               req = fbContact.remove();
             }
             else {
-              var theContact = (contact instanceof mozContact) ?
-                               contact : new mozContact(contact);
-              var req = navigator.mozContacts.remove(theContact);
+              var req = navigator.mozContacts.remove(
+                utils.misc.toMozContact(contact));
             }
           }
           req.number = number;
@@ -459,6 +423,15 @@ var fb = window.fb || {};
         }
       }
 
+      function finishHandler() {
+        // It is needed to flush in order to properly update the index
+        var req = fb.contacts.flush();
+        req.onsuccess = notifySuccess;
+        req.onerror = function cleaner_flushError() {
+          errorHandler(null, req.error);
+        };
+      }
+
       function continueCb() {
         next++;
         numResponses++;
@@ -468,7 +441,7 @@ var fb = window.fb || {};
             cleanContacts(next);
           }
           else if (mustFinish && !holded) {
-            notifySuccess();
+            finishHandler();
           }
 
           if (mustHold) {
@@ -477,7 +450,7 @@ var fb = window.fb || {};
         }
         else if (next >= total) {
           // End has been reached
-          notifySuccess();
+          finishHandler();
         }
       } // function
     }; // FbContactsCleaner

@@ -11,21 +11,18 @@ var CallLog = {
 
   init: function cl_init() {
     if (this._initialized) {
-      this.updateHighlight();
-      this.updateHeaders();
+      this.becameVisible();
       return;
     }
 
     this._initialized = true;
 
     var lazyFiles = [
-      '/dialer/style/fixed_header.css',
       '/shared/style/confirm.css',
       '/shared/style/switches.css',
-      '/shared/style_unstable/lists.css',
+      '/shared/style/lists.css',
       '/contacts/js/utilities/confirm.js',
       '/dialer/js/phone_action_menu.js',
-      '/dialer/js/fixed_header.js',
       '/dialer/js/utils.js'
     ];
     var self = this;
@@ -82,10 +79,6 @@ var CallLog = {
 
       LazyL10n.get(function localized(_) {
         self._ = _;
-        var headerSelector = '#call-log-container header';
-        FixedHeader.init('#call-log-container',
-                         '#fixed-container', headerSelector);
-
         self.render();
 
         self.callLogIconEdit.addEventListener('click',
@@ -107,8 +100,7 @@ var CallLog = {
           if (document.hidden) {
             self.pauseHeaders();
           } else {
-            self.updateHeaders();
-            self.updateHighlight();
+            self.becameVisible();
             self.updateHeadersContinuously();
           }
         });
@@ -132,6 +124,13 @@ var CallLog = {
       self._dbupgrading = false;
       self.render();
     };
+  },
+
+  // Helper to update UI and clean notifications when we got visibility
+  becameVisible: function cl_becameVisible() {
+    this.updateHeaders();
+    this.updateHighlight();
+    this.cleanNotifications();
   },
 
   // Method for highlighting call events since last visit to call-log
@@ -202,7 +201,6 @@ var CallLog = {
             PerformanceTestingHelper.dispatch('first-chunk-ready');
           }
           self.enableEditMode();
-          FixedHeader.refresh();
           self.updateHeadersContinuously();
           PerformanceTestingHelper.dispatch('call-log-ready');
         }
@@ -346,8 +344,6 @@ var CallLog = {
       }
       container.appendChild(callLogSection);
     }
-
-    FixedHeader.refresh();
   },
 
   // Method that places a log group in the right place inside a section
@@ -607,8 +603,9 @@ var CallLog = {
 
   filter: function cl_filter() {
     if (document.body.classList.contains('recents-edit')) {
-      return;
+      this.hideEditMode();
     }
+
     this.callLogContainer.classList.add('filter');
     this.allFilter.setAttribute('aria-selected', 'false');
     this.missedFilter.setAttribute('aria-selected', 'true');
@@ -635,8 +632,9 @@ var CallLog = {
 
   unfilter: function cl_unfilter() {
     if (document.body.classList.contains('recents-edit')) {
-      return;
+      this.hideEditMode();
     }
+
     // If the call log is empty display the appropriate message, otherwise hide
     // the empty call log message and enable edit mode
     if (this._empty) {
@@ -652,7 +650,9 @@ var CallLog = {
     this.missedFilter.setAttribute('aria-selected', 'false');
 
     var hiddenContainers = document.getElementsByClassName('groupFiltered');
-    for (var i = 0, l = hiddenContainers.length; i < l; i++) {
+    // hiddenContainers is a live list, so let's iterate on the list in the
+    // reverse order.
+    for (var i = (hiddenContainers.length - 1); i >= 0; i--) {
       hiddenContainers[i].classList.remove('groupFiltered');
     }
   },
@@ -932,8 +932,9 @@ var CallLog = {
       primInfoCont.textContent = primaryInfo;
     }
 
-    if (contact && contact.photo && contact.photo[0]) {
-      var image_url = contact.photo[0];
+    var photo = ContactPhotoHelper.getThumbnail(contact);
+    if (photo) {
+      var image_url = photo;
       var photoURL;
       var isString = (typeof image_url == 'string');
       contactPhoto.src = isString ? image_url : URL.createObjectURL(image_url);
@@ -952,6 +953,21 @@ var CallLog = {
     if (contact) {
       element.dataset.contactId = contact.id;
     }
+  },
+
+  cleanNotifications: function cl_cleanNotifcations() {
+    // On startup of call log, we clear all dialer notification
+    Notification.get()
+      .then(
+        function onSuccess(notifications) {
+          for (var i = 0; i < notifications.length; i++) {
+            notifications[i].close();
+          }
+        },
+        function onError(reason) {
+          console.debug('Call log Notification.get() promise error: ' + reason);
+        }
+      );
   },
 
   _getGroupFromLog: function cl_getGroupFromLog(log) {
@@ -976,25 +992,14 @@ var CallLog = {
 };
 
 navigator.mozContacts.oncontactchange = function oncontactchange(event) {
-  var options = {
-    filterBy: ['id'],
-    filterOp: 'equals',
-    filterValue: event.contactID
-  };
-  var request = navigator.mozContacts.find(options);
-
-  request.onsuccess = function contactRetrieved(e) {
-    if (e.target.result && e.target.result.length) {
-      var contact = e.target.result[0];
-      var phoneNumbers = [];
-      if (contact.tel && contact.tel.length) {
-        var phoneNumbers = contact.tel.map(function(tel) {
-          return tel.value;
-        });
-      }
+  function contactChanged(contact, reason) {
+    var phoneNumbers = [];
+    if (contact.tel && contact.tel.length) {
+      var phoneNumbers = contact.tel.map(function(tel) {
+        return tel.value;
+      });
     }
-
-    switch (event.reason) {
+    switch (reason) {
       case 'create':
         CallLog.updateListWithContactInfo('create', null, phoneNumbers);
         break;
@@ -1002,13 +1007,45 @@ navigator.mozContacts.oncontactchange = function oncontactchange(event) {
         CallLog.updateListWithContactInfo('update', event.contactID,
                                           phoneNumbers);
         break;
-      case 'remove':
-        CallLog.updateListWithContactInfo('remove', event.contactID);
-        break;
     }
+  }
+
+  var reason = event.reason;
+  var options = {
+    filterBy: ['id'],
+    filterOp: 'equals',
+    filterValue: event.contactID
+  };
+
+  if (reason === 'remove') {
+    CallLog.updateListWithContactInfo('remove', event.contactID);
+    return;
+  }
+
+  var request = navigator.mozContacts.find(options);
+  request.onsuccess = function contactRetrieved(e) {
+    if (!e.target.result || e.target.result.length === 0) {
+      console.warn('Call log: No Contact Found: ', event.contactID);
+      return;
+    }
+
+    var contact = e.target.result[0];
+    if (!fb.isFbContact(contact)) {
+       contactChanged(contact, reason);
+       return;
+    }
+
+    var fbReq = fb.getData(contact);
+    fbReq.onsuccess = function fbContactSuccess() {
+      contactChanged(fbReq.result, reason);
+    };
+    fbReq.onerror = function fbContactError() {
+      console.error('Error while querying FB: ', fbReq.error.name);
+      contactChanged(contact, reason);
+    };
   };
 
   request.onerror = function errorHandler(e) {
-    console.log('Error retrieving contact by ID ' + event.contactID);
+    console.error('Error retrieving contact by ID ' + event.contactID);
   };
 };

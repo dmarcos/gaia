@@ -13,17 +13,55 @@
   var data = new WeakMap();
   var events = new WeakMap();
   var relation = new WeakMap();
+  var rdigit = /^\d/;
 
   function Recipient(opts) {
+    var number;
+
     opts = opts || {};
     this.name = opts.name || opts.number || '';
-    this.number = opts.number || '';
+    this.number = (opts.number || '') + '';
     this.email = opts.email || '';
     this.editable = opts.editable || 'true';
     this.source = opts.source || 'manual';
     this.type = opts.type || '';
     this.separator = opts.separator || '';
     this.carrier = opts.carrier || '';
+    this.className = 'recipient';
+
+    // isLookupable
+    //  the recipient was accepted by pressing <enter>
+    //
+    this.isLookupable = opts.isLookupable || false;
+
+    // isInvalid
+    //  the typed value is non-digit and we've determined
+    //  that there are no matches in the user's contacts
+    //
+    this.isInvalid = opts.isInvalid || false;
+
+    // isQuestionable
+    //  the typed value is non-digit and may have a match
+    //  in the user's contacts
+    //
+    this.isQuestionable = opts.isQuestionable || false;
+
+    // If the recipient was entered manually and
+    // the trimmed, typed text starts with a non-number
+    // (ignoring the presense of a '+'), the input value
+    // is questionable and may be invalid.
+    number = this.number[0] === '+' ? this.number.slice(1) : this.number;
+
+    if (this.source === 'manual' && !rdigit.test(number)) {
+      this.isQuestionable = true;
+    }
+
+    // If the recipient is either questionable or invalid,
+    // mark it visually for the user.
+    //
+    if (this.isQuestionable || this.isInvalid) {
+      this.className += ' attention';
+    }
   }
 
   /**
@@ -47,7 +85,25 @@
     return this;
   };
 
-  Recipient.FIELDS = ['name', 'number', 'email', 'editable', 'source'];
+  /**
+   * clone
+   *
+   * Create a clone Recipient record. This
+   * is used for exposing a Recipient record
+   * to external code, specifically in events.
+   *
+   * @return {Recipient}
+   *
+   */
+  Recipient.prototype.clone = function() {
+    return new Recipient(this);
+  };
+
+  Recipient.FIELDS = [
+    'name', 'number', 'email', 'editable', 'source',
+    'type', 'separator', 'carrier',
+    'isQuestionable', 'isInvalid', 'isLookupable'
+  ];
 
   /**
    * Recipients
@@ -99,17 +155,13 @@
       },
       numbers: {
         get: function() {
-          var unique = [];
-          var numbers = list.map(function(recipient) {
-            return recipient.number || recipient.email;
-          });
-
-          for (var number of numbers) {
-            if (unique.indexOf(number) === -1) {
-              unique.push(number);
+          return list.reduce(function(unique, recipient) {
+            var value = recipient.number || recipient.email;
+            if (!recipient.isInvalid && unique.indexOf(value) === -1) {
+              unique.push(value);
             }
-          }
-          return unique;
+            return unique;
+          }, []);
         }
       },
       inputValue: {
@@ -209,6 +261,7 @@
    */
   Recipients.prototype.add = function(entry) {
     var list = data.get(this);
+    var added;
     /*
     Entry {
       name, number [, editable, source ]
@@ -233,11 +286,15 @@
     // Don't bother rejecting duplicates, always add every
     // entry to the recipients list. For reference, see:
     // https://bugzilla.mozilla.org/show_bug.cgi?id=880628
-    list.push(new Recipient(entry));
+    list.push(added = new Recipient(entry));
 
-    // XXX:Workaround for cleaning search result while duplicate
-    //     Dispatch add event no matter duplicate or not
-    this.emit('add', list.length);
+    // XXX: Workaround for cleaning search result while duplicate
+    //      Dispatch add event no matter duplicate or not.
+    //
+    //      Send a "clone" of the added recipient, this protects
+    //      the actual Recipient object from being written to
+    //      directly.
+    this.emit('add', list.length, added.clone());
 
     // Render the view
     this.render();
@@ -258,9 +315,11 @@
     var index = typeof recipOrIndex === 'number' ?
       recipOrIndex : list.indexOf(recipOrIndex);
 
-    // Use the normalization of new Recipient() to
-    // correct any missing, but required fields.
-    list[index].set(new Recipient(entry));
+    if (index > -1) {
+      // Use the normalization of new Recipient() to
+      // correct any missing, but required fields.
+      list[index].set(new Recipient(entry));
+    }
 
     return this.render();
   };
@@ -339,7 +398,7 @@
       }
     });
 
-    clone = inner.cloneNode();
+    clone = inner.cloneNode(true);
 
     // Used by the "placeholder" accessor to produce
     // new "editable" placeholders, by cloning the
@@ -356,7 +415,7 @@
       },
       placeholder: {
         get: function() {
-          var node = clone.firstElementChild.cloneNode();
+          var node = clone.firstElementChild.cloneNode(true);
           node.isPlaceholder = true;
           return node;
         }
@@ -372,6 +431,8 @@
     // Set focus on the last "placeholder" element
     this.reset().focus();
   };
+
+  Recipients.View.isFocusable = true;
 
   Recipients.View.prototype.reset = function() {
     // Clear any displayed text (not likely to exist)
@@ -509,7 +570,16 @@
    * focus
    *
    * Focus on the last editable in the list.
-   * Generally, this will be the placeholder
+   * Generally, this will be the placeholder.
+   *
+   * The behaviour of focus in this Recipients View context can
+   * be summarized as:
+   *
+   *   Place the cursor at the end of any existing text in
+   *   an explicit node or the current placeholder node by default.
+   *
+   *   If the node is the current placeholder, make it editable
+   *   and set focus.
    *
    * @return {Recipients.View} Recipients.View instance.
    */
@@ -518,27 +588,29 @@
     var range = document.createRange();
     var selection = window.getSelection();
 
-    if (!node) {
-      node = view.inner.lastElementChild;
-      if (!node.isPlaceholder) {
-        node = view.inner.appendChild(
-          this.placeholder
-        );
+    if (Recipients.View.isFocusable) {
+      if (!node) {
+        node = view.inner.lastElementChild;
+        if (!node.isPlaceholder) {
+          node = view.inner.appendChild(
+            this.placeholder
+          );
+        }
       }
+
+      if (node && node.isPlaceholder) {
+        node.contentEditable = true;
+        node.focus();
+      }
+
+      range.selectNodeContents(node);
+      range.collapse(false);
+      selection.removeAllRanges();
+      selection.addRange(range);
+
+      // scroll to the bottom of the inner view
+      view.inner.scrollTop = view.inner.scrollHeight;
     }
-
-    if (node && node.isPlaceholder) {
-      node.contentEditable = true;
-      node.focus();
-    }
-
-    range.selectNodeContents(node);
-    range.collapse(false);
-    selection.removeAllRanges();
-    selection.addRange(range);
-
-    // scroll to the bottom of the inner view
-    view.inner.scrollTop = view.inner.scrollHeight;
     return this;
   };
 
@@ -645,11 +717,16 @@
     var isAcceptedRecipient = false;
     var isEdittingRecipient = false;
     var isDeletingRecipient = false;
+    var isLookupable = false;
     var target = event.target;
     var keyCode = event.keyCode;
     var editable = 'false';
     var lastElement = view.inner.lastElementChild;
     var typed, recipient, length, previous;
+
+    // If the user moved away from the recipients field
+    // and has now returned, we need to restore "focusability"
+    Recipients.View.isFocusable = true;
 
     // All keyboard events will need some information
     // about the input that the user typed.
@@ -758,6 +835,7 @@
                   );
                   this.reset();
                 }
+                Recipients.View.isFocusable = true;
 
                 // #1 & #2
                 this.focus();
@@ -900,6 +978,7 @@
               if (keyCode !== event.DOM_VK_TAB) {
 
                 isAcceptedRecipient = true;
+                isLookupable = true;
 
                 // Display the actual typed text that we're
                 // going to accept as a recipient (trimmed)
@@ -918,7 +997,8 @@
           name: typed,
           number: typed,
           editable: editable,
-          source: 'manual'
+          source: 'manual',
+          isLookupable: isLookupable
         });
 
         // Clear the displayed list
@@ -1008,11 +1088,14 @@
               method: function() {
                 response.isConfirmed = true;
                 handler();
-              }
+              },
+              position: 'left'
             }
           }
         });
       dialog.show();
+
+      Recipients.View.isFocusable = false;
     }
   };
 

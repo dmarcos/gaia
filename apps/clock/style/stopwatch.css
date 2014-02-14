@@ -2,32 +2,27 @@
   text-align: center;
 }
 
-@font-face {
-  font-family: SourceCodePro-Light;
-  src: url(fonts/SourceCodePro-Light.ttf);
-}
-
 .stopwatch-time {
   margin: 4rem 0 1rem 0;
 
   color: #CFE2E6;
-  font-family: SourceCodePro-Light;
-  font-weight: 300;
-  font-size: 5.5rem;
+  font-weight: lighter;
+  font-variant-numeric: tabular-nums;
+  font-size: 8.6rem;
   letter-spacing: -0.5rem;
   pointer-events: none;
 }
 
 #stopwatch-controls {
-  width: 100%;
-  margin: 0px 0.5rem 0px -2.5rem;
+  display: flex;
+  padding: 0;
+  margin: 2rem 1rem 0;
 }
 
 #stopwatch-controls button {
-  float: left;
-
-  width: 45%;
-  margin: 0 1rem 0 0;
+  flex: auto;
+  height: 3.8rem;
+  margin: 0 0.5rem;
 }
 
 .stopwatch-laps {
@@ -63,5 +58,17 @@
 
 .lap-duration {
   float: right;
-  font-family: SourceCodePro-Light;
+  font-variant-numeric: tabular-nums;
+  font-weight: lighter;
+}
+
+@media (min-width: 768px) {
+  #stopwatch-controls {
+    width: auto;
+  }
+
+  #stopwatch-controls button {
+    float: none;
+    width: 40%;
+  }
 }
