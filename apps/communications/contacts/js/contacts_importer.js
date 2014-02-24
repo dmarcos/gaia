@@ -48,23 +48,37 @@
     }
 
     function saveMozContact(deviceContact, successCb, errorCb) {
-      var mzContact = new mozContact(deviceContact);
-
-      var req = navigator.mozContacts.save(mzContact);
+      var req = navigator.mozContacts.save(
+        utils.misc.toMozContact(deviceContact));
 
       req.onsuccess = successCb;
       req.onerror = errorCb;
     }
 
     function pictureReady(blobPicture) {
+      var serviceContact = this;
+
+      var done = function() {
+        var deviceContact = self.adapt(serviceContact);
+        self.persist(deviceContact, contactSaved.bind(serviceContact),
+                     contactSaveError);
+      };
+
       // Photo is assigned to the service contact as it is needed by the
       // Fb Connector
-      if (blobPicture) {
-        this.photo = [blobPicture];
+      if (!blobPicture) {
+        done();
+        return;
       }
-      var deviceContact = self.adapt(this);
 
-      self.persist(deviceContact, contactSaved.bind(this), contactSaveError);
+      utils.thumbnailImage(blobPicture, function gotThumbnail(thumbnail) {
+        if (blobPicture !== thumbnail) {
+          serviceContact.photo = [blobPicture, thumbnail];
+        } else {
+          serviceContact.photo = [blobPicture];
+        }
+        done();
+      });
     }
 
     function pictureError() {
@@ -117,7 +131,7 @@
             success: successCb,
             error: errorCb
           });
-        }.bind(new mozContact(contactData)),
+        }.bind(utils.misc.toMozContact(contactData)),
         onmismatch: function() {
           saveMozContact(this, successCb, function onMismatchError(evt) {
             errorCb(evt.target.error);

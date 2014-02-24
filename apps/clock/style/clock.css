@@ -10,11 +10,12 @@ html, body {
   margin: 0;
   color: white;
   font-size: 10px;
+  background-color: 000;
 }
 
 #clock-view {
   width: 100%;
-  height: -moz-calc(100% - 0.13rem);
+  height: calc(100% - 0.13rem);
 
   color: black;
 }
@@ -32,6 +33,7 @@ html, body {
 }
 
 #clock-hour24-state {
+  font-weight: lighter;
   font-size: 3.7rem;
   color: #5C6466;
   text-transform: uppercase;
@@ -40,7 +42,6 @@ html, body {
 }
 
 #clock-day-date {
-  font-family: 'Fira Sans', sans-serif;
   font-weight: lighter;
   font-size: 2.1rem;
   margin: 2.6rem 0 0 1.5rem;
@@ -68,6 +69,7 @@ html, body {
 }
 
 #digital-clock-face {
+  font-weight: lighter;
   text-align: center;
   position: absolute;
   width: 100%;
@@ -156,12 +158,11 @@ html, body {
 #banner-countdown {
   z-index: -1;
   opacity: 0;
-  -moz-transition: all 600ms ease;
+  -moz-transition: opacity 600ms ease;
 }
 #banner-countdown.visible {
   z-index: 1;
   opacity: 1;
-  -moz-transition: all 600ms ease;
 }
 
 #banner-countdown strong {

@@ -2,6 +2,8 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
+import time
+
 from gaiatest import GaiaTestCase
 from gaiatest.apps.gallery.app import Gallery
 
@@ -15,7 +17,7 @@ class TestGallery(GaiaTestCase):
         self.push_resource('IMG_0001.jpg', destination='DCIM/100MZLLA')
 
     def test_gallery_view(self):
-        # https://moztrap.mozilla.org/manage/case/1326/
+        """https://moztrap.mozilla.org/manage/case/2476/"""
 
         gallery = Gallery(self.marionette)
         gallery.launch()
@@ -31,6 +33,9 @@ class TestGallery(GaiaTestCase):
 
         #  Change the screen orientation to landscape mode and verify that the screen is in landscape mode
         self.change_orientation('landscape-primary')
+
+        # Here we sleep only to give visual feedback when observing the test run
+        time.sleep(1)
         self.assertTrue(image.is_photo_toolbar_displayed)
         self.assertEqual('landscape-primary', self.screen_orientation)
         self.assertEqual(self.screen_width, image.photo_toolbar_width)
@@ -40,6 +45,9 @@ class TestGallery(GaiaTestCase):
 
         #  Change the screen orientation back to portrait-primary and verify the screen is in portrait mode
         self.change_orientation('portrait-primary')
+
+        # Here we sleep only to give visual feedback when observing the test run
+        time.sleep(1)
         self.assertTrue(image.is_photo_toolbar_displayed)
         self.assertEqual('portrait-primary', self.screen_orientation)
         self.assertEqual(self.screen_width, image.photo_toolbar_width)

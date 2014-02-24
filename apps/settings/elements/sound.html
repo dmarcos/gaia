@@ -3,17 +3,16 @@
 
     <header>
       <a href="#root"><span class="icon icon-back">back</span></a>
-      <h1 data-l10n-id="sound"> Sound </h1>
+      <h1 data-l10n-id="sound-header"> Sound </h1>
     </header>
 
     <div>
       <ul>
         <li>
           <label class="pack-switch">
-            <input type="checkbox" name="vibration.enabled" checked class="uninit"/>
-            <span></span>
+            <input type="checkbox" name="vibration.enabled" checked class="uninit">
+            <span data-l10n-id="vibrate">Vibrate</span>
           </label>
-          <a data-l10n-id="vibrate">Vibrate</a>
         </li>
       </ul>
 
@@ -22,17 +21,15 @@
       </header>
       <ul>
         <li class="sound-setting">
-          <p data-l10n-id="ringer-and-notification-sound">Ringer & Notifications</p>
-          <label>
+          <label class="range-icons volume">
+            <p data-l10n-id="ringer-and-notification-sound">Ringer & Notifications</p>
             <input type="range" name="audio.volume.notification" step="1" min="0" value="15" max="15">
-            <span class="range-icons volume"></span>
           </label>
         </li>
         <li class="sound-setting">
-          <p data-l10n-id="alarm-sound">Alarm</p>
-          <label>
+          <label class="range-icons volume">
+            <p data-l10n-id="alarm-sound">Alarm</p>
             <input type="range" name="audio.volume.alarm" step="1" min="0" value="15" max="15">
-            <span class="range-icons volume"></span>
           </label>
         </li>
       </ul>
@@ -66,45 +63,39 @@
       <ul>
         <li>
           <label class="pack-checkbox">
-            <input type="checkbox" name="phone.ring.keypad" checked />
-            <span></span>
+            <input type="checkbox" name="phone.ring.keypad" checked>
+            <span data-l10n-id="keypad">Keypad</span>
           </label>
-          <a data-l10n-id="keypad">Keypad</a>
         </li>
         <li>
           <label class="pack-checkbox">
-            <input type="checkbox" name="camera.shutter.enabled" checked />
-            <span></span>
+            <input type="checkbox" name="camera.shutter.enabled" checked>
+            <span data-l10n-id="camera-shutter">Camera Shutter</span>
           </label>
-          <a data-l10n-id="camera-shutter">Camera Shutter</a>
         </li>
         <li>
           <label class="pack-checkbox">
-            <input type="checkbox" name="camera.recordingsound.enabled" checked />
-            <span></span>
+            <input type="checkbox" name="camera.recordingsound.enabled" checked>
+            <span data-l10n-id="camera-recordingsound">Camera Recording Sound</span>
           </label>
-          <a data-l10n-id="camera-recordingsound">Camera Recording Sound</a>
         </li>
         <li>
           <label class="pack-checkbox">
-            <input type="checkbox" name="mail.sent-sound.enabled" checked />
-            <span></span>
+            <input type="checkbox" name="mail.sent-sound.enabled" checked>
+            <span data-l10n-id="sent-mail">Sent Mail</span>
           </label>
-          <a data-l10n-id="sent-mail">Sent Mail</a>
         </li>
         <li>
           <label class="pack-checkbox">
-            <input type="checkbox" name="message.sent-sound.enabled" checked />
-            <span></span>
+            <input type="checkbox" name="message.sent-sound.enabled" checked>
+            <span data-l10n-id="sent-message">Sent Message</span>
           </label>
-          <a data-l10n-id="sent-message">Sent Message</a>
         </li>
         <li>
           <label class="pack-checkbox">
-            <input type="checkbox" name="lockscreen.unlock-sound.enabled" checked />
-            <span></span>
+            <input type="checkbox" name="lockscreen.unlock-sound.enabled" checked>
+            <span data-l10n-id="unlock-screen">Unlock Screen</span>
           </label>
-          <a data-l10n-id="unlock-screen">Unlock Screen</a>
         </li>
       </ul>
     </div>

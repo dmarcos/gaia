@@ -29,13 +29,14 @@ class TestSmsWithAttachments(GaiaTestCase):
         activities_list = new_message.tap_attachment()
         camera = activities_list.tap_camera()
 
-        camera.wait_for_camera_ready()
+        camera.switch_to_camera_frame()
         camera.tap_capture()
         camera.wait_for_select_button_displayed()
         camera.tap_select_button()
 
         # switch back to messages app frame
-        messages.switch_to_messages_frame()
+        self.wait_for_condition(lambda m: self.apps.displayed_app.name == messages.name)
+        self.apps.switch_to_displayed_app()
         new_message.wait_for_resizing_to_finish()
 
         #click send

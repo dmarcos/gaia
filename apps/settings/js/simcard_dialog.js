@@ -4,8 +4,12 @@
 'use strict';
 
 function SimPinDialog(dialog) {
-  if (!window.navigator.mozMobileConnection || !IccHelper.enabled)
+  var conns = window.navigator.mozMobileConnections;
+  var icc;
+
+  if (!conns) {
     return;
+  }
 
   var _localize = navigator.mozL10n.localize;
 
@@ -19,6 +23,12 @@ function SimPinDialog(dialog) {
   var _onsuccess = function() {};
   var _oncancel = function() {};
 
+  var _allowedRetryCounts = {
+    'pin': 3,
+    'pin2': 3,
+    'puk': 10,
+    'puk2': 10
+  };
 
   /**
    * User Interface constants
@@ -92,7 +102,7 @@ function SimPinDialog(dialog) {
 
     // after three strikes, ask for PUK/PUK2
     var count = event.retryCount;
-    if (count == 0) {
+    if (count <= 0) {
       if (type === 'pin') {
         _action = initUI('unlock_puk');
         pukInput.focus();
@@ -148,7 +158,7 @@ function SimPinDialog(dialog) {
   }
 
   function unlockCardLock(options) {
-    var req = IccHelper.unlockCardLock(options);
+    var req = icc.unlockCardLock(options);
     req.onsuccess = function sp_unlockSuccess() {
       close();
       _onsuccess();
@@ -200,13 +210,43 @@ function SimPinDialog(dialog) {
   }
 
   function setCardLock(options) {
-    var req = IccHelper.setCardLock(options);
+    var req = icc.setCardLock(options);
     req.onsuccess = function spl_enableSuccess() {
       close();
       _onsuccess();
     };
     req.onerror = function sp_unlockError() {
       handleCardLockError(req.error);
+    };
+  }
+
+
+  /**
+   * Add|Edit|Remove FDN contact
+   */
+
+  var _fdnContactInfo = {};
+
+  function updateFdnContact() {
+    var req = icc.updateContact('fdn', _fdnContactInfo, pinInput.value);
+
+    req.onsuccess = function onsuccess() {
+      _onsuccess(_fdnContactInfo);
+      close();
+    };
+
+    req.onerror = function onerror(e) {
+      var wrongPin2 = /IncorrectPassword/.test(req.error.name);
+      if (wrongPin2) { // TODO: count retries (not supported by the platform)
+        _action = initUI('get_pin2');
+        showMessage('fdnErrorMsg');
+        pinInput.value = '';
+        pinInput.focus();
+      } else {
+        _oncancel(_fdnContactInfo);
+        close();
+        throw new Error('Could not edit FDN contact on SIM card', e);
+      }
     };
   }
 
@@ -219,7 +259,6 @@ function SimPinDialog(dialog) {
     switch (_action) {
       // get PIN code
       case 'get_pin':
-      case 'get_pin2':
         _onsuccess(pinInput.value);
         close();
         break;
@@ -244,6 +283,11 @@ function SimPinDialog(dialog) {
         break;
       case 'change_pin':
         changePin('pin');
+        break;
+
+      // get PIN2 code (FDN contact list)
+      case 'get_pin2':
+        updateFdnContact();
         break;
 
       // PIN2 lock (FDN)
@@ -289,6 +333,7 @@ function SimPinDialog(dialog) {
 
   function initUI(action) {
     showMessage();
+    showRetryCount(); // Clear the retry count at first
     dialogDone.disabled = true;
 
     var lockType = 'pin'; // used to query the number of retries left
@@ -335,6 +380,7 @@ function SimPinDialog(dialog) {
         lockType = 'pin2';
         setInputMode('pin');
         _localize(dialogTitle, 'fdnEnable');
+        break;
       case 'disable_fdn':
         lockType = 'pin2';
         setInputMode('pin');
@@ -355,11 +401,33 @@ function SimPinDialog(dialog) {
     // display the number of remaining retries if necessary
     // XXX this only works with the emulator (and some commercial RIL stacks...)
     // https://bugzilla.mozilla.org/show_bug.cgi?id=905173
-    IccHelper.getCardLockRetryCount(lockType, showRetryCount);
+    var req = icc.getCardLockRetryCount(lockType);
+    req.onsuccess = function() {
+      var retryCount = req.result.retryCount;
+      if (retryCount === _allowedRetryCounts[lockType]) {
+        // hide the retry count if users had not input incorrect codes
+        retryCount = null;
+      }
+      showRetryCount(retryCount);
+    };
     return action;
   }
 
-  function show(action, onsuccess, oncancel) {
+  function show(action, options) {
+    options = options || {};
+    var conn = conns[options.cardIndex || 0];
+
+    if (!conn) {
+      return;
+    }
+
+    var iccId = conn.iccId;
+    icc = window.navigator.mozIccManager.getIccById(iccId);
+
+    if (!icc) {
+      return;
+    }
+
     var dialogPanel = '#' + dialog.id;
     if (dialogPanel == Settings.currentPanel) {
       return;
@@ -371,11 +439,14 @@ function SimPinDialog(dialog) {
       return;
     }
 
-    _origin = Settings.currentPanel;
+    _origin = options.exitPanel || Settings.currentPanel;
     Settings.currentPanel = dialogPanel;
 
-    _onsuccess = (typeof onsuccess === 'function') ? onsuccess : function() {};
-    _oncancel = (typeof oncancel === 'function') ? oncancel : function() {};
+    _onsuccess = (typeof options.onsuccess === 'function') ?
+        options.onsuccess : function() {};
+    _oncancel = (typeof options.oncancel === 'function') ?
+        options.oncancel : function() {};
+    _fdnContactInfo = options.fdnContact;
 
     window.addEventListener('panelready', function inputFocus() {
       window.removeEventListener('panelready', inputFocus);

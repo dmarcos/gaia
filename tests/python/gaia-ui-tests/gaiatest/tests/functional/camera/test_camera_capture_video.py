@@ -2,9 +2,6 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-import re
-import time
-
 from gaiatest import GaiaTestCase
 from gaiatest.apps.camera.app import Camera
 
@@ -18,42 +15,20 @@ class TestCamera(GaiaTestCase):
         self.apps.set_permission('Camera', 'geolocation', 'deny')
 
     def test_capture_a_video(self):
-        # https://moztrap.mozilla.org/manage/case/2477/
+        """https://moztrap.mozilla.org/manage/case/2477/"""
 
         self.camera = Camera(self.marionette)
         self.camera.launch()
 
+        # Switch to video mode
         self.camera.tap_switch_source()
 
-        self.camera.tap_capture()
-        self.camera.wait_for_video_capturing()
+        # Record 3 seconds of video
+        self.camera.record_video(3)
 
-        # Wait for 3 seconds of recording
-        self.wait_for_condition(lambda m: self.camera.video_timer >= time.strptime('00:03', '%M:%S'))
-
-        # Stop recording
-        self.camera.tap_capture()
-        self.camera.wait_for_video_timer_not_visible()
-
-        # Wait for image to be added in to filmstrip
-        self.camera.wait_for_filmstrip_visible()
-
-        # Find the new film thumbnail in the film strip
+        # Check that Filmstrip is visible
         self.assertTrue(self.camera.is_filmstrip_visible)
 
-        # Check that video saved to sdcard
-        videos_after_test = self.get_video_files()
-        self.assertEqual(len(videos_after_test), 1)
-
-    def get_video_files(self):
-        # camera app doesn't have permissions to access
-        # all media files on device, so switch to system app
-        self.marionette.switch_to_frame()
-        videos = []
-        for f in self.data_layer.media_files:
-            try:
-                match = re.search('(.*[.]3gp)', f)
-                videos.append(match.group(1))
-            except AttributeError:
-                pass
-        return videos
+        # Check that video saved to SD card
+        self.wait_for_condition(lambda m: len(self.data_layer.video_files) == 1)
+        self.assertEqual(len(self.data_layer.video_files), 1)

@@ -3,7 +3,7 @@
 
     <header>
       <a href="#root"><span class="icon icon-back">back</span></a>
-      <h1 data-l10n-id="callSettings"> Call Settings </h1>
+      <h1 data-l10n-id="callSettings-header"> Call Settings </h1>
     </header>
 
     <div>
@@ -14,34 +14,18 @@
         </li>
         <li id="menuItem-voicePrivacyMode" hidden>
           <label class="pack-switch checkbox-label">
-            <input type="checkbox" data-ignore/>
-            <span></span>
+            <input type="checkbox" data-ignore>
+            <span data-l10n-id="voicePrivacyMode">Voice privacy mode</span>
           </label>
-          <a data-l10n-id="voicePrivacyMode">Voice privacy mode</a>
-        </li>
-        <li>
-          <label class="pack-switch">
-            <input type="checkbox" name="wap.push.enabled"/>
-            <span></span>
-          </label>
-          <a data-l10n-id="wapPush">WAP Push</a>
         </li>
         <li id="menuItem-callWaiting" data-state="off">
           <label class="pack-switch checkbox-label">
-            <input type="checkbox" data-ignore/>
-            <span></span>
+            <input type="checkbox" data-ignore>
+            <span data-l10n-id="callWaiting">Call Waiting</span>
           </label>
           <label class="alert-label" hidden>
             <span></span>
           </label>
-          <a data-l10n-id="callWaiting">Call Waiting</a>
-        </li>
-        <li id="menuItem-cellBroadcast" aria-disabled="true">
-          <label class="pack-switch checkbox-label">
-            <input type="checkbox" data-ignore disabled />
-            <span></span>
-          </label>
-          <a data-l10n-id="callBroadcastService">Cell broadcast service</a>
         </li>
         <li id="menuItem-callerId" aria-disabled="true">
           <a data-l10n-id="callerId">Caller ID</a>
@@ -55,7 +39,7 @@
         </li>
         <li>
           <small id="fdnSettings-desc"></small>
-          <a data-href="#call-fdnSettings" data-l10n-id="fdn">Fixed dialing numbers</a>
+          <a data-href="#call-fdnSettings" data-l10n-id="fdnSettings">Fixed dialing numbers</a>
         </li>
       </ul>
 
@@ -64,10 +48,8 @@
       </header>
       <ul>
         <li id="fdnSettingsBlocked" class="description" hidden>
-          <p>
-            <span data-l10n-id="fdn-enabled-warning">
-              Call forwarding is disabled by FDN.
-            </span>
+          <p data-l10n-id="fdn-enabled-warning">
+            Call forwarding is disabled by FDN.
           </p>
         </li>
         <li id="li-cfu-desc" aria-disabled="true">
@@ -97,10 +79,9 @@
         </p>
         <p class="cw-alert-sub-p">
           <label class="pack-switch cw-alert-checkbox-label">
-            <input type="checkbox" data-ignore/>
-            <span></span>
+            <input type="checkbox" data-ignore>
+            <span data-l10n-id="callWaiting">Call Waiting</span>
           </label>
-          <span data-l10n-id="callWaiting">Call Waiting</span>
         </p>
       </section>
       <menu>
@@ -121,6 +102,7 @@
       </menu>
     </form>
 
+    <script src="shared/js/settings_helper.js"></script>
     <script src="js/call.js"></script>
 
   </template>

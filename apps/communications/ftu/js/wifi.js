@@ -12,7 +12,8 @@ var WifiManager = {
       this.enableDebugging(lock);
     }
 
-    this.gCurrentNetwork = this.api.connection.network;
+    this.gCurrentNetwork = this.api ? this.api.connection.network : null;
+
     if (this.gCurrentNetwork !== null) {
       this.api.forget(this.gCurrentNetwork);
       this.gCurrentNetwork = null;
@@ -20,23 +21,38 @@ var WifiManager = {
   },
 
   scan: function wn_scan(callback) {
+    if (this._scanning) {
+      return;
+    }
+    this._scanning = true;
     utils.overlay.show(_('scanningNetworks'), 'spinner');
     var scanTimeout;
-
-    var req = this.api.getNetworks();
-    if (!req) {
-      callback();
-    }
+    var SCAN_TIMEOUT = 10000;
 
     var self = this;
 
+    var req = this.api ? this.api.getNetworks() : null;
+    if (!req) {
+      // When no wifi API is available (ie. shimless B2G-desktop),
+      // we will yield to the event loop before calling the callback
+      // to prevent a race condition with the wifi overlay.
+      // See https://bugzilla.mozilla.org/show_bug.cgi?id=957769#c5
+      setTimeout(function() {
+        self._scanning = false;
+        callback();
+      });
+      return;
+    }
+
     req.onsuccess = function onScanSuccess() {
+      self._scanning = false;
       self.networks = req.result;
       clearTimeout(scanTimeout);
       callback(self.networks);
     };
 
     req.onerror = function onScanError() {
+      self._scanning = false;
       console.error('Error reading networks: ' + req.error.name);
       clearTimeout(scanTimeout);
       callback();
@@ -45,9 +61,10 @@ var WifiManager = {
     // Timeout in case of scanning errors not thrown by the API
     // We can't block the user in the screen (bug 889623)
     scanTimeout = setTimeout(function() {
+      self._scanning = false;
       console.warn('Timeout while reading networks');
       callback();
-    }, 10000);
+    }, SCAN_TIMEOUT);
   },
   enable: function wn_enable(lock) {
     lock.set({'wifi.enabled': true});
@@ -104,14 +121,16 @@ var WifiManager = {
        *        disconnected.
     */
     var self = this;
-    WifiManager.api.onstatuschange = function(event) {
-      WifiUI.updateNetworkStatus(self.ssid, event.status);
-      if (event.status === 'connected') {
-        if (self.networks && self.networks.length) {
-          WifiUI.renderNetworks(self.networks);
+    if (WifiManager.api) {
+      WifiManager.api.onstatuschange = function(event) {
+        WifiUI.updateNetworkStatus(self.ssid, event.status);
+        if (event.status === 'connected') {
+          if (self.networks && self.networks.length) {
+            WifiUI.renderNetworks(self.networks);
+          }
         }
-      }
-    };
+      };
+    }
   }
 };
 
@@ -246,7 +265,7 @@ var WifiUI = {
     // Remove refresh option
     UIManager.activationScreen.classList.add('no-options');
     // Update title
-    UIManager.mainTitle.textContent = _('join-hidden-button');
+    UIManager.mainTitle.textContent = _('authentication');
     UIManager.navBar.classList.add('secondary-menu');
     window.location.hash = '#hidden-wifi-authentication';
   },

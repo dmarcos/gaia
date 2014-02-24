@@ -18,7 +18,105 @@ var Settings = {
         settings : null;
   },
 
+  isTabletAndLandscape: function is_tablet_and_landscape() {
+    return ScreenLayout.getCurrentLayout('tabletAndLandscaped');
+  },
+
+  _panelsWithClass: function pane_with_class(targetClass) {
+    return document.querySelectorAll(
+      'section[role="region"].' + targetClass);
+  },
+
+  _isTabletAndLandscapeLastTime: null,
+
+  rotate: function rotate(evt) {
+    var isTabletAndLandscapeThisTime = Settings.isTabletAndLandscape();
+    var panelsWithCurrentClass;
+    if (Settings._isTabletAndLandscapeLastTime !==
+        isTabletAndLandscapeThisTime) {
+      panelsWithCurrentClass = Settings._panelsWithClass('current');
+      // in two column style if we have only 'root' panel displayed,
+      // (left: root panel, right: blank)
+      // then show default panel too
+      if (panelsWithCurrentClass.length === 1 &&
+        panelsWithCurrentClass[0].id === 'root') {
+        // go to default panel
+        Settings.currentPanel = Settings.defaultPanelForTablet;
+      }
+    }
+    Settings._isTabletAndLandscapeLastTime = isTabletAndLandscapeThisTime;
+  },
+
+  _transit: function transit(oldPanel, newPanel, callback) {
+    if (this.isTabletAndLandscape()) {
+      this._pageTransitions.twoColumn(oldPanel, newPanel, callback);
+    } else {
+      this._pageTransitions.oneColumn(oldPanel, newPanel, callback);
+    }
+  },
+
+  _pageTransitions: {
+    _sendPanelReady: function _send_panel_ready(oldPanelHash, newPanelHash) {
+      var detail = {
+        previous: oldPanelHash,
+        current: newPanelHash
+      };
+      var event = new CustomEvent('panelready', {detail: detail});
+      window.dispatchEvent(event);
+    },
+    oneColumn: function one_column(oldPanel, newPanel, callback) {
+      var self = this;
+      // switch previous/current classes
+      oldPanel.className = newPanel.className ? '' : 'previous';
+      newPanel.className = 'current';
+
+      /**
+       * Most browsers now scroll content into view taking CSS transforms into
+       * account.  That's not what we want when moving between <section>s,
+       * because the being-moved-to section is offscreen when we navigate to its
+       * #hash.  The transitions assume the viewport is always at document 0,0.
+       * So add a hack here to make that assumption true again.
+       * https://bugzilla.mozilla.org/show_bug.cgi?id=803170
+       */
+      if ((window.scrollX !== 0) || (window.scrollY !== 0)) {
+        window.scrollTo(0, 0);
+      }
+
+      newPanel.addEventListener('transitionend', function paintWait() {
+        newPanel.removeEventListener('transitionend', paintWait);
+
+        // We need to wait for the next tick otherwise gecko gets confused
+        setTimeout(function nextTick() {
+          self._sendPanelReady('#' + oldPanel.id, '#' + newPanel.id);
+
+          // Bug 818056 - When multiple visible panels are present,
+          // they are not painted correctly. This appears to fix the issue.
+          // Only do this after the first load
+          if (oldPanel.className === 'current')
+            return;
+
+          if (callback)
+            callback();
+        });
+      });
+    },
+    twoColumn: function two_column(oldPanel, newPanel, callback) {
+      oldPanel.className = newPanel.className ? '' : 'previous';
+      newPanel.className = 'current';
+
+      this._sendPanelReady('#' + oldPanel.id, '#' + newPanel.id);
+
+      if (callback) {
+        callback();
+      }
+    }
+  },
+
+  defaultPanelForTablet: '#wifi',
+
   _currentPanel: '#root',
+
+  _currentActivity: null,
 
   get currentPanel() {
     return this._currentPanel;
@@ -30,6 +128,15 @@ var Settings = {
     }
 
     if (hash == this._currentPanel) {
+      return;
+    }
+
+    // If we're handling an activity and the 'back' button is hit,
+    // close the activity.
+    // XXX this assumes the 'back' button of the activity panel
+    //     points to the root panel.
+    if (this._currentActivity !== null && hash === '#root') {
+      Settings.finishActivityRequest();
       return;
     }
 
@@ -45,53 +152,17 @@ var Settings = {
     // load panel (+ dependencies) if necessary -- this should be synchronous
     this.lazyLoad(newPanel);
 
-    // switch previous/current classes
-    oldPanel.className = newPanel.className ? '' : 'previous';
-    newPanel.className = 'current';
-
-    /**
-     * Most browsers now scroll content into view taking CSS transforms into
-     * account.  That's not what we want when moving between <section>s,
-     * because the being-moved-to section is offscreen when we navigate to its
-     * #hash.  The transitions assume the viewport is always at document 0,0.
-     * So add a hack here to make that assumption true again.
-     * https://bugzilla.mozilla.org/show_bug.cgi?id=803170
-     */
-    if ((window.scrollX !== 0) || (window.scrollY !== 0)) {
-      window.scrollTo(0, 0);
-    }
-
-    window.addEventListener('transitionend', function paintWait() {
-      window.removeEventListener('transitionend', paintWait);
-
-      // We need to wait for the next tick otherwise gecko gets confused
-      setTimeout(function nextTick() {
-        // Bug 818056 - When multiple visible panels are present,
-        // they are not painted correctly. This appears to fix the issue.
-        // Only do this after the first load
-        if (oldPanel.className === 'current')
-          return;
-
-        oldPanel.addEventListener('transitionend', function onTransitionEnd(e) {
-          oldPanel.removeEventListener('transitionend', onTransitionEnd);
-          var detail = {
-            previous: oldPanelHash,
-            current: newPanelHash
-          };
-          var event = new CustomEvent('panelready', {detail: detail});
-          window.dispatchEvent(event);
-          switch (newPanel.id) {
-            case 'about-licensing':
-              // Workaround for bug 825622, remove when fixed
-              var iframe = document.getElementById('os-license');
-              iframe.src = iframe.dataset.src;
-              break;
-            case 'wifi':
-              PerformanceTestingHelper.dispatch('settings-panel-wifi-visible');
-              break;
-          }
-        });
-      });
+    this._transit(oldPanel, newPanel, function() {
+      switch (newPanel.id) {
+        case 'about-licensing':
+          // Workaround for bug 825622, remove when fixed
+          var iframe = document.getElementById('os-license');
+          iframe.src = iframe.dataset.src;
+          break;
+        case 'wifi':
+          PerformanceTestingHelper.dispatch('settings-panel-wifi-visible');
+          break;
+      }
     });
   },
 
@@ -143,6 +214,13 @@ var Settings = {
         }
       }
 
+      // hide or unhide items
+      rule = '[data-show-name="' + key + '"]:not([data-ignore])';
+      var item = document.querySelector(rule);
+      if (item) {
+        item.hidden = !value;
+      }
+
       // update <input> values when the corresponding setting is changed
       var input = document.querySelector('input[name="' + key + '"]');
       if (!input)
@@ -181,14 +259,29 @@ var Settings = {
       return;
     }
 
-    // hide telephony related entries if not supportted
+    // hide telephony related entries if not supported
     if (!navigator.mozTelephony) {
-      var elements = ['call-settings', 'data-connectivity',
+      var elements = ['call-settings',
+                      'data-connectivity',
+                      'messaging-settings',
                       'simSecurity-settings'];
       elements.forEach(function(el) {
         document.getElementById(el).hidden = true;
       });
     }
+
+    // we hide all entry points by default,
+    // so we have to detect and show them up
+    if (navigator.mozMobileConnections) {
+      if (navigator.mozMobileConnections.length == 1) {
+        // single sim
+        document.getElementById('simCardManager-settings').hidden = true;
+      } else {
+        // dsds
+        document.getElementById('simSecurity-settings').hidden = true;
+      }
+    }
+
     // register web activity handler
     navigator.mozSetMessageHandler('activity', this.webActivityHandler);
 
@@ -271,42 +364,6 @@ var Settings = {
   },
 
   panelLoaded: function(panel, subPanels) {
-    // panel-specific initialization tasks
-    switch (panel.id) {
-      case 'display':             // <input type="range"> + brightness control
-        this.updateDisplayPanel();
-        break;
-      case 'languages':           // fill language selector
-        var langSel = document.querySelector('select[name="language.current"]');
-        langSel.innerHTML = '';
-        Settings.getSupportedLanguages(function fillLanguageList(languages) {
-          for (var lang in languages) {
-            var option = document.createElement('option');
-            option.value = lang;
-            // Right-to-Left (RTL) languages:
-            // (http://www.w3.org/International/questions/qa-scripts)
-            // Arabic, Hebrew, Farsi, Pashto, Urdu
-            var rtlList = ['ar', 'he', 'fa', 'ps', 'ur'];
-            // Use script direction control-characters to wrap the text labels
-            // since markup (i.e. <bdo>) does not work inside <option> tags
-            // http://www.w3.org/International/tutorials/bidi-xhtml/#nomarkup
-            var lEmbedBegin =
-                (rtlList.indexOf(lang) >= 0) ? '&#x202B;' : '&#x202A;';
-            var lEmbedEnd = '&#x202C;';
-            // The control-characters enforce the language-specific script
-            // direction to correctly display the text label (Bug #851457)
-            option.innerHTML = lEmbedBegin + languages[lang] + lEmbedEnd;
-            option.selected = (lang == document.documentElement.lang);
-            langSel.appendChild(option);
-          }
-        });
-        setTimeout(this.updateLanguagePanel);
-        break;
-      case 'battery':             // full battery status
-        Battery.update();
-        break;
-    }
-
     // preset all inputs in the panel and subpanels.
     if (panel.dataset.requireSubPanels) {
       for (var i = 0; i < subPanels.length; i++) {
@@ -447,6 +504,7 @@ var Settings = {
       for (i = 0; i < spanFields.length; i++) {
         var key = spanFields[i].dataset.name;
 
+        //XXX intentionally checking for the string 'undefined', see bug 880617
         if (key && result[key] && result[key] != 'undefined') {
           // check whether this setting comes from a select option
           // (it may be in a different panel, so query the whole document)
@@ -480,22 +538,88 @@ var Settings = {
               var _ = navigator.mozL10n.get;
               spanFields[i].textContent = _('macUnavailable');
               break;
+
+            case 'deviceinfo.bt_address':
+              var _ = navigator.mozL10n.get;
+              spanFields[i].textContent = _('bluetooth-address-unavailable');
+              break;
           }
         }
       }
+
+      // unhide items according to preferences.
+      rule = '[data-show-name]:not([data-ignore])';
+      var hiddenItems = panel.querySelectorAll(rule);
+      for (i = 0; i < hiddenItems.length; i++) {
+        var key = hiddenItems[i].dataset.showName;
+        hiddenItems[i].hidden = !result[key];
+      }
+
     });
+  },
+
+  // An activity can be closed either by pressing the 'X' button
+  // or by a visibility change (i.e. home button or app switch).
+  finishActivityRequest: function settings_finishActivityRequest() {
+    // Remove the dialog mark to restore settings status
+    // once the animation from the activity finish.
+    // If we finish the activity pressing home, we will have a
+    // different animation and will be hidden before the animation
+    // ends.
+    if (document.hidden) {
+      this.restoreDOMFromActivty();
+    } else {
+      var self = this;
+      document.addEventListener('visibilitychange', function restore(evt) {
+        if (document.hidden) {
+          document.removeEventListener('visibilitychange', restore);
+          self.restoreDOMFromActivty();
+        }
+      });
+    }
+
+    // Send a result to finish this activity
+    if (Settings._currentActivity !== null) {
+      Settings._currentActivity.postResult(null);
+      Settings._currentActivity = null;
+    }
+  },
+
+  // When we finish an activity we need to leave the DOM
+  // as it was before handling the activity.
+  restoreDOMFromActivty: function settings_restoreDOMFromActivity() {
+    var currentPanel = document.querySelector('[data-dialog]');
+    if (currentPanel !== null) {
+      delete currentPanel.dataset.dialog;
+    }
+  },
+
+  visibilityHandler: function settings_visibilityHandler(evt) {
+    if (document.hidden) {
+      Settings.finishActivityRequest();
+      document.removeEventListener('visibilitychange',
+        Settings.visibilityHandler);
+    }
   },
 
   webActivityHandler: function settings_handleActivity(activityRequest) {
     var name = activityRequest.source.name;
+    var section = 'root';
+    Settings._currentActivity = activityRequest;
     switch (name) {
       case 'configure':
-        var section = activityRequest.source.data.section || 'root';
+        section = activityRequest.source.data.section;
+
+        if (!section) {
+          // If there isn't a section specified,
+          // simply show ourselve without making ourselves a dialog.
+          Settings._currentActivity = null;
+        }
 
         // Validate if the section exists
         var sectionElement = document.getElementById(section);
         if (!sectionElement || sectionElement.tagName !== 'SECTION') {
-          var msg = 'Trying to open an unexistent section: ' + section;
+          var msg = 'Trying to open an non-existent section: ' + section;
           console.warn(msg);
           activityRequest.postError(msg);
           return;
@@ -506,6 +630,17 @@ var Settings = {
           Settings.currentPanel = section;
         });
         break;
+      default:
+        Settings._currentActivity = null;
+        break;
+    }
+
+    // Mark the desired panel as a dialog
+    if (Settings._currentActivity !== null) {
+      var domSection = document.getElementById(section);
+      domSection.dataset.dialog = true;
+      document.addEventListener('visibilitychange',
+        Settings.visibilityHandler);
     }
   },
 
@@ -657,53 +792,6 @@ var Settings = {
     }
   },
 
-  updateDisplayPanel: function settings_updateDisplayPanel() {
-    var panel = document.getElementById('display');
-    var settings = Settings.mozSettings;
-    if (!settings || !panel)
-      return;
-
-    var manualBrightness = panel.querySelector('#brightness-manual');
-    var autoBrightness = panel.querySelector('#brightness-auto');
-    var autoBrightnessSetting = 'screen.automatic-brightness';
-
-    // hide "Adjust automatically" if there's no ambient light sensor --
-    // until bug 876496 is fixed, we have to read the `sensors.json' file to
-    // be sure this ambient light sensor is enabled.
-    loadJSON('/resources/sensors.json', function loadSensors(activeSensors) {
-      if (activeSensors.ambientLight) { // I can haz ambient light sensor
-        autoBrightness.hidden = false;
-        settings.addObserver(autoBrightnessSetting, function(event) {
-          manualBrightness.hidden = event.settingValue;
-        });
-        var req = settings.createLock().get(autoBrightnessSetting);
-        req.onsuccess = function brightness_onsuccess() {
-          manualBrightness.hidden = req.result[autoBrightnessSetting];
-        };
-      } else { // no ambient light sensor: force manual brightness setting
-        autoBrightness.hidden = true;
-        manualBrightness.hidden = false;
-        var cset = {};
-        cset[autoBrightnessSetting] = false;
-        settings.createLock().set(cset);
-      }
-    });
-  },
-
-  updateLanguagePanel: function settings_updateLanguagePanel() {
-    var panel = document.getElementById('languages');
-    // update the date and time samples in the 'languages' panel
-    if (panel.children.length) {
-      var d = new Date();
-      var f = new navigator.mozL10n.DateTimeFormat();
-      var _ = navigator.mozL10n.get;
-      panel.querySelector('#region-date').textContent =
-          f.localeFormat(d, _('longDateFormat'));
-      panel.querySelector('#region-time').textContent =
-          f.localeFormat(d, _('shortTimeFormat'));
-    }
-  },
-
   loadPanelStylesheetsIfNeeded: function settings_loadPanelStylesheetsIN() {
     var self = this;
     if (self._panelStylesheetsLoaded) {
@@ -714,11 +802,12 @@ var Settings = {
                      'shared/style/buttons.css',
                      'shared/style/confirm.css',
                      'shared/style/input_areas.css',
-                     'shared/style_unstable/progress_activity.css',
+                     'shared/style/progress_activity.css',
                      'style/apps.css',
                      'style/phone_lock.css',
                      'style/simcard.css',
-                     'style/updates.css'],
+                     'style/updates.css',
+                     'style/downloads.css'],
     function callback() {
       self._panelStylesheetsLoaded = true;
     });
@@ -739,57 +828,51 @@ window.addEventListener('load', function loadSettings() {
 
   setTimeout(function nextTick() {
     LazyLoader.load(['js/utils.js'], startupLocale);
+
+    LazyLoader.load(['shared/js/wifi_helper.js'], displayDefaultPanel);
+
+    /**
+     * Enable or disable the menu items related to the ICC card relying on the
+     * card and radio state.
+     */
     LazyLoader.load([
+      'shared/js/airplane_mode_helper.js',
       'js/airplane_mode.js',
       'js/battery.js',
       'shared/js/async_storage.js',
       'js/storage.js',
+      'js/try_show_homescreen_section.js',
       'shared/js/mobile_operator.js',
-      'shared/js/wifi_helper.js',
       'shared/js/icc_helper.js',
+      'shared/js/settings_listener.js',
+      'shared/js/toaster.js',
       'js/connectivity.js',
       'js/security_privacy.js',
       'js/icc_menu.js',
-      'shared/js/settings_listener.js'
-    ], handleRadioAndCardState);
+      'js/nfc.js',
+      'js/dsds_settings.js',
+      'js/telephony_settings.js',
+      'js/telephony_items_handler.js'
+    ], function() {
+      TelephonySettingHelper.init();
+    });
   });
 
-  function handleRadioAndCardState() {
-    function disableSIMRelatedSubpanels(disable) {
-      var itemIds = ['call-settings',
-                     'data-connectivity'];
+  function displayDefaultPanel() {
+    // With async pan zoom enable, the page starts with a viewport
+    // of 980px before beeing resize to device-width. So let's delay
+    // the rotation listener to make sure it is not triggered by fake
+    // positive.
+    ScreenLayout.watch(
+      'tabletAndLandscaped',
+      '(min-width: 768px) and (orientation: landscape)');
+    window.addEventListener('screenlayoutchange', Settings.rotate);
 
-      // Disable SIM security item only in case of SIM absent.
-      var cardState = IccHelper.cardState;
-      if (cardState && cardState === 'absent') {
-        itemIds.push('simSecurity-settings');
-      }
-
-      for (var id = 0; id < itemIds.length; id++) {
-        var item = document.getElementById(itemIds[id]);
-        if (!item) {
-          continue;
-        }
-
-        if (disable) {
-          item.setAttribute('aria-disabled', true);
-        } else {
-          item.removeAttribute('aria-disabled');
-        }
-      }
+    // display of default panel(#wifi) must wait for
+    // lazy-loaded script - wifi_helper.js - loaded
+    if (Settings.isTabletAndLandscape()) {
+      Settings.currentPanel = Settings.defaultPanelForTablet;
     }
-
-    if (!IccHelper.enabled) {
-      return disableSIMRelatedSubpanels(true);
-    }
-
-    var cardState = IccHelper.cardState;
-    disableSIMRelatedSubpanels(cardState !== 'ready');
-
-    IccHelper.addEventListener('cardstatechange', function() {
-      var cardState = IccHelper.cardState;
-      disableSIMRelatedSubpanels(cardState !== 'ready');
-    });
   }
 
   // startup
@@ -863,8 +946,6 @@ function initLocale() {
   Settings.getSupportedLanguages(function displayLang(languages) {
     document.getElementById('language-desc').textContent = languages[lang];
   });
-
-  Settings.updateLanguagePanel();
 }
 
 // Do initialization work that doesn't depend on the DOM, as early as

@@ -6,33 +6,33 @@
 from gaiatest import GaiaTestCase
 from gaiatest.apps.ui_tests.app import UiTests
 
+
 class TestKeyboardPredictiveKey(GaiaTestCase):
+
+    def setUp(self):
+        GaiaTestCase.setUp(self)
+        # enable auto-correction of keyboard
+        self.data_layer.set_setting('keyboard.autocorrect', True)
 
     def test_keyboard_predictive_key(self):
         self.ui_tests = UiTests(self.marionette)
         self.ui_tests.launch()
 
         # go to UI/keyboard page
-        self.ui_tests.tap_keyboard_option()
-        keyboard_page = self.ui_tests.switch_to_keyboard_page_frame()
+        keyboard_page = self.ui_tests.tap_keyboard_option()
+        keyboard_page.switch_to_frame()
 
         # tap the field "input type=text"
         keyboard = keyboard_page.tap_text_input()
 
         # type first 6 letters of the expected word
-        keyboard.switch_to_keyboard()
         expected_word = 'keyboard '
         keyboard.send(expected_word[:6])
-        self.marionette.switch_to_frame()
-        self.marionette.switch_to_frame(self.ui_tests.app.frame)
-        keyboard_page = self.ui_tests.switch_to_keyboard_page_frame()
-        keyboard_page.tap_text_input()
 
         # tap the first predictive word
         keyboard.tap_first_predictive_word()
-        self.marionette.switch_to_frame()
-        self.marionette.switch_to_frame(self.ui_tests.app.frame)
-        keyboard_page = self.ui_tests.switch_to_keyboard_page_frame()
+        self.apps.switch_to_displayed_app()
+        keyboard_page.switch_to_frame()
 
         # check if the word in the input field is the same as the expected word
         typed_word = keyboard_page.text_input

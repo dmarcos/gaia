@@ -99,7 +99,7 @@ body {
 
 /*
  * spinner animation styles copied from
- * shared/style_unstable/progress_activity.css
+ * shared/style/progress_activity.css
  */
 #spinner {
   position: absolute;
@@ -289,7 +289,8 @@ body.picker-mode #title-player {
   height: 100%;
   overflow-x: hidden;
   overflow-y: auto;
-  background: -moz-linear-gradient(center top, #303030 0%, #000000 100%) repeat scroll 0 0 transparent;
+  background-color: #0E1214;
+  will-change: scroll-position;
 }
 
 #views-tiles {
@@ -322,6 +323,16 @@ body.picker-mode #title-player {
   min-height: 100%;
 }
 
+/*
+ * Bug 968456 - Ensure background
+ * scrolls w/ the content
+ */
+#views-tiles-anchor,
+#views-list-anchor,
+#views-sublist-anchor {
+  background-color: #0E1214;
+}
+
 #views-sublist-header,
 #views-sublist-anchor {
   position: relative;
@@ -330,17 +341,23 @@ body.picker-mode #title-player {
 }
 
 #views-sublist-header {
-  height: 8rem;
+  height: 8.1rem;
+}
+
+#views-scrollable-sublist-anchor {
+  overflow-x: hidden;
+  overflow-y: auto;
+  width: 100%;
+  height: calc(100% - 8rem);
 }
 
 #views-sublist-anchor {
   width: 100%;
   height: calc(100% - 8rem);
-  overflow-x: hidden;
-  overflow-y: auto;
+  will-change: scroll-position;
 }
 
-#views-sublist-header-default,
+#views-sublist-header-image,
 #views-sublist-header-controls {
   position: relative;
   float: left;
@@ -348,15 +365,13 @@ body.picker-mode #title-player {
   border-bottom: solid 0.1rem rgba(255, 255, 255, 0.1);
 }
 
-#views-sublist-header-default {
+#views-sublist-header-image {
   width: 8rem;
   height: 8rem;
   overflow: hidden;
   background-clip: content-box;
-}
-
-#views-sublist-header-image {
-  position: absolute;
+  background-size: cover;
+  background-position: center center;
   opacity: 0;
 }
 
@@ -462,7 +477,7 @@ body.picker-mode #title-player {
 
 .main-tile:last-child,
 .sub-tile:last-child {
-  margin-bottom: 4rem;
+  margin-bottom: 4.5rem;
 }
 
 .tile-container {
@@ -533,60 +548,10 @@ body.picker-mode #title-player {
   right: 0.5%;
 }
 
-.default-album-0 {
-  background-image: url('./images/AlbumArt1_small.png');
-  background-size: 100% 100%;
-}
-
-.default-album-1 {
-  background-image: url('./images/AlbumArt2_small.png');
-  background-size: 100% 100%;
-}
-
-.default-album-2 {
-  background-image: url('./images/AlbumArt3_small.png');
-  background-size: 100% 100%;
-}
-
-.default-album-3 {
-  background-image: url('./images/AlbumArt4_small.png');
-  background-size: 100% 100%;
-}
-
-.default-album-4 {
-  background-image: url('./images/AlbumArt5_small.png');
-  background-size: 100% 100%;
-}
-
-.default-album-5 {
-  background-image: url('./images/AlbumArt6_small.png');
-  background-size: 100% 100%;
-}
-
-.default-album-6 {
-  background-image: url('./images/AlbumArt7_small.png');
-  background-size: 100% 100%;
-}
-
-.default-album-7 {
-  background-image: url('./images/AlbumArt8_small.png');
-  background-size: 100% 100%;
-}
-
-.default-album-8 {
-  background-image: url('./images/AlbumArt9_small.png');
-  background-size: 100% 100%;
-}
-
-.default-album-9 {
-  background-image: url('./images/AlbumArt10_small.png');
-  background-size: 100% 100%;
-}
-
 #player-cover {
   position: relative;
   width: 100%;
-  height: calc(100% - 10rem);
+  height: calc(100% - 9.1rem);
   overflow: hidden;
 }
 
@@ -602,15 +567,19 @@ body.picker-mode #title-player {
 
 .fadeIn {
   animation-name: fadeIn;
-  animation-duration: 1500ms;
+  animation-duration: 500ms;
   animation-timing-function: ease-in-out;
   animation-fill-mode: forwards;
-  animation-delay: 500ms;
+  animation-delay: 50ms;
 }
 
 #player-cover-image {
   position: absolute;
+  width: 100%;
+  height: 100%;
   opacity: 0;
+  background-position: center;
+  background-size: cover;
 }
 
 #player-cover.slideOut #player-cover-caption {
@@ -762,114 +731,129 @@ button::-moz-focus-inner {
 
 #player-seek {
   position: relative;
-  width: 100%;
-  height: 4.5rem;
-  background: url('./images/scroll_bar_bg.png');
-  background-position: center center;
-  background-repeat: no-repeat;
-  background-size: 100% 2.1rem;
-  background-color: #151515;
-  overflow: hidden;
+  height: 4.2rem;
+  font-size: 0;
+  background-color: rgba(0,0,0, 0.85);
+}
+
+#player-seek.disabled {
+  pointer-events: none;
+  opacity: 0.3;
 }
 
 #player-seek-elapsed,
 #player-seek-bar,
 #player-seek-remaining {
+  display: inline-block;
   position: relative;
-  float: left;
+  vertical-align: top;
 }
 
 #player-seek-elapsed,
 #player-seek-remaining {
-  top: calc(50% - 0.69rem);
-  width: 18%;
-  line-height: 1.38rem;
+  width: 5.3rem;
+  line-height: 4.2rem;
   font-size: 1.4rem;
-  font-weight: 500;
-  color: #a1afb2;
-  text-align: center;
+  font-weight: 400;
+  color: #e7e7e7;
+}
+
+#player-seek-elapsed {
+  padding-left: 1.5rem;
+}
+
+#player-seek-remaining {
+  text-align: right;
+  padding-right: 1.5rem;
 }
 
 #player-seek-bar {
-  width: 60%;
+  display: inline-block;
+  width: calc(100% - 13.6rem);
   height: 100%;
-  padding: 0 2%;
+  z-index: 1;
 }
 
 #player-seek-bar-progress {
   pointer-events: none;
   -moz-appearance: none;
   position: absolute;
-  top: calc(50% - 0.15rem);
-  left: 2.5%;
-  width: 95%;
-  height: 0.3rem;
-  border-radius: 0.5rem;
+  top: calc(50% - 0.1rem);
+  left: 0;
+  height: 0.1rem;
   border-width: 0;
-  box-shadow: 0.1rem 0.1rem rgba(255, 255, 255, 0.2);
-  background: url("./images/timeline.png");
-  background-position: center center;
-  background-repeat: no-repeat;
-  background-size: 100% 100%;
+  border-radius: 0;
+  background-color: #a6b4b7;
 }
 
 #player-seek-bar-progress::-moz-progress-bar {
-  border-radius: 0.5rem;
-  background: url("./images/timeline_filled.png") no-repeat 50% 50% / 100% 100%;
+  height: 0.3rem;
+  margin-top: -0.1rem;
+  background-color: #00CAF2;
 }
 
 #player-seek-bar-indicator {
   position: absolute;
-  top: calc(50% - 2.25rem);
-  width: 8.1rem;
-  height: 4.5rem;
-  background: url("./images/scrubber.png") no-repeat 50% 50% / 2.7rem;
+  top: calc(50% - 1.15rem);
+  width: 2.3rem;
+  height: 2.3rem;
   pointer-events: none;
 }
 
-#player-seek-bar-indicator.highlight {
-  background-image: url("./images/scrubber_pressed.png");
-  background-size: 8.1rem 4.5rem;
+#player-seek-bar-indicator:after {
+  content: "";
+  position: absolute;
+  top: calc(50% - 1.25rem);
+  left: calc(50% - 1.15rem);
+  width: 2.1rem;
+  height: 2.1rem;
+  border-radius: 50%;
+  border: 0.1rem solid #ffffff;
+  background-color: #ffffff;
+}
+
+
+#player-seek-bar-indicator.highlight:before {
+  content: "";
+  position: absolute;
+  top: calc(50% - 3.05rem);
+  left: calc(50% - 3.05rem);
+  width: 6.1rem;
+  height: 6.1rem;
+  border-radius: 50%;
+  background-color: #00CAF2;
 }
 
 #player-controls {
   position: relative;
-  width: 100%;
-  height: 5.5rem;
+  height: 4.8rem;
+  font-size: 0;
+  vertical-align: top;
+  border-top: 0.1rem solid rgba(255,255,255, 0.1);
+  background-color: #000;
   overflow: hidden;
-  background: #000;
 }
 
 #player-controls-previous,
 #player-controls-play,
 #player-controls-next {
   position: relative;
-  float: left;
   height: 100%;
   padding: 0;
-  border-width: 0;
   font-weight: 500;
-  overflow: hidden;
   background-position: center center;
   background-repeat: no-repeat;
   background-size: 3rem;
 }
 
-#player-controls-previous,
-#player-controls-next {
-  width: 30%;
-}
-
-#player-controls-play {
-  width: 40%;
-}
-
 #player-controls-previous {
   background-image: url("./images/IconAction_Media_SkipBackwards_30x30.png");
+  width: 33%;
 }
 
 #player-controls-play {
   background-image: url("./images/IconAction_Media_Pause_30x30.png");
+  width: 34%;
 }
 
 #player-controls-play.is-pause {
@@ -878,6 +862,7 @@ button::-moz-focus-inner {
 
 #player-controls-next {
   background-image: url("./images/IconAction_Media_SkipForward_30x30.png");
+  width: 33%;
 }
 
 .player-controls-button {
@@ -891,7 +876,7 @@ button::-moz-focus-inner {
   background: transparent;
 }
 .player-controls-button:active {
-  background: rgb(0, 138, 170);
+  background: #00caf2;
 }
 .player-controls-button:disabled {
   opacity: 0.3;
@@ -904,36 +889,30 @@ button::-moz-focus-inner {
   position: absolute;
   bottom: 0;
   width: 100%;
-  height: 4rem;
   z-index: 20;
-}
-
-/* Overwrite BB tabs background transparency */
-[role="tablist"] > [role="tab"] > a {
-  background-color: rgba(0, 0, 0, 0.75);
 }
 
 #tabs a {
   outline: none;
 }
 
-#mix[role="tab"] a:after {
+#mix[role="tab"] a {
   background-image: url("./images/iconaction_media_gridview.png");
 }
 
-#playlists[role="tab"] a:after {
+#playlists[role="tab"] a {
   background-image: url("./images/iconaction_media_playlistfilter.png");
 }
 
-#artists[role="tab"] a:after {
+#artists[role="tab"] a {
   background-image: url("./images/iconaction_media_artistfilter.png");
 }
 
-#albums[role="tab"] a:after {
+#albums[role="tab"] a {
   background-image: url("./images/iconaction_media_albumfilter.png");
 }
 
-#songs[role="tab"] a:after {
+#songs[role="tab"] a {
   background-image: url("./images/iconaction_media_songsfilter.png");
 }
 
@@ -961,7 +940,7 @@ button::-moz-focus-inner {
 }
 
 li:last-child {
-  padding-bottom: 4rem;
+  margin-bottom: 4rem;
 }
 
 li.list-header {
@@ -981,6 +960,9 @@ li.list-item {
   list-style-type: none;
   position: relative;
   width: 100%;
+  background-size: contain;
+  background-position: calc(100% - 2.5rem) -0.1rem;
+  background-repeat: no-repeat;
 }
 
 li.list-item a {
@@ -1103,22 +1085,6 @@ li.list-item a:active {
   border-bottom: solid 0.1rem rgba(255, 255, 255, 0.1);
 }
 
-.list-image-parent {
-  position: absolute;
-  right: 2.5rem;
-  top: 0;
-  height: 6rem;
-  width: 6rem;
-  overflow: hidden;
-  background-color: #8a9699;
-  box-shadow: 0 0 0.1rem black;
-  pointer-events: none;
-}
-
-.list-image {
-  position: absolute;
-}
-
 form[role="search"] {
   background: url(/shared/style/headers/images/ui/dark/subheader.png);
 }
@@ -1139,4 +1105,16 @@ form[role="search"] button {
 form p input + button[type="reset"] {
   width: 4rem;
   padding: 1rem;
+}
+
+#info-banner {
+  z-index: -1;
+  opacity: 0;
+  transition: all 600ms ease;
+}
+
+#info-banner.visible {
+  z-index: 100;
+  opacity: 1;
+  transition: all 600ms ease;
 }

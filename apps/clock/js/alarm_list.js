@@ -12,22 +12,25 @@ var _ = mozL10n.get;
 var AlarmList = {
 
   alarmList: [],
-  refreshingAlarms: [],
+
+  // Lookup table mapping alarm IDs to the number "toggle" operations currently
+  // in progress.
+  toggleOperations: {},
   count: 0,
 
   get alarms() {
     delete this.alarms;
-    return this.alarms = document.getElementById('alarms');
+    return (this.alarms = document.getElementById('alarms'));
   },
 
   get title() {
     delete this.title;
-    return this.title = document.getElementById('alarms-title');
+    return (this.title = document.getElementById('alarms-title'));
   },
 
   get newAlarmButton() {
     delete this.newAlarmButton;
-    return this.newAlarmButton = document.getElementById('alarm-new');
+    return (this.newAlarmButton = document.getElementById('alarm-new'));
   },
 
   template: null,
@@ -35,8 +38,9 @@ var AlarmList = {
   handleEvent: function al_handleEvent(evt) {
 
     var link = evt.target;
-    if (!link)
+    if (!link) {
       return;
+    }
 
     if (link === this.newAlarmButton) {
       this.alarmEditView();
@@ -62,6 +66,11 @@ var AlarmList = {
     this.newAlarmButton.addEventListener('click', this);
     this.alarms.addEventListener('click', this);
     this.banner = new Banner('banner-countdown', 'banner-tmpl');
+
+    // Bind this.refresh so that the listener can be easily removed.
+    this.refresh = this.refresh.bind(this);
+    // Update the dropdown when the language changes.
+    window.addEventListener('localized', this.refresh);
     this.refresh();
     AlarmManager.regUpdateAlarmEnableState(this.refreshItem.bind(this));
   },
@@ -80,8 +89,10 @@ var AlarmList = {
     var repeat = alarm.isRepeating() ?
       alarm.summarizeDaysOfWeek() : '';
     var withRepeat = alarm.isRepeating() ? ' with-repeat' : '';
-    var isActive = alarm.registeredAlarms.normal ||
-      alarm.registeredAlarms.snooze;
+    // Because `0` is a valid value for these attributes, check for their
+    // presence with the `in` operator.
+    var isActive = 'normal' in alarm.registeredAlarms ||
+      'snooze' in alarm.registeredAlarms;
     var checked = !!isActive ? 'checked=true' : '';
 
     var d = new Date();
@@ -132,7 +143,7 @@ var AlarmList = {
   },
 
   refreshItem: function al_refreshItem(alarm) {
-    var li, index;
+    var li;
     var id = alarm.id;
 
     if (!this.getAlarmFromList(id)) {
@@ -147,10 +158,8 @@ var AlarmList = {
       li.innerHTML = this.render(alarm);
 
       // clear the refreshing alarm's flag
-      index = this.refreshingAlarms.indexOf(id);
-
-      if (index !== -1) {
-        this.refreshingAlarms.splice(index, 1);
+      if (id in this.toggleOperations) {
+        delete this.toggleOperations[id];
       }
     }
   },
@@ -176,8 +185,9 @@ var AlarmList = {
 
   getAlarmFromList: function al_getAlarmFromList(id) {
     for (var i = 0; i < this.alarmList.length; i++) {
-      if (this.alarmList[i].id === id)
+      if (this.alarmList[i].id === id) {
         return this.alarmList[i];
+      }
     }
     return null;
   },
@@ -196,11 +206,8 @@ var AlarmList = {
   },
 
   toggleAlarmEnableState: function al_toggleAlarmEnableState(enabled, alarm) {
-    // Todo: queue actions instead of dropping them
-    if (this.refreshingAlarms.indexOf(alarm.id) !== -1) {
-      return;
-    }
     var changed = false;
+    var toggleOps = this.toggleOperations;
     // has a snooze active
     if (alarm.registeredAlarms.snooze !== undefined) {
       if (!enabled) {
@@ -210,9 +217,18 @@ var AlarmList = {
     }
     // normal state needs to change
     if (alarm.enabled !== enabled) {
-      this.refreshingAlarms.push(alarm.id);
+      toggleOps[alarm.id] = (toggleOps[alarm.id] || 0) + 1;
       // setEnabled saves to database
       alarm.setEnabled(!alarm.enabled, function al_putAlarm(err, alarm) {
+        toggleOps[alarm.id]--;
+
+        // If there are any pending toggle operations, the current state of
+        // the alarm is volatile, so do not update the DOM.
+        if (toggleOps[alarm.id] > 0) {
+          return;
+        }
+        delete toggleOps[alarm.id];
+
         if (alarm.enabled) {
           this.banner.show(alarm.getNextAlarmFireTime());
         }

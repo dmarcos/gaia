@@ -39,7 +39,7 @@ function IdentityTests() {
     }
 
     var events = document.getElementById('event-stream');
-    var html = '<span>' + this._eventNum + '</span> ' + message;
+    var html = message;
 
     if (typeof params === 'object') {
       Object.keys(params).forEach(function(key) {
@@ -62,7 +62,8 @@ function IdentityTests() {
 
         onlogin: function(assertion) {
           var unpacked = JSON.stringify(unpackAssertion(assertion), null, 2);
-          self.recordEvent('login', 'login', {assertion: assertion, unpacked: unpacked});
+          self.recordEvent('login', 'login',
+            {assertion: assertion, unpacked: unpacked});
         },
 
         onlogout: function() {
@@ -91,7 +92,10 @@ function IdentityTests() {
       },
 
       't-request-withOnCancel': function() {
-        navigator.mozId.request({oncancel: function() { self.recordEvent('cancel', 'cancel') }});
+        navigator.mozId.request({oncancel: function() {
+                                           self.recordEvent('cancel', 'cancel');
+                                         }
+        });
       },
 
       't-request-allowUnverified': function() {

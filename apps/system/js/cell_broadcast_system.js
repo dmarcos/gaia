@@ -25,12 +25,19 @@ var CellBroadcastSystem = {
     this._settingsDisabled = event.settingValue;
 
     if (this._settingsDisabled) {
-      LockScreen.setCellbroadcastLabel();
+      var evt = new CustomEvent('cellbroadcastmsgchanged', { detail: null });
+      window.dispatchEvent(evt);
     }
   },
 
   show: function cbs_show(event) {
-    var conn = window.navigator.mozMobileConnection;
+
+    // XXX: check bug-926169
+    // this is used to keep all tests passing while introducing multi-sim APIs
+    var conn = window.navigator.mozMobileConnection ||
+      window.navigator.mozMobileConnections &&
+        window.navigator.mozMobileConnections[0];
+
     var msg = event.message;
 
     if (this._settingsDisabled) {
@@ -40,7 +47,9 @@ var CellBroadcastSystem = {
     if (conn &&
         conn.voice.network.mcc === MobileOperator.BRAZIL_MCC &&
         msg.messageId === MobileOperator.BRAZIL_CELLBROADCAST_CHANNEL) {
-      LockScreen.setCellbroadcastLabel(msg.body);
+      var evt = new CustomEvent('cellbroadcastmsgchanged',
+        { detail: msg.body });
+      window.dispatchEvent(evt);
       return;
     }
 

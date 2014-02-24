@@ -37,14 +37,30 @@
       'location': 0}
   };
 
+  var conf = {
+    // Make sure this is the same as in
+    // application-data. If you change it in one,
+    // change it in both
+    background: {
+      url: 'resources/images/backgrounds/default.png'
+    }
+  };
+
   var MockConfigurator = {
     mSimPresentOnFirstBoot: true,
-    getSection: function() { return null; },
+    mIsSVReady: true,
+    getSection: function(section) {
+      return conf[section] || singleVariantConf[section];
+    },
+
     getSingleVariantApps: function() {
       return singleVariantConf;
     },
     get isSimPresentOnFirstBoot() {
       return this.mSimPresentOnFirstBoot;
+    },
+    get isSingleVariantReady() {
+      return this.mIsSVReady;
     }
   };
 

@@ -1,3 +1,12 @@
+/* global ObservableArray */
+/* exported ListView */
+
+// start outer IIFE - exports === window
+(function(exports) {
+'use strict';
+
+var elements = new WeakMap();
+
 /*
  * A ListView takes an ObservableArray or an ordinary array, and generate/
  * manipulate the corresponding DOM elements of the content in the array using
@@ -9,6 +18,42 @@ var ListView = function(root, observableArray, templateFunc) {
   var _root = root;
   var _templateFunc = templateFunc;
   var _enabled = true;
+
+  // keep track of observeables so we can unobserve
+  var observerMap = new WeakMap();
+
+  function releaseObservers(element) {
+    var observable = observerMap.get(element);
+    if (!observable || typeof observable !== 'object') {
+      return;
+    }
+    var observers = observerMap.get(observable);
+    if (observers) {
+      observers.forEach(function eachObserver(observer) {
+        observable.unobserve(observer);
+      });
+      observerMap.delete(observable);
+      observerMap.delete(element);
+    }
+  }
+
+  // helper to observe something and automatically remove old observers
+  function observeAndCall(observable, map) {
+    var observers = observerMap.get(observable) || [];
+    if (observerMap.has(observable)) {
+      observers = observerMap.get(observable);
+    }
+    observers = Object.keys(map).map(function eachProperty(property) {
+      observable.observe(property, map[property]);
+      map[property]();
+      return map[property];
+    });
+    observerMap.set(observable, observers);
+  };
+
+  var _helper = {
+    observeAndCall: observeAndCall
+  };
 
   var _handleEvent = function(event) {
     // Ignore the change event when the list view is not enabled.
@@ -29,41 +74,45 @@ var ListView = function(root, observableArray, templateFunc) {
         break;
       case 'reset':
         _reset(data.items || []);
+        break;
       default:
         break;
     }
   };
 
   var _insert = function(index, items) {
-    if (items.length <= 0)
+    if (items.length <= 0) {
       return;
+    }
 
     // add DOM elements
-    var referenceElement =
-      _root.querySelector('li:nth-child(' + (index + 1) + ')');
+    var referenceElement = _root.children[index];
     for (var i = items.length - 1; i >= 0; i--) {
-      var curElement = _templateFunc(items[i]);
+      var curElement = _templateFunc(items[i], undefined, _helper);
+      observerMap.set(curElement, items[i]);
       _root.insertBefore(curElement, referenceElement);
       referenceElement = curElement;
     }
   };
 
   var _remove = function(index, count) {
-    if (count === 0)
+    if (count === 0) {
       return;
+    }
 
     // remove DOM elements
-    if (count === _root.childElementCount) {
+    if (count >= _root.childElementCount) {
       // clear all
       while (_root.firstElementChild) {
+        releaseObservers(_root.firstElementChild);
         _root.removeChild(_root.firstElementChild);
       }
     } else {
-      var nextElement =
-        _root.querySelector('li:nth-child(' + (index + 1) + ')');
+      var nextElement = _root.children[index];
       for (var i = 0; i < count; i++) {
         if (nextElement) {
           var temp = nextElement.nextElementSibling;
+          releaseObservers(nextElement);
           _root.removeChild(nextElement);
           nextElement = temp;
         } else {
@@ -74,9 +123,15 @@ var ListView = function(root, observableArray, templateFunc) {
   };
 
   var _replace = function(index, value) {
-    var element = _root.querySelector('li:nth-child(' + (index + 1) + ')');
+    var element = _root.children[index];
     if (element) {
-      _templateFunc(value, element);
+      releaseObservers(element);
+      var newElement = _templateFunc(value, element, _helper);
+      observerMap.set(element, value);
+      if (newElement !== element) {
+        _root.insertBefore(newElement, element);
+        _root.removeChild(element);
+      }
     }
   };
 
@@ -84,7 +139,7 @@ var ListView = function(root, observableArray, templateFunc) {
     var itemCount = items.length;
     var elementCount = _root.childElementCount;
 
-    if (itemCount == 0) {
+    if (itemCount === 0) {
       _remove(0, elementCount);
     } else if (itemCount <= elementCount) {
       items.forEach(function(item, index) {
@@ -112,13 +167,16 @@ var ListView = function(root, observableArray, templateFunc) {
 
   var view = {
     set: function lv_set(newArray) {
-      // clear all existing items
       if (_observableArray) {
-        _remove(0, _observableArray.length);
+        _observableArray.unobserve(_handleEvent);
       }
 
       if (!newArray) {
-        _observableArray = null;
+        // clear all existing items
+        if (_observableArray) {
+          _remove(0, _observableArray.length);
+          _observableArray = null;
+        }
         return;
       }
 
@@ -135,7 +193,26 @@ var ListView = function(root, observableArray, templateFunc) {
       _observableArray.observe('replace', _handleEvent);
       _observableArray.observe('reset', _handleEvent);
 
-      _insert(0, _observableArray.array);
+      if (this.enabled) {
+        _reset(_observableArray.array);
+      }
+    },
+
+    destroy: function() {
+      // unobserve from array and null everything out
+      if (_observableArray) {
+        _observableArray.unobserve(_handleEvent);
+      }
+      _remove(0, _observableArray.length);
+      elements.delete(_root);
+      _root = null;
+      _observableArray = null;
+      _templateFunc = null;
+      _enabled = false;
+    },
+
+    get element() {
+      return _root;
     },
 
     set enabled(value) {
@@ -150,6 +227,21 @@ var ListView = function(root, observableArray, templateFunc) {
     }
   };
 
+  if (elements.has(_root)) {
+    // destroy old ListView if we setup a second one
+    elements.get(_root).destroy();
+  }
+
+  elements.set(_root, view);
+
+  // emtpy element at creation time
+  _root.innerHTML = '';
+
   view.set(observableArray);
   return view;
 };
+
+exports.ListView = ListView;
+
+// end outer IIFE
+}(window));

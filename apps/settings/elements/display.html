@@ -3,17 +3,16 @@
 
     <header>
       <a href="#root"><span class="icon icon-back">back</span></a>
-      <h1 data-l10n-id="display"> Display </h1>
+      <h1 data-l10n-id="display-header"> Display </h1>
     </header>
 
     <div>
       <ul>
         <li>
           <label class="pack-switch">
-            <input type="checkbox" name="screen.orientation.lock" class="uninit"/>
-            <span></span>
+            <input type="checkbox" name="screen.orientation.lock" class="uninit">
+            <span data-l10n-id="lock-orientation">Lock screen orientation</span>
           </label>
-          <a data-l10n-id="lock-orientation">Lock screen orientation</a>
         </li>
       </ul>
 
@@ -25,20 +24,18 @@
         <button id="wallpaper-button"></button>
       </div>
       <header>
-        <h2 data-l10n-id="brightness">Brightness</h2>
+        <h2 id="brightness-heading" data-l10n-id="brightness">Brightness</h2>
       </header>
       <ul>
         <li id="brightness-auto">
           <label class="pack-checkbox">
-            <input type="checkbox" name="screen.automatic-brightness" checked />
-            <span></span>
+            <input type="checkbox" name="screen.automatic-brightness" checked>
+            <span data-l10n-id="brightness-autoAdjust">Adjust Automatically</span>
           </label>
-          <a data-l10n-id="brightness-autoAdjust">Adjust Automatically</a>
         </li>
         <li id="brightness-manual">
-          <label>
-            <input type="range" name="screen.brightness" step="0.01" min="0.1" value="0.5" max="1" />
-            <span class="range-icons brightness"></span>
+          <label class="range-icons brightness">
+            <input aria-labelledby="brightness-heading" type="range" name="screen.brightness" step="0.01" min="0.1" value="0.5" max="1" />
           </label>
         </li>
         <li id="screen-timeout">
@@ -57,6 +54,7 @@
     </div>
 
     <script src="shared/js/omadrm/fl.js"></script>
+    <script src="js/display.js"></script>
     <script src="js/wallpaper.js"></script>
 
   </template>
