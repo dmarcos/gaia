@@ -59,7 +59,7 @@ module.exports = View.extend({
   },
 
   onButtonClick: function(e, el) {
-    e.stopPropagation();
+    //e.stopPropagation();  allowing event to reach body
     var name = el.getAttribute('name');
     this.emit('click:' + name, e);
   },

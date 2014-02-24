@@ -53,7 +53,7 @@ module.exports = View.extend({
    *
    */
   onFlashClick: function(e) {
-    e.stopPropagation();
+    //e.stopPropagation();  allowing event to reach body
     var self = this;
     this.emit('click:flash');
     this.set('toggling-flash', true);
@@ -64,7 +64,7 @@ module.exports = View.extend({
   },
 
   onCameraClick: function(event) {
-    event.stopPropagation();
+    //event.stopPropagation();  allowing event to reach body
     this.emit('click:camera');
   },
 

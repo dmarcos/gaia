@@ -22,7 +22,7 @@ module.exports = View.extend({
     this.items = options.items;
     this.children = [];
     this.on('destroy', this.onDestroy);
-    bind(this.el, 'click', this.onClick);
+    //bind(this.el, 'click', this.onClick);
   },
 
   onClick: function(e) {
@@ -58,7 +58,8 @@ module.exports = View.extend({
     return this;
   },
 
-  goBack: function() {
+  goBack: function(e) {
+    e.stopPropagation();
     this.showPane(1);
     setTimeout(this.destroyOptionsView, 400);
   },
@@ -92,7 +93,7 @@ module.exports = View.extend({
   template: function() {
     return '<div class="pane pane-1">' +
       '<div class="settings_inner">' +
-        '<h2 class="settings_title">Options</h2>' +
+        '<h2 class="settings_title js-settings-title">Options</h2>' +
         '<div class="settings_items"><ul class="inner js-items"></ul></div>' +
       '</div>' +
     '</div>' +

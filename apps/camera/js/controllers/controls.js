@@ -94,7 +94,7 @@ ControlsController.prototype.onCancelButtonClick = function() {
  *
  */
 ControlsController.prototype.onGalleryButtonClick = function(event) {
-  event.stopPropagation();
+ // event.stopPropagation();  allowing event to reach body
 
   var MozActivity = window.MozActivity;
   var controls = this.controls;
