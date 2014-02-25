@@ -4,13 +4,13 @@
 'use strict';
 
 var icc = {
-  _iccLastCommand: null,
   _displayTextTimeout: 40000,
   _defaultURL: null,
   _inputTimeout: 40000,
+  _toneDefaultTimeout: 5000,
 
   init: function icc_init() {
-    this._icc = this.getICC();
+    this._iccManager = window.navigator.mozIccManager;
     this.hideViews();
     this.protectForms();
     this.getIccInfo();
@@ -18,7 +18,9 @@ var icc = {
     this.clearMenuCache(function() {
       window.navigator.mozSetMessageHandler('icc-stkcommand',
         function callHandleSTKCommand(message) {
-          self.handleSTKCommand(message);
+          if (self._iccManager && self._iccManager.getIccById) {
+            self.handleSTKCommand(message);
+          }
         });
     });
 
@@ -30,12 +32,34 @@ var icc = {
       self._displayTextTimeout =
         reqDisplayTimeout.result['icc.displayTextTimeout'];
     };
+    window.navigator.mozSettings.addObserver('icc.displayTextTimeout',
+      function(e) {
+        self._displayTextTimeout = e.settingValue;
+      }
+    );
     // Update inputTimeout with settings parameter
     var reqInputTimeout = window.navigator.mozSettings.createLock().get(
       'icc.inputTextTimeout');
     reqInputTimeout.onsuccess = function icc_getInputTimeout() {
       self._inputTimeout = reqInputTimeout.result['icc.inputTextTimeout'];
     };
+    window.navigator.mozSettings.addObserver('icc.inputTextTimeout',
+      function(e) {
+        self._inputTimeout = e.settingValue;
+      }
+    );
+    // Update toneDefaultTimeout with settings parameter
+    var reqToneDefaultTimeout = window.navigator.mozSettings.createLock().get(
+      'icc.toneDefaultTimeout');
+    reqToneDefaultTimeout.onsuccess = function icc_getToneDefaultTimeout() {
+      self._toneDefaultTimeout =
+        reqToneDefaultTimeout.result['icc.toneDefaultTimeout'];
+    };
+    window.navigator.mozSettings.addObserver('icc.toneDefaultTimeout',
+      function(e) {
+        self._toneDefaultTimeout = e.settingValue;
+      }
+    );
   },
 
   getIccInfo: function icc_getIccInfo() {
@@ -53,19 +77,30 @@ var icc = {
     xhr.send();
   },
 
-  getICC: function icc_getICC() {
-    if (!window.navigator.mozMobileConnection) {
-      return;
-    }
+  getIcc: function icc_getIcc(iccId) {
+    DUMP('ICC Getting ICC for ' + iccId);
+    return this._iccManager.getIccById(iccId);
+  },
 
-    // See bug 859712
-    // To have the backward compatibility for bug 859220.
-    // If we could not get iccManager from navigator,
-    // try to get it from mozMobileConnection.
-    // 'window.navigator.mozMobileConnection.icc' can be dropped
-    // after bug 859220 is landed.
-    return window.navigator.mozIccManager ||
-           window.navigator.mozMobileConnection.icc;
+  getConnection: function icc_getConnection(iccId) {
+    DUMP('ICC Getting Connection for ' + iccId);
+    for (var i = 0; i < window.navigator.mozMobileConnections.length; i++) {
+      if (window.navigator.mozMobileConnections[i].iccId === iccId) {
+        DUMP('ICC Connection ' + i + ' found for ' + iccId);
+        return window.navigator.mozMobileConnections[i];
+      }
+    }
+    return null;
+  },
+
+  getSIMNumber: function icc_getSIMNumber(iccId) {
+    DUMP('ICC Getting SIM Number for ' + iccId);
+    for (var i = 0; i < window.navigator.mozMobileConnections.length; i++) {
+      if (window.navigator.mozMobileConnections[i].iccId === iccId) {
+        return i + 1;
+      }
+    }
+    return '';
   },
 
   clearMenuCache: function icc_clearMenuCache(callback) {
@@ -82,52 +117,53 @@ var icc = {
     };
   },
 
-  handleSTKCommand: function icc_handleSTKCommand(command) {
-    DUMP('STK Proactive Command:', command);
+  handleSTKCommand: function icc_handleSTKCommand(message) {
+    DUMP('STK Proactive Command for SIM ' + message.iccId + ': ',
+      message.command);
     if (FtuLauncher.isFtuRunning()) {
       // Delay the stk command until FTU is done
       var self = this;
       window.addEventListener('ftudone', function ftudone() {
-        DUMP('FTU is done!... processing STK command:', command);
-        self.handleSTKCommand(command);
+        DUMP('FTU is done!... processing STK message:', message);
+        self.handleSTKCommand(message);
       });
       return DUMP('FTU is running, delaying STK...');
     }
 
-    this._iccLastCommand = command;
-
-    var cmdId = '0x' + command.typeOfCommand.toString(16);
+    var cmdId = '0x' + message.command.typeOfCommand.toString(16);
     if (icc_worker[cmdId]) {
-      return icc_worker[cmdId](command, this);
+      return icc_worker[cmdId](message);
     }
 
-    DUMP('STK Command not recognized ! - ', command);
+    DUMP('STK Command not recognized ! - ', message);
   },
 
 
   /**
    * Response ICC Command
    */
-  responseSTKCommand: function icc_responseSTKCommand(response) {
-    DUMP('sendStkResponse to command: ', this._iccLastCommand);
-    DUMP('sendStkResponse -- # response = ', response);
+  responseSTKCommand: function icc_responseSTKCommand(message, response) {
+    DUMP('STK sendStkResponse -- # response = ', response);
 
-    this._icc.sendStkResponse(this._iccLastCommand, response);
-    this._iccLastCommand = null;
+    (icc.getIcc(message.iccId)).sendStkResponse(message.command, response);
   },
 
   /**
    * Common responses
    */
-  terminateResponse: function() {
-    this.responseSTKCommand({
-      resultCode: this._icc.STK_RESULT_UICC_SESSION_TERM_BY_USER
+  terminateResponse: function(message) {
+    DUMP('STK Sending STK_RESULT_UICC_SESSION_TERM_BY_USER to card ' +
+      message.iccId);
+    this.responseSTKCommand(message, {
+      resultCode: this._iccManager.STK_RESULT_UICC_SESSION_TERM_BY_USER
     });
   },
 
-  backResponse: function() {
-    this.responseSTKCommand({
-      resultCode: this._icc.STK_RESULT_BACKWARD_MOVE_BY_USER
+  backResponse: function(message) {
+    DUMP('STK Sending STK_RESULT_BACKWARD_MOVE_BY_USER to card ' +
+      message.iccId);
+    this.responseSTKCommand(message, {
+      resultCode: this._iccManager.STK_RESULT_BACKWARD_MOVE_BY_USER
     });
   },
 
@@ -169,13 +205,13 @@ var icc = {
     timeInterval) {
     var timeout = timeInterval;
     switch (timeUnit) {
-      case this._icc.STK_TIME_UNIT_MINUTE:
+      case this._iccManager.STK_TIME_UNIT_MINUTE:
         timeout *= 3600000;
         break;
-      case this._icc.STK_TIME_UNIT_SECOND:
+      case this._iccManager.STK_TIME_UNIT_SECOND:
         timeout *= 1000;
         break;
-      case this._icc.STK_TIME_UNIT_TENTH_SECOND:
+      case this._iccManager.STK_TIME_UNIT_TENTH_SECOND:
         timeout *= 100;
         break;
     }
@@ -193,12 +229,18 @@ var icc = {
     }
   },
 
-  alert: function icc_alert(message) {
+  alert: function icc_alert(stkMessage, message) {
+    var _ = navigator.mozL10n.get;
     if (!this.icc_alert) {
       this.icc_alert = document.getElementById('icc-alert');
+      this.icc_alert_title = document.getElementById('icc-alert-title');
       this.icc_alert_msg = document.getElementById('icc-alert-msg');
       this.icc_alert_btn = document.getElementById('icc-alert-btn');
     }
+
+    this.icc_alert_title.textContent = _('icc-message-title', {
+        'id': this.getSIMNumber(stkMessage.iccId)
+      });
 
     var self = this;
     this.icc_alert_btn.onclick = function closeICCalert() {
@@ -213,9 +255,11 @@ var icc = {
   /**
    * callback responds with "userCleared"
    */
-  confirm: function(message, timeout, callback) {
+  confirm: function(stkMessage, message, timeout, callback) {
+    var _ = navigator.mozL10n.get;
     if (!this.icc_confirm) {
       this.icc_confirm = document.getElementById('icc-confirm');
+      this.icc_confirm_title = document.getElementById('icc-confirm-title');
       this.icc_confirm_msg = document.getElementById('icc-confirm-msg');
       this.icc_confirm_btn = document.getElementById('icc-confirm-btn');
       this.icc_confirm_btn_back =
@@ -227,19 +271,24 @@ var icc = {
     if (typeof callback != 'function') {
       callback = function() {};
     }
+
+    this.icc_confirm_title.textContent = _('icc-message-title', {
+        'id': this.getSIMNumber(stkMessage.iccId)
+      });
+
     var self = this;
 
     // STK Default response (BACK and CLOSE)
     this.icc_confirm_btn_back.onclick = function() {
       clearTimeout(timeoutId);
       self.hideViews();
-      self.backResponse();
+      self.backResponse(stkMessage);
       callback(null);
     };
     this.icc_confirm_btn_close.onclick = function() {
       clearTimeout(timeoutId);
       self.hideViews();
-      self.terminateResponse();
+      self.terminateResponse(stkMessage);
       callback(null);
     };
 
@@ -262,13 +311,16 @@ var icc = {
     this.icc_view.classList.add('visible');
   },
 
-  asyncConfirm: function(message, callback) {
+  asyncConfirm: function(stkMessage, message, callback) {
+    var _ = navigator.mozL10n.get;
     if (typeof callback != 'function') {
       callback = function() {};
     }
     if (!this.icc_asyncconfirm) {
       this.icc_asyncconfirm =
         document.getElementById('icc-asyncconfirm');
+      this.icc_asyncconfirm_title =
+        document.getElementById('icc-asyncconfirm-title');
       this.icc_asyncconfirm_msg =
         document.getElementById('icc-asyncconfirm-msg');
       this.icc_asyncconfirm_btn_no =
@@ -276,6 +328,10 @@ var icc = {
       this.icc_asyncconfirm_btn_yes =
         document.getElementById('icc-asyncconfirm-btn-yes');
     }
+
+    this.icc_asyncconfirm_title.textContent = _('icc-message-title', {
+        'id': this.getSIMNumber(stkMessage.iccId)
+      });
 
     var self = this;
     this.icc_asyncconfirm_btn_no.onclick = function rejectConfirm() {
@@ -295,7 +351,7 @@ var icc = {
   /**
    * Open URL
    */
-  showURL: function(url, confirmMessage) {
+  showURL: function(stkMessage, url, confirmMessage) {
     function openURL(url) {
       // Sanitise url just in case it doesn't start with http or https
       // the web activity won't work, so add by default the http protocol
@@ -314,7 +370,7 @@ var icc = {
     DUMP('Final URL to open: ' + url);
     if (url != null || url.length != 0) {
       if (confirmMessage) {
-        this.asyncConfirm(confirmMessage, function(res) {
+        this.asyncConfirm(stkMessage, confirmMessage, function(res) {
           if (res) {
             openURL(url);
           }
@@ -325,7 +381,8 @@ var icc = {
     }
   },
 
-  input: function(message, timeout, options, callback) {
+  input: function(stkMessage, message, timeout, options, callback) {
+    var _ = navigator.mozL10n.get;
     var self = this;
     var timeoutId = null;
     /**
@@ -358,6 +415,7 @@ var icc = {
 
     if (!this.icc_input) {
       this.icc_input = document.getElementById('icc-input');
+      this.icc_input_title = document.getElementById('icc-input-title');
       this.icc_input_msg = document.getElementById('icc-input-msg');
       this.icc_input_box = document.getElementById('icc-input-box');
       this.icc_input_btn = document.getElementById('icc-input-btn');
@@ -371,6 +429,10 @@ var icc = {
       callback = function() {};
     }
     setInputTimeout();
+
+    this.icc_input_title.textContent = _('icc-inputbox-title', {
+        'id': this.getSIMNumber(stkMessage.iccId)
+      });
 
     // Help
     this.icc_input_btn_help.disabled = !options.isHelpAvailable;
@@ -437,14 +499,14 @@ var icc = {
     this.icc_input_btn_back.onclick = function() {
       clearInputTimeout();
       self.hideViews();
-      self.backResponse();
+      self.backResponse(stkMessage);
       callback(null);
     };
     this.icc_input_btn_help.onclick = function() {
       clearInputTimeout();
       self.hideViews();
       self.responseSTKCommand({
-        resultCode: self._icc.STK_RESULT_HELP_INFO_REQUIRED
+        resultCode: self._iccManager.STK_RESULT_HELP_INFO_REQUIRED
       });
       callback(null);
     };

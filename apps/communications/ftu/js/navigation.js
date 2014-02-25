@@ -135,22 +135,15 @@ var Navigation = {
     window.open(href);
   },
 
-  getProgressBarClassName: function n_getProgressBarClassName() {
+  getProgressBarState: function n_getProgressBarState() {
     // Manage step state (dynamically change)
-    var className = 'step-state step-';
-    if (this.skipped && this.currentStep > 2) {
-      className += (this.currentStep - 1) + ' less-steps';
-    } else {
-      className += this.currentStep;
-    }
-
-    return className;
+    return (this.skipped && this.currentStep > 2) ? this.currentStep - 2 :
+      this.currentStep - 1;
   },
 
   handleEvent: function n_handleEvent(event) {
     var actualHash = window.location.hash;
-    var className = this.getProgressBarClassName();
-
+    UIManager.progressBar.classList.remove('hidden');
     switch (actualHash) {
       case '#languages':
         UIManager.mainTitle.innerHTML = _('language');
@@ -170,11 +163,11 @@ var Navigation = {
         // Avoid refresh when connecting
         WifiManager.scan(WifiUI.renderNetworks);
         break;
-      case '#geolocation':
-        UIManager.mainTitle.innerHTML = _('geolocation');
-        break;
       case '#date_and_time':
         UIManager.mainTitle.innerHTML = _('dateAndTime');
+        break;
+      case '#geolocation':
+        UIManager.mainTitle.innerHTML = _('geolocation');
         break;
       case '#import_contacts':
         UIManager.mainTitle.innerHTML = _('importContacts3');
@@ -208,13 +201,15 @@ var Navigation = {
       case '#about-your-privacy':
       case '#sharing-performance-data':
         UIManager.mainTitle.innerHTML = _('aboutBrowser');
-        // override the className here
-        className = 'hidden';
+        UIManager.progressBar.classList.add('hidden');
         UIManager.navBar.classList.add('back-only');
         break;
     }
 
-    UIManager.progressBar.className = className;
+    UIManager.progressBarState.style.width =
+      'calc(100% / ' + numSteps + ')';
+    UIManager.progressBarState.style.transform =
+      'translateX(' + (this.getProgressBarState() * 100) + '%)';
 
     // If SIM card is mandatory, we hide the button skip
     if (this.simMandatory) {
@@ -238,7 +233,7 @@ var Navigation = {
     }
   },
 
-  skipStep: function n_skipStep() {
+  skipStep: function n_skipStep(callback) {
     this.currentStep = this.currentStep +
                       (this.currentStep - this.previousStep);
     if (this.currentStep < 1) {
@@ -266,8 +261,9 @@ var Navigation = {
     }
 
     // If SIMcard is mandatory and no SIM, go to message window
-    if (self.simMandatory && IccHelper.cardState === 'absent' &&
-      futureLocation.requireSIM) {
+    if (self.simMandatory &&
+        !IccHelper.cardState &&
+        futureLocation.requireSIM) {
       //Send to SIM Mandatory message
       futureLocation.hash = '#SIM_mandatory';
       futureLocation.requireSIM = false;
@@ -286,6 +282,7 @@ var Navigation = {
     } else {
       nextButton.removeAttribute('disabled');
     }
+
     // Substitute button content on last step
     if (this.currentStep === numSteps) {
       nextButton.firstChild.textContent = _('done');
@@ -300,7 +297,9 @@ var Navigation = {
     if (futureLocation.requireSIM) {
       SimManager.handleCardState(function check_cardState(response) {
         self.skipped = false;
-        if (!response) {
+        if (!response || (!SimManager.available() &&
+          // Don't skip it if next step is data 3g
+         futureLocation.hash !== '#data_3g')) {
           self.skipStep();
         }
       });

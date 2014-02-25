@@ -3,16 +3,11 @@
   height: calc(100% - 4rem);
 }
 
-@font-face {
-  font-family: SourceCodePro-Light;
-  src: url(fonts/SourceCodePro-Light.ttf);
-}
-
 #timer-time {
-  font-family: SourceCodePro-Light;
   letter-spacing: -0.5rem;
+  font-variant-numeric: tabular-nums;
   font-weight: lighter;
-  font-size: 5.5rem;
+  font-size: 8.6rem;
   color: #CFE2E6;
   pointer-events: none;
   margin-top: 14rem;
@@ -38,14 +33,15 @@
 }
 
 #timer-controls {
-  width: calc(100% - 0.13rem);
-  margin: 0px 0.5rem 0px -1rem;
+  display: flex;
+  margin: 2rem 1rem 0;
+  padding: 0;
 }
 
 #timer-controls button {
-  float: left;
-  margin: 0 1rem 0 0;
-  width: 40%;
+  height: 3.8rem;
+  margin: 0 0.5rem;
+  flex: auto;
 }
 
 #timer-edit {
@@ -100,15 +96,40 @@ ul li > label.pack-switch > input + span {
   opacity: 0;
 }
 
-#timer-menu:before {
+#timer-sound-menu:before {
   background: url("/shared/style/buttons/images/icons/dialog.png") no-repeat scroll 1.6rem -6rem / 1rem 9rem transparent;
 }
 
-#timer-menu {
+#timer-sound-menu {
   border-width: 0;
 
   color: #FFF;
   text-align: left;
   background-color: #4D4D4D;
-  text-shadow: 0 0;
+}
+
+#timer-plus-time {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+
+  margin-right: 3rem;
+  margin-bottom: 3rem;
+}
+
+#timer-plus-time a {
+  color: #CFE2E6;
+  font: 2.5rem sans-serif;
+  font-weight: normal;
+  text-decoration: none;
+}
+
+@media (min-width: 768px) {
+  #timer-controls {
+    width: auto;
+  }
+
+  #timer-controls button {
+    float: none;
+  }
 }

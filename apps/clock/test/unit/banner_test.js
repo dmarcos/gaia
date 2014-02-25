@@ -1,13 +1,11 @@
 suite('Banner', function() {
-  var Banner, mozL10n;
+  'use strict';
+    var Banner, mozL10n;
 
   suiteSetup(function(done) {
-    // store timezone offset for fake timers
-    var offset = (new Date()).getTimezoneOffset() * 60 * 1000;
-
     // The timestamp for "Tue Jul 16 2013 06:00:00" according to the local
     // system's time zone
-    this.sixAm = 1373954400000 + offset;
+    this.sixAm = new Date(2013, 5, 16, 6).getTime();
 
     // +12 minutes +20 seconds
     this.minutes = this.sixAm + 740000;
@@ -24,7 +22,7 @@ suite('Banner', function() {
     testRequire(['banner', 'mocks/mock_shared/js/l10n'],
       function(banner, mockL10n) {
       Banner = banner;
-      mozL10n = MockL10n;
+      mozL10n = mockL10n;
 
       this.banner = new Banner(this.noteElem);
 

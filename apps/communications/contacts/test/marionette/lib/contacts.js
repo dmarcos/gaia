@@ -23,12 +23,19 @@ Contacts.config = {
 };
 
 Contacts.Selectors = {
+  body: 'body',
+  bodyReady: 'body .view-body',
+
   confirmHeader: '#confirmation-message h1',
   confirmBody: '#confirmation-message p',
 
   details: '#view-contact-details',
   detailsEditContact: '#edit-contact-button',
   detailsTelLabelFirst: '#phone-details-template-0 h2',
+  detailsTelButtonFirst: 'button.icon-call[data-tel]',
+
+  duplicateFrame: 'iframe[src*="matching_contacts.html"]',
+  duplicateHeader: '#title',
 
   form: '#view-contact-form',
   formCustomTag: '#custom-tag',
@@ -67,7 +74,7 @@ Contacts.prototype = {
   launch: function() {
     this.client.apps.launch(Contacts.URL, 'contacts');
     this.client.apps.switchToApp(Contacts.URL, 'contacts');
-    this.client.helper.waitForElement('body .view-body');
+    this.client.helper.waitForElement(Contacts.Selectors.bodyReady);
   },
 
   relaunch: function() {
@@ -86,47 +93,73 @@ Contacts.prototype = {
       var data;
       xhr.open('GET', file, false); // Intentional sync
       xhr.onload = function(o) {
-        data = xhr.response;
+        data = JSON.parse(xhr.response);
       };
       xhr.send(null);
       return data;
     }, [file, key]);
 
-    var re = new RegExp(key + '\\s*=\\s*(.*)');
-    var result = re.exec(string)[1];
-    return result;
+    return string[key]['_'];
   },
 
-  addContact: function(details) {
+  waitSlideLeft: function(elementKey) {
+    this.client.waitFor(function() {
+      var location = this.client.findElement(Contacts.Selectors[elementKey])
+        .location();
+      return location.x === 0;
+    });
+  },
+
+  waitForFormShown: function() {
+    this.client.waitFor(function() {
+      var location = this.client.findElement(Contacts.Selectors.form)
+        .location();
+      return location.y === 0;
+    });
+  },
+
+  waitForFormTransition: function() {
+    var selectors = Contacts.Selectors;
+    var bodyHeight = client.findElement(selectors.body).size().height;
+    this.client.waitFor(function() {
+      var location = client.findElement(selectors.form).location();
+      return location.y >= bodyHeight;
+    });
+  },
+
+  enterContactDetails: function(details) {
+
+    var selectors = Contacts.Selectors;
 
     details = details || {
       givenName: 'Hello',
       familyName: 'Contact'
     };
 
-    var selectors = Contacts.Selectors;
-
-    var addContact = client.findElement(selectors.formNew);
-    addContact.click();
-
-    client.helper.waitForElement(selectors.formGivenName);
+    this.waitForFormShown();
 
     for (var i in details) {
       // Camelcase details to match form.* selectors.
       var key = 'form' + i.charAt(0).toUpperCase() + i.slice(1);
 
-      client.findElement(selectors[key])
+      this.client.findElement(selectors[key])
         .sendKeys(details[i]);
     }
 
-    client.helper.waitForElement(selectors.formSave).click();
+    this.client.helper.waitForElement(selectors.formSave).click();
 
-    client.waitFor(function() {
-      var location = client.findElement(selectors.form).location();
-      return location.y >= 460;
-    });
+    this.waitForFormTransition();
+  },
 
-    client.helper.waitForElement(selectors.list);
+  addContact: function(details) {
+    var selectors = Contacts.Selectors;
+
+    var addContact = this.client.findElement(selectors.formNew);
+    addContact.click();
+
+    this.enterContactDetails(details);
+
+    this.client.helper.waitForElement(selectors.list);
   }
 };
 

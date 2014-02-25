@@ -23,6 +23,9 @@ var MockUtils = {
   getResizedImgBlob: Utils.getResizedImgBlob,
   getCarrierTag: Utils.getCarrierTag,
   removeNonDialables: Utils.removeNonDialables,
+  multiRecipientMatch: Utils.multiRecipientMatch,
   probablyMatches: Utils.probablyMatches,
-  getDisplayObject: Utils.getDisplayObject
+  getDisplayObject: Utils.getDisplayObject,
+  basicContact: Utils.basicContact,
+  asyncLoadRevokeURL: Utils.asyncLoadRevokeURL
 };

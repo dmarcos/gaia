@@ -6,12 +6,17 @@ requireLib('store/account.js');
 
 suite('store/account', function() {
 
+  ['Provider.Local', 'Provider.Caldav'].forEach(function(name) {
+    suiteSetup(function(done) {
+      Calendar.App.loadObject(name, done);
+    });
+  });
+
   var subject;
   var db;
   var app;
 
   setup(function(done) {
-    this.timeout(5000);
     app = testSupport.calendar.app();
     db = app.db;
     subject = db.getStore('Account');
@@ -418,6 +423,45 @@ suite('store/account', function() {
       assert.isFalse(('_id' in result));
     });
 
+  });
+
+  suite('#syncableAccounts', function() {
+    var accounts = testSupport.calendar.dbFixtures(
+      'account',
+      'Account', {
+        nosync: { _id: 55, providerType: 'Local' },
+        sync: { _id: 56, providerType: 'Caldav' }
+      }
+    );
+
+
+    var results;
+    setup(function(done) {
+      subject.syncableAccounts(function(err, list) {
+        if (err) return done(err);
+        results = list;
+        done();
+      });
+    });
+
+    test('found accounts', function() {
+      assert.length(results, 1);
+      assert.equal(results[0]._id, accounts.sync._id);
+    });
+
+    suite('no syncable accounts', function() {
+      setup(function(done) {
+        subject.remove(accounts.sync._id, done);
+      });
+
+      test('result', function(done) {
+        subject.syncableAccounts(function(err, list) {
+          if (err) return done(err);
+          assert.equal(list.length, 0);
+          done();
+        });
+      });
+    });
   });
 
   suite('#sync: add, remove, update', function() {

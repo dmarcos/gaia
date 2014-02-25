@@ -6,7 +6,7 @@ window.Evme = new function Evme_Core() {
 
   this.shouldSearchOnInputBlur = false;
 
-  this.init = function init(callback) {
+  this.init = function init(config, callback) {
     var data = Evme.__config,
         apiHost = Evme.Utils.getUrlParam('apiHost') || data.apiHost;
 
@@ -38,6 +38,7 @@ window.Evme = new function Evme_Core() {
     });
 
     Evme.DoATAPI.init({
+      'deviceId': config.deviceId,
       'apiKey': data.apiKey,
       'appVersion': data.appVersion,
       'authCookieName': data.authCookieName,
@@ -141,15 +142,14 @@ window.Evme = new function Evme_Core() {
           descriptor.entry_point = info[1];
         }
 
-        EvmeManager.getAppByDescriptor(function getting(app) {
-          if (app) {
-            infoApps.push(app);
-          }
+        var app = EvmeManager.getAppByDescriptor(descriptor);
+        if (app) {
+          infoApps.push(app);
+        }
 
-          if (--total === 0) {
-            saveCollectionSettings(collection, infoApps, onDone);
-          }
-        }, descriptor);
+        if (--total === 0) {
+          saveCollectionSettings(collection, infoApps, onDone);
+        }
       });
     };
 
@@ -206,7 +206,6 @@ window.Evme = new function Evme_Core() {
     Evme.Searchbar.init({
       'el': Evme.$('#search-q'),
       'elForm': Evme.$('#search-rapper'),
-      'elDefaultText': Evme.$('#default-text'),
       'timeBeforeEventPause': data.searchbar.timeBeforeEventPause,
       'timeBeforeEventIdle': data.searchbar.timeBeforeEventIdle,
       'setFocusOnClear': false
@@ -231,12 +230,6 @@ window.Evme = new function Evme_Core() {
       'appsPerRow': data.apps.appsPerRow,
       'providers': [
       {
-        type: Evme.PROVIDER_TYPES.STATIC,
-        config: {
-          'renderer': Evme.StaticAppsRenderer,
-          'containerEl': Evme.$('.static', appsEl)[0]
-        }
-      }, {
         type: Evme.PROVIDER_TYPES.INSTALLED,
         config: {
           'renderer': Evme.InstalledAppsRenderer,

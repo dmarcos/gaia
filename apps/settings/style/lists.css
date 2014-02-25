@@ -32,7 +32,8 @@ ul li label:not([for]) {
 }
 
 ul li > a,
-ul li > span {
+ul li > span,
+ul li > label > span {
   display: block;
   text-decoration: none;
   outline: 0;
@@ -84,7 +85,7 @@ ul li > a span {
 }
 
 /* text ellipsis */
-ul li > * {
+ul li > *, ul li > label > * {
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -92,7 +93,7 @@ ul li > * {
 }
 
 /* sublines */
-ul li > small {
+ul li > small, ul li > label > small {
   position: absolute;
   left: 1.5rem;
   right: 1.5rem;
@@ -104,20 +105,54 @@ ul li > small {
   pointer-events: none;
 }
 
-ul li > label.pack-checkbox + small,
-ul li > label.pack-radio + small {
+ul li > label.pack-checkbox > small,
+ul li > label.pack-radio > small {
   right: 6.1rem;
 }
 
-ul li > label.pack-switch + small {
+ul li > label.pack-switch > small {
    right: 9rem;
 }
 
 /* required for empty elements like Bluetooth */
-ul li > small:not(:empty) + a,
-ul li > small:not(:empty) + span {
+ul li small:not(:empty) + a,
+ul li small:not(:empty) + span {
   line-height: 4.4rem;
   padding-bottom: 0.1rem; /* Bug 903438 */
+}
+
+/* color previews */
+ul li > label.pack-checkbox > .color-preview:before {
+  height: 2rem;
+  width: 2rem;
+  background-color: red;
+  content: "";
+  display: inline-block;
+  margin: 0 1rem -0.2rem -1rem;
+}
+
+ul li > label.pack-checkbox > .error-counter:before {
+  background-color: red;
+}
+
+ul li > label.pack-checkbox > .warning-counter:before {
+  background-color: orange;
+}
+
+ul li > label.pack-checkbox > .reflow-counter:before {
+  background-color: purple;
+}
+
+ul li > label.pack-checkbox > .jank-monitor:before {
+  background-color: cornflowerblue;
+}
+
+ul li > label.pack-checkbox > .fps-monitor:before {
+  background-color: fuchsia;
+}
+
+ul li > label.pack-checkbox > .ttl-monitor:before {
+  background-color: darkgreen;
 }
 
 
@@ -130,6 +165,7 @@ ul li a[role="button"] {
   position: relative;
   top: 1.1rem;
   width: 100%;
+  margin-bottom: 1.2rem;
 }
 
 /* custom styles for boolean inputs (see /shared/style/switches.css) */
@@ -141,47 +177,41 @@ ul li > label:not([for]),
 ul li > label.pack-checkbox,
 ul li > label.pack-radio,
 ul li > label.pack-switch {
-  position: absolute;
-  top: 0;
-  left: 0;
   width: 100%;
   height: 100%;
+  margin: 0;
+  overflow: visible;
 }
 
-ul li > label.pack-checkbox > span,
-ul li > label.pack-radio > span,
-ul li > label.pack-switch > input + span {
+ul li > label.pack-checkbox > span:after,
+ul li > label.pack-radio > span:after,
+ul li > label.pack-switch > input ~ span:after {
   left: auto;
   right: 0;
 }
 
-ul li > label.pack-checkbox ~ a,
-ul li > label.pack-radio ~ a {
+ul li > label.pack-checkbox > span {
   padding-right: 6.1rem;
 }
+
 ul li > label.pack-radio ~ p {
   padding-right: 3rem;
 }
 
-ul li > label.pack-switch ~ a {
+ul li > label.pack-switch > span {
    padding-right: 9rem;
 }
-ul li > label.pack-radio ~ a {
+
+ul li > label.pack-radio > span {
   padding-right: 5.9rem;
 }
 
-ul li > label.pack-checkbox:active ~ a,
-ul li > label.pack-radio:active ~ a,
-ul li > label.pack-switch:active ~ a {
+ul li > label.pack-checkbox:active > span,
+ul li > label.pack-radio:active > span,
+ul li > label.pack-switch:active > span {
   background-color: #b2f2ff;
   color: #222;
 }
-
-ul li > label:not([for]):only-child {
-  position: relative;
-  padding: 0.5rem 0 1.5rem 0;
-}
-
 
 /******************************************************************************
  * Field inputs
@@ -266,6 +296,7 @@ ul li.sound-setting > label input[type="range"] {
 ul li#brightness-manual > label input[type="range"] {
   margin: 0 auto;
   width: calc(100% - 10rem);
+  display: inline;
 }
 
 /******************************************************************************
@@ -324,58 +355,93 @@ dl dd {
  * Right-to-Left layout
  */
 
-/* definition lists */
-html[dir="rtl"] dl dt {
-  padding-left: inherit;
-  padding-right: 3rem;
+html[dir="rtl"] ul > li > progress + span {
+  padding-left: 0;
+  padding-right: 1rem;
 }
 
-/* half-width select boxes */
-html[dir="rtl"] ul li span select {
-  left: 3rem;
-  right: inherit;
+html[dir="rtl"] ul li > a span {
+  left: 1.5rem;
+  right: auto;
 }
 
-/* full-width select boxes */
-html[dir="rtl"] ul li p + select {
-  margin: -1rem 12rem 1rem 3rem;
+html[dir="rtl"] ul li > label.pack-checkbox > small,
+html[dir="rtl"] ul li > label.pack-radio > small {
+  left: 6.1rem;
+  right: 4rem;
 }
 
-/* boolean inputs */
-
-html[dir="rtl"] ul li button,
-html[dir="rtl"] ul li a[role="button"] {
-  left: inherit;
-  right: 3rem;
+html[dir="rtl"] ul li > label.pack-checkbox > small:not(.menu-item-desc),
+html[dir="rtl"] ul li > label.pack-radio > small:not(.menu-item-desc) {
+   left: 9rem;
+   right: 2rem;
 }
 
-html[dir="rtl"] ul li > label.pack-checkbox > span,
-html[dir="rtl"] ul li > label.pack-radio > span,
-html[dir="rtl"] ul li > label.pack-switch > input + span {
-  left: 9rem; /* XXX we use "right: 3rem" for LTR layouts... */
-  right: inherit;
+html[dir="rtl"] ul li > label.pack-switch > small {
+   left: 9rem;
+   right: 4rem;
 }
 
-html[dir="rtl"] ul li > label.pack-checkbox ~ a,
-html[dir="rtl"] ul li > label.pack-radio ~ a {
+html[dir="rtl"] ul li > label.pack-switch > small:not(.menu-item-desc) {
+   left: 9rem;
+   right: 2rem;
+}
+
+html[dir="rtl"] ul li > label.pack-checkbox > span:after,
+html[dir="rtl"] ul li > label.pack-radio > span:after,
+html[dir="rtl"] ul li > label.pack-switch > input ~ span:after {
+  left: 0;
+  right: auto;
+}
+
+html[dir="rtl"] ul li > label.pack-checkbox > span {
+  padding-left: 6.1rem;
+  
+}
+html[dir="rtl"] ul li > label.pack-checkbox > span:not(.menu-item) {
   padding-left: 6.1rem;
   padding-right: 3rem;
 }
 
-html[dir="rtl"] ul li > label.pack-switch ~ a {
+html[dir="rtl"] ul li > label.pack-radio ~ p {
+  padding-left: 3rem;
+}
+
+html[dir="rtl"] ul li > label.pack-switch > span {
+  padding-left: 9rem;
+}
+
+html[dir="rtl"] ul li > label.pack-switch > span:not(.menu-item) {
   padding-left: 9rem;
   padding-right: 3rem;
 }
 
-/* description + value on the same line */
-html[dir="rtl"] ul li > a span {
-  left: 3rem;
-  right: inherit;
+html[dir="rtl"] ul li > label.pack-radio > span {
+  padding-left: 5.9rem;
 }
 
-/* main list items */
-html[dir="rtl"] ul li > a,
-html[dir="rtl"] ul li > span {
-  padding-left: inherit;
+html[dir="rtl"] ul li > label.pack-radio > span:not(.menu-item) {
+  padding-left: 5.9rem;
   padding-right: 3rem;
 }
+
+html[dir="rtl"] ul li > label input[type="range"] {
+  left: 7rem;
+  right: 5rem;
+}
+
+html[dir="rtl"] ul li.sound-setting > label input[type="range"] {
+  left: auto;
+  right: 1.5rem;
+}
+
+html[dir="rtl"] dl dt {
+  padding-left: 0;
+  padding-right: 3rem;
+}
+
+html[dir="rtl"] ul li.bluetooth-device > a{
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+

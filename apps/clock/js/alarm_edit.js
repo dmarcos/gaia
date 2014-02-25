@@ -1,11 +1,14 @@
+'use strict';
+/* global KeyEvent */
 define(function(require) {
 
 var Alarm = require('alarm');
 var AlarmList = require('alarm_list');
 var AlarmManager = require('alarm_manager');
 var ClockView = require('clock_view');
+var FormButton = require('form_button');
+var Sounds = require('sounds');
 var Utils = require('utils');
-var constants = require('constants');
 var mozL10n = require('l10n');
 var _ = mozL10n.get;
 
@@ -23,120 +26,136 @@ var AlarmEdit = {
 
   get element() {
     delete this.element;
-    return this.element = document.getElementById('alarm-edit-panel');
+    return (this.element = document.getElementById('alarm-edit-panel'));
   },
 
   get scrollList() {
     delete this.scrollList;
-    return this.scrollList = document.getElementById('edit-alarm');
+    return (this.scrollList = document.getElementById('edit-alarm'));
   },
 
-  get labelInput() {
-    delete this.labelInput;
-    return this.labelInput =
-      document.querySelector('input[name="alarm.label"]');
-  },
-
-  get timeSelect() {
-    delete this.timeSelect;
-    return this.timeSelect = document.getElementById('time-select');
-  },
-
-  get timeMenu() {
-    delete this.timeMenu;
-    return this.timeMenu = document.getElementById('time-menu');
+  get sundayListItem() {
+    return document.getElementById('repeat-select-sunday');
   },
 
   get alarmTitle() {
     delete this.alarmTitle;
-    return this.alarmTitle = document.getElementById('alarm-title');
-  },
-
-  get repeatMenu() {
-    delete this.repeatMenu;
-    return this.repeatMenu = document.getElementById('repeat-menu');
-  },
-
-  get repeatSelect() {
-    delete this.repeatSelect;
-    return this.repeatSelect = document.getElementById('repeat-select');
-  },
-
-  get soundMenu() {
-    delete this.soundMenu;
-    return this.soundMenu = document.getElementById('sound-menu');
-  },
-
-  get soundSelect() {
-    delete this.soundSelect;
-    return this.soundSelect = document.getElementById('sound-select');
-  },
-
-  get vibrateMenu() {
-    delete this.vibrateMenu;
-    return this.vibrateMenu = document.getElementById('vibrate-menu');
-  },
-
-  get vibrateSelect() {
-    delete this.vibrateSelect;
-    return this.vibrateSelect = document.getElementById('vibrate-select');
-  },
-
-  get snoozeMenu() {
-    delete this.snoozeMenu;
-    return this.snoozeMenu = document.getElementById('snooze-menu');
-  },
-
-  get snoozeSelect() {
-    delete this.snoozeSelect;
-    return this.snoozeSelect = document.getElementById('snooze-select');
-  },
-
-  get deleteButton() {
-    delete this.deleteButton;
-    return this.deleteButton = document.getElementById('alarm-delete');
-  },
-
-  get backButton() {
-    delete this.backElement;
-    return this.backElement = document.getElementById('alarm-close');
-  },
-
-  get doneButton() {
-    delete this.doneButton;
-    return this.doneButton = document.getElementById('alarm-done');
+    return (this.alarmTitle = document.getElementById('alarm-title'));
   },
 
   init: function aev_init() {
+    this.selects = {};
+    [
+      'time', 'repeat', 'sound', 'vibrate', 'snooze'
+    ].forEach(function(id) {
+      this.selects[id] = document.getElementById(id + '-select');
+    }, this);
+
+    this.inputs = {
+      name: document.getElementById('alarm-name')
+    };
+
+    this.buttons = {};
+    [
+      'delete', 'close', 'done'
+    ].forEach(function(id) {
+      this.buttons[id] = document.getElementById('alarm-' + id);
+    }, this);
+
+    this.buttons.time = new FormButton(this.selects.time, {
+      formatLabel: function(value) {
+        var time = Utils.parseTime(value);
+        return Utils.format.time(time.hour, time.minute);
+      }.bind(this)
+    });
+    this.buttons.repeat = new FormButton(this.selects.repeat, {
+      id: 'repeat-menu',
+      formatLabel: function(daysOfWeek) {
+        return this.alarm.summarizeDaysOfWeek(daysOfWeek);
+      }.bind(this)
+    });
+    this.buttons.sound = new FormButton(this.selects.sound, {
+      id: 'sound-menu',
+      formatLabel: Sounds.formatLabel
+    });
+    this.buttons.vibrate = new FormButton(this.selects.vibrate, {
+      formatLabel: function(vibrate) {
+        return (vibrate === null || vibrate === '0') ?
+          _('vibrateOff') :
+          _('vibrateOn');
+      }
+    });
+    this.buttons.snooze = new FormButton(this.selects.snooze, {
+      id: 'snooze-menu',
+      formatLabel: function(snooze) {
+        return _('nMinutes', {n: snooze});
+      }
+    });
+
     mozL10n.translate(this.element);
-    this.backButton.addEventListener('click', this);
-    this.doneButton.addEventListener('click', this);
-    this.timeMenu.addEventListener('click', this);
-    this.timeSelect.addEventListener('blur', this);
-    this.repeatMenu.addEventListener('click', this);
-    this.repeatSelect.addEventListener('blur', this);
-    this.soundMenu.addEventListener('click', this);
-    this.soundSelect.addEventListener('change', this);
-    this.soundSelect.addEventListener('blur', this);
-    this.vibrateMenu.addEventListener('click', this);
-    this.vibrateSelect.addEventListener('blur', this);
-    this.snoozeMenu.addEventListener('click', this);
-    this.snoozeSelect.addEventListener('blur', this);
-    this.deleteButton.addEventListener('click', this);
+
+    // When the language changes, the value of 'weekStartsOnMonday'
+    // might change. Since that's more than a simple text string, we
+    // can't just use mozL10n.translate().
+    window.addEventListener('localized', this.updateL10n.bind(this));
+    this.updateL10n();
+
+    this.buttons.close.addEventListener('click', this);
+    this.buttons.done.addEventListener('click', this);
+    this.selects.sound.addEventListener('change', this);
+    this.selects.sound.addEventListener('blur', this);
+    this.selects.repeat.addEventListener('change', this);
+    this.buttons.delete.addEventListener('click', this);
+    this.inputs.name.addEventListener('keypress', this.handleNameInput);
+
+    // If the phone locks during preview, pause the sound.
+    // TODO: When this is no longer a singleton, unbind the listener.
+    window.addEventListener('visibilitychange', function() {
+      if (document.hidden) {
+        this.stopPreviewSound();
+      }
+    }.bind(this));
+
     this.init = function() {};
+  },
+
+  handleNameInput: function(evt) {
+    // If the user presses enter on the name label, dismiss the
+    // keyboard to allow them to continue filling out the other
+    // fields. This is not in the `handleEvent` function because we
+    // only want to call `.preventDefault` sometimes.
+    if (evt.keyCode === KeyEvent.DOM_VK_RETURN) {
+      evt.preventDefault();
+      evt.target.blur();
+    }
+  },
+
+  updateL10n: function() {
+    // Move the weekdays around to properly account for whether the
+    // week starts on Sunday or Monday.
+    var weekStartsOnMonday = parseInt(_('weekStartsOnMonday'), 10);
+    var parent = this.sundayListItem.parentElement;
+    if (weekStartsOnMonday) {
+      // Sunday gets moved to the end.
+      parent.appendChild(this.sundayListItem);
+    } else {
+      // Sunday goes first.
+      parent.insertBefore(this.sundayListItem, parent.firstChild);
+    }
   },
 
   handleEvent: function aev_handleEvent(evt) {
     evt.preventDefault();
     var input = evt.target;
-    if (!input)
+    if (!input) {
       return;
+    }
 
     switch (input) {
-      case this.backButton:
+      case this.buttons.close:
         ClockView.show();
         break;
-      case this.doneButton:
+      case this.buttons.done:
         ClockView.show();
         this.save(function aev_saveCallback(err, alarm) {
           if (err) {
@@ -145,25 +164,9 @@ var AlarmEdit = {
           AlarmList.refreshItem(alarm);
         });
         break;
-      case this.timeMenu:
-        this.focusMenu(this.timeSelect);
-        break;
-      case this.timeSelect:
-        this.refreshTimeMenu(this.getTimeSelect());
-        break;
-      case this.repeatMenu:
-        this.focusMenu(this.repeatSelect);
-        break;
-      case this.repeatSelect:
-        this.refreshRepeatMenu(this.getRepeatSelect());
-        break;
-      case this.soundMenu:
-        this.focusMenu(this.soundSelect);
-        break;
-      case this.soundSelect:
+      case this.selects.sound:
         switch (evt.type) {
           case 'change':
-            this.refreshSoundMenu(this.getSoundSelect());
             this.previewSound();
             break;
           case 'blur':
@@ -171,21 +174,12 @@ var AlarmEdit = {
             break;
         }
         break;
-      case this.vibrateMenu:
-        this.focusMenu(this.vibrateSelect);
-        break;
-      case this.vibrateSelect:
-        this.refreshVibrateMenu(this.getVibrateSelect());
-        break;
-      case this.snoozeMenu:
-        this.focusMenu(this.snoozeSelect);
-        break;
-      case this.snoozeSelect:
-        this.refreshSnoozeMenu(this.getSnoozeSelect());
-        break;
-      case this.deleteButton:
+      case this.buttons.delete:
         ClockView.show();
         this.delete();
+        break;
+      case this.selects.repeat:
+        this.alarm.repeat = this.buttons.repeat.value;
         break;
     }
   },
@@ -199,96 +193,44 @@ var AlarmEdit = {
     // scroll to top of form list
     this.scrollList.scrollTop = 0;
 
-    if (!alarm) {
-      this.element.classList.add('new');
-      this.alarmTitle.textContent = _('newAlarm');
-      alarm = new Alarm();
-    } else {
-      this.element.classList.remove('new');
-      this.alarmTitle.textContent = _('editAlarm');
-    }
-    this.alarm = new Alarm(alarm);
+    this.element.classList.toggle('new', !alarm);
+    this.alarm = new Alarm(alarm); // alarm may be null
 
-    this.element.dataset.id = alarm.id;
-    this.labelInput.value = alarm.label;
+    // Set to empty string if the Alarm doesn't have an ID,
+    // otherwise dataset will automatically stringify it
+    // to be "undefined" rather than "".
+    this.element.dataset.id = this.alarm.id || '';
+    this.inputs.name.value = this.alarm.label;
 
     // Init time, repeat, sound, snooze selection menu.
     this.initTimeSelect();
-    this.refreshTimeMenu();
     this.initRepeatSelect();
-    this.refreshRepeatMenu();
     this.initSoundSelect();
-    this.refreshSoundMenu();
     this.initVibrateSelect();
-    this.refreshVibrateMenu();
     this.initSnoozeSelect();
-    this.refreshSnoozeMenu();
     location.hash = '#alarm-edit-panel';
   },
 
   initTimeSelect: function aev_initTimeSelect() {
     // The format of input type="time" should be in HH:MM
-    this.timeSelect.value = (this.alarm.hour < 10 ? '0' : '') +
-                            this.alarm.hour + ':' +
-                            (this.alarm.minute < 10 ? '0' : '') +
-                            this.alarm.minute;
+    var opts = { meridian: false, padHours: true };
+    var time = Utils.format.time(this.alarm.hour, this.alarm.minute, opts);
+    this.buttons.time.value = time;
   },
 
   getTimeSelect: function aev_getTimeSelect() {
-    return Utils.parseTime(this.timeSelect.value);
+    return Utils.parseTime(this.selects.time.value);
   },
-
-  refreshTimeMenu: function aev_refreshTimeMenu(time) {
-    if (!time) {
-      time = this.alarm;
-    }
-    this.timeMenu.textContent = Utils.format.time(time.hour, time.minute);
-  },
-
   initRepeatSelect: function aev_initRepeatSelect() {
-    var daysOfWeek = this.alarm.repeat;
-    var options = this.repeatSelect.options;
-    for (var i = 0; i < options.length; i++) {
-      options[i].selected = daysOfWeek[constants.DAYS[i]] === true;
-    }
-    this.refreshRepeatMenu(null);
-  },
-
-  getRepeatSelect: function aev_getRepeatSelect() {
-    var daysOfWeek = {};
-    var options = this.repeatSelect.options;
-    for (var i = 0; i < options.length; i++) {
-      if (options[i].selected) {
-        daysOfWeek[constants.DAYS[i]] = true;
-      }
-    }
-    return daysOfWeek;
-  },
-
-  refreshRepeatMenu: function aev_refreshRepeatMenu(repeatOpts) {
-    var daysOfWeek;
-    if (repeatOpts) {
-      this.alarm.repeat = this.getRepeatSelect();
-    }
-    daysOfWeek = this.alarm.repeat;
-    this.repeatMenu.textContent = this.alarm.summarizeDaysOfWeek(daysOfWeek);
+    this.buttons.repeat.value = this.alarm.repeat;
   },
 
   initSoundSelect: function aev_initSoundSelect() {
-    Utils.changeSelectByValue(this.soundSelect, this.alarm.sound);
+    this.buttons.sound.value = this.alarm.sound;
   },
 
   getSoundSelect: function aev_getSoundSelect() {
-    return Utils.getSelectedValue(this.soundSelect);
-  },
-
-  refreshSoundMenu: function aev_refreshSoundMenu(sound) {
-    // Refresh and parse the name of sound file for sound menu.
-    sound = (sound !== undefined) ? sound : this.alarm.sound;
-    // sound could either be string or int, so test for both
-    this.soundMenu.textContent = (sound === 0 || sound === '0') ?
-                               _('noSound') :
-                               _(sound.replace('.', '_'));
+    return this.buttons.sound.value;
   },
 
   previewSound: function aev_previewSound() {
@@ -308,37 +250,29 @@ var AlarmEdit = {
   },
 
   stopPreviewSound: function aev_stopPreviewSound() {
-    if (this.previewRingtonePlayer)
+    if (this.previewRingtonePlayer) {
       this.previewRingtonePlayer.pause();
+    }
   },
 
   initVibrateSelect: function aev_initVibrateSelect() {
-    Utils.changeSelectByValue(this.vibrateSelect, this.alarm.vibrate);
+    this.buttons.vibrate.value = this.alarm.vibrate;
   },
 
   getVibrateSelect: function aev_getVibrateSelect() {
-    return Utils.getSelectedValue(this.vibrateSelect);
-  },
-
-  refreshVibrateMenu: function aev_refreshVibrateMenu(vibrate) {
-    vibrate = (vibrate !== undefined) ? vibrate : this.alarm.vibrate;
-    // vibrate could be either string or int, so test for both
-    this.vibrateMenu.textContent = (vibrate === 0 || vibrate === '0') ?
-                                 _('vibrateOff') :
-                                 _('vibrateOn');
+    return this.buttons.vibrate.value;
   },
 
   initSnoozeSelect: function aev_initSnoozeSelect() {
-    Utils.changeSelectByValue(this.snoozeSelect, this.alarm.snooze);
+    this.buttons.snooze.value = this.alarm.snooze;
   },
 
   getSnoozeSelect: function aev_getSnoozeSelect() {
-    return Utils.getSelectedValue(this.snoozeSelect);
+    return this.buttons.snooze.value;
   },
 
-  refreshSnoozeMenu: function aev_refreshSnoozeMenu(snooze) {
-    snooze = (snooze) ? this.getSnoozeSelect() : this.alarm.snooze;
-    this.snoozeMenu.textContent = _('nMinutes', {n: snooze});
+  getRepeatSelect: function aev_getRepeatSelect() {
+    return this.buttons.repeat.value;
   },
 
   save: function aev_save(callback) {
@@ -349,11 +283,11 @@ var AlarmEdit = {
     }
     var error = false;
 
-    this.alarm.label = this.labelInput.value;
+    this.alarm.label = this.inputs.name.value;
 
     var time = this.getTimeSelect();
     this.alarm.time = [time.hour, time.minute];
-    this.alarm.repeat = this.getRepeatSelect();
+    this.alarm.repeat = this.buttons.repeat.value;
     this.alarm.sound = this.getSoundSelect();
     this.alarm.vibrate = this.getVibrateSelect();
     this.alarm.snooze = parseInt(this.getSnoozeSelect(), 10);

@@ -2,7 +2,14 @@
 
 (function(document) {
   var serviceName = getServiceName();
-  var allowedOrigin = oauthflow.params[serviceName].appOrigin;
+  var allowedOrigin = location.origin;
+
+  function notifyParent(message, origin) {
+    parent.postMessage({
+      type: message.type || '',
+      data: message.data || ''
+    }, origin);
+  }
 
   function parseParams(paramsStr) {
     var out = {};
@@ -39,9 +46,11 @@
     },
     'facebook': function(cb) {
       var files = [
-                   '/contacts/js/fb/fb_utils.js',
-                   '/contacts/js/fb/fb_contact_utils.js',
+                   '/shared/js/fb/fb_request.js',
                    '/contacts/js/fb/fb_data.js',
+                   '/contacts/js/fb/fb_utils.js',
+                   '/shared/js/fb/fb_reader_utils.js',
+                   '/contacts/js/fb/fb_contact_utils.js',
                    '/contacts/js/fb/fb_query.js',
                    '/contacts/js/fb/fb_contact.js',
                    '/facebook/js/facebook_connector.js',
@@ -64,12 +73,9 @@
   }
 
   function cancelCb() {
-    Curtain.hide();
-
-    parent.postMessage({
-      type: 'abort',
-      data: ''
-    }, allowedOrigin);
+    Curtain.hide(notifyParent.bind(null, {
+      type: 'abort'
+    }, allowedOrigin));
   }
 
   function tokenReady(access_token) {

@@ -1,3 +1,8 @@
+/* -*- Mode: js; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- /
+/* vim: set shiftwidth=2 tabstop=2 autoindent cindent expandtab: */
+
+/* global ProvisioningAuthentication */
+
 'use strict';
 
 requireApp('wappush/js/ext/CryptoJSv3.1.2/rollups/hmac-sha1.js');
@@ -132,9 +137,9 @@ suite('ProvisioningAuthentication >', function() {
         USER_PIN_AUTH_INFO = {
           sec: 'USERPIN',
           mac: 'AA2DC41FC48AEEF3FED7351B1EE704461A8894D4',
-          data: wbxml,
-          dataLength: wbxml.length
+          data: wbxml
         };
+        USER_PIN_AUTH_INFO.data.length = wbxml.length;
         assert.isTrue(
           ProvisioningAuthentication.isDocumentValid(USER_PIN,
                                                      USER_PIN_AUTH_INFO)

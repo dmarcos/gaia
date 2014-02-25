@@ -3,7 +3,7 @@
 var MockKeyboardHelper = {
   mKeyboards: [
     {
-      origin: 'app://keyboard.gaiamobile.org',
+      manifestURL: 'app://keyboard.gaiamobile.org/manifest.webapp',
       manifest: {
         name: 'app1',
         description: 'app1',
@@ -11,9 +11,9 @@ var MockKeyboardHelper = {
           'settings': { 'access': 'readwrite' },
           'keyboard': {}
         },
-        role: 'keyboard',
+        role: 'input',
         launch_path: '/settings.html',
-        entry_points: {
+        inputs: {
           'en': {
             'name': 'layout1',
             'launch_path': '/index.html#layout1',
@@ -32,17 +32,17 @@ var MockKeyboardHelper = {
       }
     },
     {
-      origin: 'app://app2.gaiamobile.org',
+      manifestURL: 'app://app2.gaiamobile.org/manifest.webapp',
       manifest: {
         name: 'app2',
         description: 'app2',
         permissions: {
           'settings': { 'access': 'readwrite' },
-          'keyboard': {}
+          'input': {}
         },
-        role: 'keyboard',
+        role: 'input',
         launch_path: '/settings.html',
-        entry_points: {
+        inputs: {
           'layout1': {
             'name': 'layout1',
             'launch_path': '/index.html#layout1',
@@ -53,7 +53,7 @@ var MockKeyboardHelper = {
       }
     },
     {
-      origin: 'app://app3.gaiamobile.org',
+      manifestURL: 'app://app3.gaiamobile.org/manifest.webapp',
       manifest: {
         name: 'app3',
         description: 'app3',
@@ -61,9 +61,9 @@ var MockKeyboardHelper = {
           'settings': { 'access': 'readwrite' },
           'keyboard': {}
         },
-        role: 'keyboard',
+        role: 'input',
         launch_path: '/settings.html',
-        entry_points: {
+        inputs: {
           'layout1': {
             'name': 'layout1',
             'launch_path': '/index.html#layout1',
@@ -82,16 +82,16 @@ var MockKeyboardHelper = {
     this.keyboards = JSON.parse(JSON.stringify(this.mKeyboards));
 
     this.layouts = this.keyboards.reduce(function(carry, keyboard) {
-      var entryPoints = Object.keys(keyboard.manifest.entry_points);
-      var layouts = entryPoints.map(function(layoutId) {
-        var entryPoint = keyboard.manifest.entry_points[layoutId];
+      var inputIds = Object.keys(keyboard.manifest.inputs);
+      var layouts = inputIds.map(function(layoutId) {
+        var inputManifest = keyboard.manifest.inputs[layoutId];
         return {
           app: keyboard,
           manifest: keyboard.manifest,
-          entryPoint: entryPoint,
+          inputManifest: inputManifest,
           layoutId: layoutId,
-          enabled: entryPoint.enabled,
-          'default': entryPoint['default']
+          enabled: inputManifest.enabled,
+          'default': inputManifest['default']
         };
 
       });
@@ -118,9 +118,10 @@ var MockKeyboardHelper = {
     callback(this.layouts, { apps: true, settings: true });
   },
   checkDefaults: function() {},
-  setLayoutEnabled: function(appOrigin, layoutId, enabled) {
+  setLayoutEnabled: function(manifestURL, layoutId, enabled) {
     this.layouts.some(function eachLayout(layout) {
-      if (layout.app.origin === appOrigin && layout.layoutId === layoutId) {
+      if (layout.app.manifestURL === manifestURL &&
+          layout.layoutId === layoutId) {
         layout.enabled = enabled;
         return true;
       }

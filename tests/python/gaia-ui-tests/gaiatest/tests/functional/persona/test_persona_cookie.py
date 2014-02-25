@@ -39,12 +39,13 @@ class TestPersonaCookie(GaiaTestCase):
         self.wait_for_element_displayed(*self._logged_out_button_locator, timeout=120)
 
         login_button = self.marionette.find_element(*self._logged_out_button_locator)
-        login_button.click()
+        login_button.tap()
 
         persona = Persona(self.marionette)
+        persona.switch_to_persona_frame()
         persona.login(self.user.email, self.user.password)
 
-        browser.launch()
+        # Back to browser content
         browser.switch_to_content()
         self.wait_for_element_displayed(*self._logged_in_button_locator)
 

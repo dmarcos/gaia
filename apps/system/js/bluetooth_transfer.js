@@ -9,6 +9,9 @@ var BluetoothTransfer = {
   pairList: {
     index: []
   },
+  // The first-in-first-out queue maintain each scheduled sending task.
+  // Each element is a object for scheduled sending tasks.
+  _sendingFilesQueue: [],
   _deviceStorage: navigator.getDeviceStorage('sdcard'),
   _debug: false,
 
@@ -19,6 +22,11 @@ var BluetoothTransfer = {
   },
 
   init: function bt_init() {
+    // Bind message handler for sending files from Bluetooth app
+    window.addEventListener('iac-bluetoothTransfercomms',
+      this.onFilesSending.bind(this)
+    );
+
     // Bind message handler for transferring file callback
     navigator.mozSetMessageHandler('bluetooth-opp-receiving-file-confirmation',
       this.onReceivingFileConfirmation.bind(this)
@@ -101,7 +109,34 @@ var BluetoothTransfer = {
     });
   },
 
+  onFilesSending: function bt_onFilesSending(evt) {
+    var _ = navigator.mozL10n.get;
+
+    // Notify user that we are sending files
+    var icon = 'style/bluetooth_transfer/images/transfer.png';
+    NotificationHelper.send(_('transfer-has-started-title'),
+                            _('transfer-has-started-description'),
+                            icon,
+                            function() {
+                              UtilityTray.show();
+                            });
+
+    // Push sending files request in queue
+    var sendingFilesSchedule = evt.detail;
+    this._sendingFilesQueue.push(sendingFilesSchedule);
+    var msg = 'push sending files request in queue, queued length = ' +
+              this._sendingFilesQueue.length;
+    this.debug(msg);
+  },
+
   onReceivingFileConfirmation: function bt_onReceivingFileConfirmation(evt) {
+    if (NfcHandoverManager.isHandoverInProgress()) {
+      // Bypassing confirm dialog while incoming file transfer via NFC Handover
+      this.debug('Incoming file via NFC Handover. Bypassing confirm dialog');
+      this.acceptReceive(evt);
+      return;
+    }
+
     // Prompt appears when a transfer request from a paired device is received.
     var _ = navigator.mozL10n.get;
 
@@ -112,9 +147,9 @@ var BluetoothTransfer = {
 
     this.getPairedDevice(function getPairedDeviceComplete() {
       var deviceName = self.getDeviceName(address);
-      NotificationHelper.send(_('notification-fileTransfer-title',
+      NotificationHelper.send(_('transfer-confirmation-title',
                               { deviceName: deviceName }),
-                              _('notification-fileTransfer-description'),
+                              _('transfer-confirmation-description'),
                               icon,
                               function() {
                                 UtilityTray.hide();
@@ -213,7 +248,7 @@ var BluetoothTransfer = {
         // skip down to the code below
         break;
       case 'unavailable':
-        callback(false, _('sdcard-not-exist'));
+        callback(false, _('sdcard-not-exist2'));
         return;
       case 'shared':
         callback(false, _('sdcard-in-use'));
@@ -240,6 +275,29 @@ var BluetoothTransfer = {
     availreq.onerror = function(e) {
       callback(false, _('cannotGetStorageState'));
     };
+  },
+
+  sendFile: function bt_sendFile(mac, blob) {
+    var adapter = Bluetooth.getAdapter();
+    if (adapter != null) {
+      var sendingFilesSchedule = {
+        numberOfFiles: 1,
+        numSuccessful: 0,
+        numUnsuccessful: 0
+      };
+      this.onFilesSending({detail: sendingFilesSchedule});
+      // XXX: Bug 915602 - [Bluetooth] Call sendFile api will crash
+      // the system while device is just paired.
+      // The paired device is ready to send file.
+      // Since above issue is existed, we use a setTimeout with 3 secs delay
+      var waitConnectionReadyTimeoutTime = 3000;
+      setTimeout(function() {
+        adapter.sendFile(mac, blob);
+      }, waitConnectionReadyTimeoutTime);
+    } else {
+      var msg = 'Cannot get adapter from system Bluetooth monitor.';
+      this.debug(msg);
+    }
   },
 
   onUpdateProgress: function bt_onUpdateProgress(mode, evt) {
@@ -358,6 +416,10 @@ var BluetoothTransfer = {
 
   onTransferComplete: function bt_onTransferComplete(evt) {
     var transferInfo = evt.detail.transferInfo;
+    if (NfcHandoverManager.isHandoverInProgress()) {
+      // Inform NfcHandoverManager that the transfer completed
+      NfcHandoverManager.transferComplete(transferInfo.success);
+    }
     var _ = navigator.mozL10n.get;
     // Remove transferring progress
     this.removeProgress(transferInfo);
@@ -386,6 +448,55 @@ var BluetoothTransfer = {
         NotificationHelper.send(_('transferFinished-sentFailed-title'),
                                 fileName,
                                 icon);
+      }
+    }
+
+    // Have a report notification for sending multiple files.
+    this.summarizeSentFilesReport(transferInfo);
+  },
+
+  summarizeSentFilesReport: function bt_summarizeSentFilesReport(transferInfo) {
+    var _ = navigator.mozL10n.get;
+
+    // Ignore received files
+    if (transferInfo.received)
+      return;
+
+    // Consumer: System app consume each sending file request from Bluetooth app
+    var msg = 'remove the finished sending task from queue, queue length = ';
+    var successful = transferInfo.success;
+    var sendingFilesSchedule = this._sendingFilesQueue[0];
+    var numberOfFiles = sendingFilesSchedule.numberOfFiles;
+    if (numberOfFiles == 1) { // The scheduled task is for sent one file only.
+      // We don't need to summarize a report for sent one file only.
+      // Remove the finished sending task from the queue
+      this._sendingFilesQueue.shift();
+      msg += this._sendingFilesQueue.length;
+      this.debug(msg);
+    } else { // The scheduled task is for sent multiple files.
+      // Create a report in notification.
+      // Record each transferring report.
+      if (successful) {
+        this._sendingFilesQueue[0].numSuccessful++;
+      } else {
+        this._sendingFilesQueue[0].numUnsuccessful++;
+      }
+
+      var numSuccessful = this._sendingFilesQueue[0].numSuccessful;
+      var numUnsuccessful = this._sendingFilesQueue[0].numUnsuccessful;
+      if ((numSuccessful + numUnsuccessful) == numberOfFiles) {
+        // In this item of queue, all files were sent completely.
+        var icon = 'style/bluetooth_transfer/images/icon_bluetooth.png';
+        NotificationHelper.send(_('transferReport-title'),
+                                _('transferReport-description',
+                                { numSuccessful: numSuccessful,
+                                  numUnsuccessful: numUnsuccessful }),
+                                icon);
+
+        // Remove the finished sending task from the queue
+        this._sendingFilesQueue.shift();
+        msg += this._sendingFilesQueue.length;
+        this.debug(msg);
       }
     }
   },

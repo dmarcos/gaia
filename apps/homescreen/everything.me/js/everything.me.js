@@ -1,9 +1,19 @@
 'use strict';
 
 var EverythingME = {
+  activated: false,
   pendingEvent: undefined,
 
-  init: function EverythingME_init() {
+  init: function EverythingME_init(config) {
+    this.debug = !!config.debug;
+
+    var self = this;
+
+    SettingsListener.observe('rocketbar.enabled', false,
+        function onSettingChange(value) {
+        self.rocketbarEnabled = value;
+    });
+
     var footer = document.querySelector('#footer');
     if (footer) {
       footer.style.MozTransition = '-moz-transform .3s ease';
@@ -17,8 +27,8 @@ var EverythingME = {
     var activationIcon = document.createElement('div');
     activationIcon.id = 'evme-activation-icon';
     activationIcon.innerHTML =
-      '<div><input type="text" x-inputmode="verbatim"' +
-      ' data-l10n-id="evme-searchbar-default2" /></div>';
+      '<input type="text" x-inputmode="verbatim"' +
+      ' data-l10n-id="evme-searchbar-default2" />';
 
     // insert into first page
     gridPage.insertBefore(activationIcon, gridPage.firstChild);
@@ -34,9 +44,26 @@ var EverythingME = {
     // add event listeners that trigger evme load
     activationIcon.addEventListener('contextmenu', onContextMenu);
     activationIcon.addEventListener('click', triggerActivateFromInput);
+    activationIcon.addEventListener('touchstart', searchFocus);
     window.addEventListener('collectionlaunch', triggerActivate);
     window.addEventListener('collectiondropapp', triggerActivate);
     window.addEventListener('suggestcollections', triggerActivate);
+    window.addEventListener('search-focus', searchFocus);
+
+    /**
+     * Called when the search bar is focused.
+     * Opens the rocketbar and prevents the event default
+     * Ensures that we do not focus on the searchbar, otherwise
+     * the keyboard can flicker or not show up.
+     */
+    function searchFocus(e) {
+      if (self.rocketbarEnabled) {
+        e.preventDefault();
+        // Call stopPropagation to prevent the click event
+        e.stopPropagation();
+        self.openRocketbar();
+      }
+    }
 
     // specifically for pseudo searchbar
     function triggerActivateFromInput(e) {
@@ -75,10 +102,10 @@ var EverythingME = {
 
       // load styles required for Collection styling
       LazyLoader.load([
-        document.getElementById('search-page'),
-        'shared/style_unstable/progress_activity.css',
+        'shared/style/progress_activity.css',
         'everything.me/css/common.css',
-        'everything.me/modules/Collection/Collection.css'],
+        'everything.me/modules/Collection/Collection.css',
+        document.getElementById('search-page')],
         function assetsLoaded() {
           // Activate evme load
           // But wait a tick, so there's no flash of unstyled progress indicator
@@ -141,6 +168,13 @@ var EverythingME = {
     EverythingME.migrateStorage();
   },
 
+  openRocketbar: function() {
+    LazyLoader.load(['everything.me/js/search/control.js'],
+      function loaded() {
+        EverythingME.SearchControl.open();
+      });
+  },
+
   onActivationIconBlur: function onActivationIconBlur(e) {
     EverythingME.pendingEvent = null;
     e.target.removeEventListener('blur', onActivationIconBlur);
@@ -169,6 +203,11 @@ var EverythingME = {
   },
 
   activate: function EverythingME_activate() {
+    if (EverythingME.activated) {
+      return;
+    }
+
+    EverythingME.activated = true;
     var searchPage = document.getElementById('search-page');
     LazyLoader.load(searchPage, function loaded() {
       document.body.classList.add('evme-loading');
@@ -193,7 +232,6 @@ var EverythingME = {
           'js/api/DoATAPI.js',
           'js/helpers/EventHandler.js',
           'js/helpers/Idle.js',
-          'shared/js/settings_listener.js',
           'shared/js/icc_helper.js',
           'shared/js/mobile_operator.js',
           'js/plugins/Analytics.js',
@@ -286,11 +324,19 @@ var EverythingME = {
   },
 
   initEvme: function EverythingME_initEvme() {
-    Evme.init(EverythingME.onEvmeLoaded);
-    EvmeFacade = Evme;
+    var config = this.datastore.getConfig();
+    config.then(function resolve(emeConfig) {
+      EverythingME.log('EVME config from storage', JSON.stringify(emeConfig));
+
+      Evme.init({'deviceId': emeConfig.deviceId}, EverythingME.onEvmeLoaded);
+      EvmeFacade = Evme;
+    }, function reject(reason) {
+      EverythingME.warn('EVME config missing', reason);
+    });
   },
 
   onEvmeLoaded: function onEvmeLoaded() {
+
     var page = document.getElementById('evmeContainer'),
         gridPage = document.querySelector('#icongrid > div:first-child'),
         activationIcon = document.getElementById('evme-activation-icon'),
@@ -388,7 +434,7 @@ var EverythingME = {
       asyncStorage.setItem(migrationStorageKey, true);
 
       // start the migration
-      console.log('[EVME migration] migrating from 1.0.1 to 1.1...');
+      EverythingME.log('[EVME migration] migrating from 1.0.1 to 1.1...');
 
       // these are properties that don't need special attention -
       // simply copy from sync to async, oldKey: newKey
@@ -407,7 +453,7 @@ var EverythingME = {
       function onDataMigrated() {
         numberOfKeysDone++;
         if (numberOfKeysDone >= numberOfKeys) {
-          console.log('[EVME migration] complete successfully!');
+          EverythingME.log('[EVME migration] complete successfully!');
           onComplete();
         }
       }
@@ -419,21 +465,22 @@ var EverythingME = {
       onComplete = function() {};
     }
 
-    console.log('[EVME migration] [' + oldKey + ']: retrieving...');
+    EverythingME.log('[EVME migration] [' + oldKey + ']: retrieving...');
 
     try {
       var oldValue = window.localStorage[oldKey];
 
       if (!oldValue) {
-        console.log('[EVME migration] [' + oldKey + ']: no value');
+        EverythingME.log('[EVME migration] [' + oldKey + ']: no value');
         onComplete(false);
         return false;
       }
 
-      console.log('[EVME migration] [' + oldKey + '] got value: ' + oldValue);
+      EverythingME.log('[EVME migration] [' +
+                                          oldKey + '] got value: ' + oldValue);
       oldValue = JSON.parse(oldValue);
       if (!oldValue) {
-        console.log('[EVME migration] [' + oldKey + ']: invalid json: ' +
+        EverythingME.log('[EVME migration] [' + oldKey + ']: invalid json: ' +
                                                   window.localStorage[oldKey]);
         deleteOld();
         onComplete(false);
@@ -446,18 +493,18 @@ var EverythingME = {
         'expires': oldValue._e
       };
 
-      console.log('[EVME migration] [' + oldKey + ':' + newKey + ']: saving: ' +
-                                                     JSON.stringify(newValue));
+      EverythingME.log('[EVME migration] [' +
+              oldKey + ':' + newKey + ']: saving: ' + JSON.stringify(newValue));
       asyncStorage.setItem(newKey, newValue, function onsaved() {
-        console.log('[EVME migration] [' + oldKey + ':' + newKey +
+        EverythingME.log('[EVME migration] [' + oldKey + ':' + newKey +
                                                   ']: saved, remove old data');
         deleteOld();
         onComplete(true);
       });
     } catch (ex) {
       deleteOld();
-      console.warn('[EVME migration] [' + oldKey + ']: error: ' + oldValue +
-                                                      ' (' + ex.message + ')');
+      EverythingME.warn('[EVME migration] [' + oldKey + ']: error: ' +
+                                            oldValue + ' (' + ex.message + ')');
       onComplete(false);
       return false;
     }
@@ -475,7 +522,7 @@ var EverythingME = {
     var elLoading = document.getElementById('loading-dialog');
 
     LazyLoader.load([
-      'shared/style_unstable/progress_activity.css',
+      'shared/style/progress_activity.css',
       'shared/style/confirm.css',
       elLoading],
       function assetsLoaded() {
@@ -502,6 +549,17 @@ var EverythingME = {
     if (elLoading) {
       elLoading.parentNode.removeChild(elLoading);
     }
+  },
+
+  log: function log() {
+    if (this.debug) {
+      console.log.apply(window, arguments);
+    }
+  },
+  warn: function log() {
+    if (this.debug) {
+      console.warn.apply(window, arguments);
+    }
   }
 };
 
@@ -513,3 +571,66 @@ var EvmeFacade = {
     return false;
   }
 };
+
+
+(function() {
+  'use strict';
+
+  // datastore to use
+  var DS_NAME = 'eme_store';
+
+  // id of config object
+  var DS_CONFIG_ID = 1;
+
+  // see duplicate in search/eme.js
+  function generateDeviceId() {
+    var url = window.URL.createObjectURL(new Blob());
+    var id = url.replace('blob:', '');
+
+    window.URL.revokeObjectURL(url);
+
+    return 'fxos-' + id;
+  }
+
+  function emeDataStore() {
+  }
+  emeDataStore.prototype = {
+    // Get or create config shared with search/eme instance via DataStore API.
+    getConfig: function getConfig() {
+      var promise = new Promise(function done(resolve, reject) {
+        navigator.getDataStores(DS_NAME).then(function(stores) {
+          if (stores.length === 1) {
+            var db = stores[0];
+
+            db.get(DS_CONFIG_ID).then(function success(emeConfig) {
+              // use existing config
+              if (emeConfig) {
+                resolve(emeConfig);
+              } else {
+                // store new config
+                emeConfig = {
+                  'deviceId': generateDeviceId()
+                };
+
+                db.add(emeConfig, DS_CONFIG_ID).then(function success(id) {
+                  resolve(emeConfig);
+                }, function error(e) {
+                  reject('config creation failed');
+                });
+              }
+            }, function error(e) {
+              reject(e.message);
+            });
+
+          } else {
+            reject('invalid datastore setup');
+          }
+        });
+      });
+
+      return promise;
+    }
+  };
+
+  EverythingME.datastore = new emeDataStore();
+})();

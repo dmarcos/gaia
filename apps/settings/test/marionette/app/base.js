@@ -1,3 +1,4 @@
+'use strict';
 /**
  * Base app object to provide common methods to app objects
  * @constructor
@@ -28,6 +29,14 @@ Base.prototype = {
    */
   findElement: function(name) {
     return this.client.findElement(this.selectors[name]);
+  },
+
+  /**
+   * @protected
+   * @param {String} name of selector [its a key in Settings.Selectors].
+   */
+  findElements: function(name) {
+    return this.client.findElements(this.selectors[name]);
   },
 
   /**
