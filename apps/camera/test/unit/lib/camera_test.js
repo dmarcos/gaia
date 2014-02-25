@@ -12,21 +12,48 @@ suite('camera', function() {
     });
   });
 
-  // setup(function() {
-  //   navigator.getDeviceStorage = navigator.getDeviceStorage || function() {};
-  //   sinon.stub(navigator, 'getDeviceStorage');
-  //   if (!navigator.mozCameras) {
-  //     navigator.mozCameras = {
-  //       getListOfCameras: function() { return []; },
-  //       getCamera: function() {},
-  //       release: function() {}
-  //     };
-  //   }
-  //   this.camera = new Camera({});
-  // });
+  setup(function() {
+    navigator.getDeviceStorage = navigator.getDeviceStorage || function() {};
+    this.sandbox = sinon.sandbox.create();
+    this.sandbox.stub(navigator, 'getDeviceStorage');
+    /*navigator.mozCameras = navigator.mozCameras || {
+      getListOfCameras: function() {},
+      getCamera: function() {}
+    };*/
 
-  // teardown(function() {
-  //   navigator.getDeviceStorage.restore();
-  // });
 
+    //this.sandbox.stub(naviagator,'mozCameras');
+    this.camera = new Camera({});
+  });
+
+  teardown(function() {
+    this.sandbox.restore();
+  });
+
+  suite('Camera#gotCamera()', function() {
+    setup(function() {
+      this.mozCamera = {
+        capabilities: {
+          whiteBalancemodes: [1, 2],
+          focusModes: 'focusModes'
+        },
+        onShutter: 'onShutter',
+        onRecorderStateChange: 'onRecorderChange',
+        whiteBalanceMode: 'whiteMode'
+      };
+
+      this.sandbox.stub(this.camera, 'configureFocus');
+      this.sandbox.stub(this.camera, 'setWhiteBalance');
+    });
+
+    test('should set white balance', function() {
+      this.camera.gotCamera(this.mozCamera);
+      assert.isTrue(this.camera.setWhiteBalance.called);
+    });
+
+    test('should pass "auto" to setWhiteBalance method', function() {
+      this.camera.gotCamera(this.mozCamera);
+      assert.isTrue(this.camera.setWhiteBalance.calledWith('auto'));
+    });
+  });
 });
