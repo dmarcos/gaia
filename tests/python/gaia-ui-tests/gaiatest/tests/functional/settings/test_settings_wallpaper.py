@@ -9,26 +9,27 @@ from gaiatest.apps.settings.app import Settings
 class TestWallpaper(GaiaTestCase):
 
     # default wallpaper
-    _default_wallpaper_src = None
+    _default_wallpaper_settings = None
+    _new_wallpaper_settings = None
 
     def test_change_wallpaper(self):
-        # https://moztrap.mozilla.org/manage/case/3449/
+        """https://moztrap.mozilla.org/manage/case/3449/"""
 
         settings = Settings(self.marionette)
         settings.launch()
         display_settings = settings.open_display_settings()
 
-        self._default_wallpaper_src = display_settings.wallpaper_preview_src
+        self._default_wallpaper_settings = self.data_layer.get_setting('wallpaper.image')
 
-        display_settings.choose_wallpaper(3)
+        # Open activities menu
+        activities_menu = display_settings.pick_wallpaper()
 
-        new_wallpaper_src = display_settings.wallpaper_preview_src
+        # choose the source as wallpaper app
+        wallpaper = activities_menu.tap_wallpaper()
+        wallpaper.tap_wallpaper_by_index(3)
 
-        self.assertFalse(new_wallpaper_src == self._default_wallpaper_src, 'Wallpaper has not changed from default.')
+        self.apps.switch_to_displayed_app()
 
-    def tearDown(self):
-        # reset to the default wallpaper only if we have saved it
-        if self._default_wallpaper_src is not None:
-            self.marionette.execute_script("navigator.mozSettings.createLock().set({'wallpaper.image' : arguments[0]});", [self._default_wallpaper_src])
+        self._new_wallpaper_settings = self.data_layer.get_setting('wallpaper.image')
 
-        GaiaTestCase.tearDown(self)
+        self.assertNotEqual(self._default_wallpaper_settings, self._new_wallpaper_settings)

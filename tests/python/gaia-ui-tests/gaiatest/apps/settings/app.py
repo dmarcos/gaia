@@ -12,7 +12,8 @@ class Settings(Base):
 
     _header_text_locator = (By.CSS_SELECTOR, '#root > header > h1')
     _data_text_locator = (By.ID, 'data-desc')
-    _airplane_switch_locator = (By.XPATH, "//input[@name='ril.radio.disabled']/..")
+    _airplane_switch_locator = (By.XPATH, "//input[@id='airplaneMode-input']/..")
+    _airplane_checkbox_locator = (By.ID, "airplaneMode-input")
     _wifi_text_locator = (By.ID, 'wifi-desc')
     _gps_enabled_locator = (By.XPATH, "//input[@name='geolocation.enabled']")
     _gps_switch_locator = (By.XPATH, "//input[@name='geolocation.enabled']/..")
@@ -27,16 +28,20 @@ class Settings(Base):
     _wifi_menu_item_locator = (By.ID, 'menuItem-wifi')
     _device_info_menu_item_locator = (By.ID, 'menuItem-deviceInfo')
     _app_permissions_menu_item_locator = (By.ID, 'menuItem-appPermissions')
+    _battery_menu_item_locator = (By.ID, 'menuItem-battery')
 
-    def launch(self):
-        Base.launch(self)
-        self.wait_for_element_displayed(*self._airplane_switch_locator)
+    def wait_for_airplane_toggle_ready(self):
+        checkbox = self.marionette.find_element(*self._airplane_checkbox_locator)
+        self.wait_for_condition(lambda m: checkbox.is_enabled())
 
-    def enable_airplane_mode(self):
-        self.marionette.find_element(*self._airplane_switch_locator).tap()
+    def toggle_airplane_mode(self):
+        checkbox = self.marionette.find_element(*self._airplane_checkbox_locator)
+        label = self.marionette.find_element(*self._airplane_switch_locator)
 
-    def disable_airplane_mode(self):
-        self.marionette.find_element(*self._airplane_switch_locator).tap()
+        checkbox_state = checkbox.is_selected()
+
+        label.tap()
+        self.wait_for_condition(lambda m: checkbox_state is not checkbox.is_selected())
 
     def enable_gps(self):
         self.marionette.find_element(*self._gps_switch_locator).tap()
@@ -48,7 +53,8 @@ class Settings(Base):
 
     @property
     def is_gps_enabled(self):
-        return self.marionette.find_element(*self._gps_enabled_locator).get_attribute('checked')
+        checkbox = self.marionette.find_element(*self._gps_enabled_locator)
+        return checkbox.is_selected()
 
     @property
     def header_text(self):
@@ -69,6 +75,10 @@ class Settings(Base):
 
     def open_bluetooth_settings(self):
         from gaiatest.apps.settings.regions.bluetooth import Bluetooth
+        # this is technically visible, but needs scroll to be tapped
+        # TODO Remove when bug 937053 is resolved
+        bluetooth_menu_item = self.marionette.find_element(*self._bluetooth_menu_item_locator)
+        self.marionette.execute_script("arguments[0].scrollIntoView(false);", [bluetooth_menu_item])
         self._tap_menu_item(self._bluetooth_menu_item_locator)
         return Bluetooth(self.marionette)
 
@@ -117,9 +127,18 @@ class Settings(Base):
         self._tap_menu_item(self._app_permissions_menu_item_locator)
         return AppPermissions(self.marionette)
 
+    def open_battery_settings(self):
+        from gaiatest.apps.settings.regions.battery import Battery
+        self._tap_menu_item(self._battery_menu_item_locator)
+        return Battery(self.marionette)
+
     def _tap_menu_item(self, menu_item_locator):
-        self.wait_for_element_displayed(*menu_item_locator)
         menu_item = self.marionette.find_element(*menu_item_locator)
         parent_section = menu_item.find_element(By.XPATH, 'ancestor::section')
+
+        # Some menu items require some async setup to be completed
+        self.wait_for_condition(lambda m:
+            not menu_item.find_element(By.XPATH, 'ancestor::li').get_attribute('aria-disabled'))
+
         menu_item.tap()
         self.wait_for_condition(lambda m: parent_section.location['x'] + parent_section.size['width'] == 0)

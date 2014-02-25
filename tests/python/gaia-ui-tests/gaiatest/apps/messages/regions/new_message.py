@@ -10,11 +10,13 @@ from gaiatest.apps.messages.app import Messages
 
 class NewMessage(Messages):
 
+    _recipient_section_locator = (By.ID, 'messages-recipients-list')
     _receiver_input_locator = (By.CSS_SELECTOR, '#messages-recipients-list span.recipient')
     _add_recipient_button_locator = (By.ID, 'messages-contact-pick-button')
     _message_field_locator = (By.ID, 'messages-input')
     _send_message_button_locator = (By.ID, 'messages-send-button')
     _attach_button_locator = (By.ID, 'messages-attach-button')
+    _options_icon_locator = (By.ID, 'messages-options-icon')
     _message_sending_locator = (By.CSS_SELECTOR, "li.message.outgoing.sending")
     _thread_messages_locator = (By.ID, 'thread-messages')
     _message_resize_notice_locator = (By.ID, 'messages-resize-notice')
@@ -26,7 +28,8 @@ class NewMessage(Messages):
         self.wait_for_condition(lambda m: section.location['x'] == 0)
 
     def type_phone_number(self, value):
-        self.wait_for_element_displayed(*self._receiver_input_locator)
+        # tap on the parent element to activate editable
+        self.marionette.find_element(*self._recipient_section_locator).tap()
         contact_field = self.marionette.find_element(*self._receiver_input_locator)
         contact_field.send_keys(value)
 
@@ -35,7 +38,7 @@ class NewMessage(Messages):
         self.wait_for_element_displayed(*self._message_field_locator)
         message_field = self.marionette.find_element(*self._message_field_locator)
         message_field.tap()
-        message_field.send_keys(value)
+        self.keyboard.send(value)
 
     def tap_send(self, timeout=120):
         self.wait_for_condition(lambda m: m.find_element(*self._send_message_button_locator).is_enabled())
@@ -55,6 +58,11 @@ class NewMessage(Messages):
         contacts_app.switch_to_contacts_frame()
         return contacts_app
 
+    def tap_options(self):
+        self.marionette.find_element(*self._options_icon_locator).tap()
+        from gaiatest.apps.messages.regions.activities import Activities
+        return Activities(self.marionette)
+
     def wait_for_recipients_displayed(self):
         self.wait_for_element_displayed(*self._receiver_input_locator)
 
@@ -66,5 +74,25 @@ class NewMessage(Messages):
         return self.marionette.find_element(*self._receiver_input_locator).text
 
     @property
+    def recipient_css_class(self):
+        return self.marionette.find_element(*self._receiver_input_locator).get_attribute('class')
+
+    @property
+    def is_recipient_name_editable(self):
+        return self.marionette.find_element(*self._receiver_input_locator).get_attribute('contenteditable')
+
+    @property
     def first_recipient_number_attribute(self):
         return self.marionette.find_element(*self._receiver_input_locator).get_attribute('data-number')
+
+    def tap_recipient_section(self):
+        self.marionette.find_element(*self._recipient_section_locator).tap()
+        from gaiatest.apps.keyboard.app import Keyboard
+        return Keyboard(self.marionette)
+
+    @property
+    def is_send_button_enabled(self):
+        return self.marionette.find_element(*self._send_message_button_locator).is_enabled()
+
+    def tap_recipient_name(self):
+        self.marionette.find_element(*self._receiver_input_locator).tap()

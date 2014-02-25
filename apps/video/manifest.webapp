@@ -15,7 +15,7 @@
     "settings":{ "access": "readonly" },
     "deprecated-hwvideo":{},
     "audio-channel-content":{},
-    "systemXHR":{}
+    "nfc": { "access": "readwrite" }
   },
   "locales": {
     "ar": {
@@ -52,7 +52,7 @@
     },
     "view" : {
       "filters": {
-        "type": ["video/webm", "video/mp4", "video/3gpp", "video/ogg"]
+        "type": ["video/webm", "video/mp4", "video/3gpp", "video/ogg", "video/rtsp"]
       },
       "href": "view.html",
       "disposition": "inline",

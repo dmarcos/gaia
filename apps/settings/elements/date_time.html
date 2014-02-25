@@ -3,17 +3,16 @@
 
     <header>
       <a href="#root"><span class="icon icon-back">back</span></a>
-      <h1 data-l10n-id="dateAndTime"> Date &amp; Time </h1>
+      <h1 data-l10n-id="dateAndTime-header"> Date &amp; Time </h1>
     </header>
 
     <div>
       <ul id="time-auto" data-state="auto" hidden>
         <li>
           <label class="pack-switch">
-            <input type="checkbox" name="time.clock.automatic-update.enabled" class="uninit"/>
-            <span></span>
+            <input type="checkbox" name="time.clock.automatic-update.enabled" class="uninit">
+            <span data-l10n-id="setTimeAutomatically">Set Automatically</span>
           </label>
-          <a data-l10n-id="setTimeAutomatically">Set Automatically</a>
         </li>
       </ul>
       <ul id="time-manual">
@@ -38,7 +37,7 @@
         <li>
           <span id="timezone-value"></span>
         </li>
-      </ul> 
+      </ul>
       <ul id="timezone">
         <li>
           <p data-l10n-id="tz-region">Region</p>

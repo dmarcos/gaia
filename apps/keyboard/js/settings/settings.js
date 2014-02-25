@@ -5,6 +5,21 @@
     panel.style.display = 'block';
   });
 
+  // Until Haida lands this is how users could go back to Settings app
+  document.getElementById('back').addEventListener('click', function() {
+    var activity = new MozActivity({
+      name: 'configure',
+      data: {
+        target: 'device'
+      }
+    });
+
+    // Close ourself after the activity transition is completed.
+    setTimeout(function() {
+      window.close();
+    }, 1000);
+  });
+
   /**
    * Gets the settings based on information from the dom
    */

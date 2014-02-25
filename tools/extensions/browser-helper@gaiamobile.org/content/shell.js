@@ -2,7 +2,7 @@
 dump('======== browser-helper: content.js loaded ========\n')
 
 function debug(str) {
-  dump('browser-helper (frame-script): ' + str + '\n');
+  //dump('browser-helper (frame-script): ' + str + '\n');
 }
 
 let CC = Components.Constructor;
@@ -26,7 +26,7 @@ function sendChromeEvent(details, type) {
 
   let event = content.document.createEvent('CustomEvent');
   event.initCustomEvent(type, true, true,
-                        ObjectWrapper.wrap(details, content));
+                        Cu.cloneInto(details, content));
   content.dispatchEvent(event);
 }
 
@@ -34,12 +34,11 @@ function sendChromeEvent(details, type) {
 // Copy of /b2g/chrome/content/shell.js
 Cu.import('resource://gre/modules/Webapps.jsm');
 Cu.import('resource://gre/modules/AppsUtils.jsm');
-Cu.import('resource://gre/modules/ObjectWrapper.jsm');
 
 Services.obs.addObserver(function onLaunch(subject, topic, data) {
   let json = JSON.parse(data);
 
-  DOMApplicationRegistry.getManifestFor(json.manifestURL, function(aManifest) {
+  DOMApplicationRegistry.getManifestFor(json.manifestURL).then((aManifest) => {
     if (!aManifest)
       return;
 
@@ -171,7 +170,7 @@ SettingsListener.observe('language.current', 'en-US', function(value) {
  */
 getContentWindow().addEventListener('mozContentEvent', function(evt) {
   let detail = evt.detail;
-  dump('XXX FIXME : Got a mozContentEvent: ' + detail.type + "\n");
+  debug('XXX FIXME : Got a mozContentEvent: ' + detail.type + "\n");
 
   switch(detail.type) {
     case 'inputmethod-update-layouts':

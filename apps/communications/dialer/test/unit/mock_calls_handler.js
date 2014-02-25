@@ -1,4 +1,5 @@
 var MockCallsHandler = {
+  mActiveCall: null,
   mLastEntryAdded: null,
   mUpdateKeypadEnabledCalled: true,
 
@@ -11,11 +12,17 @@ var MockCallsHandler = {
     this.mLastEntryAdded = entry;
   },
 
+  get activeCall() {
+    return this.mActiveCall;
+  },
+
+  toggleCalls: function() {},
   toggleMute: function() {},
   unmute: function() {},
   toggleSpeaker: function() {},
-  turnSpeakerOn: function() {},
-  turnSpeakerOff: function() {},
+  switchToSpeaker: function() {},
+  switchToDefaultOut: function() {},
+  switchToReceiver: function() {},
   checkCalls: function() {},
   mergeActiveCallWith: function() {},
   mergeConferenceGroupWithActiveCall: function() {},
@@ -24,6 +31,7 @@ var MockCallsHandler = {
   answer: function() {},
 
   mTeardown: function() {
+    this.mActiveCall = null;
     this.mLastEntryAdded = null;
     this.mUpdateKeypadEnabledCalled = true;
   }

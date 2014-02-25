@@ -68,6 +68,8 @@ var Homescreen = (function() {
         onInit();
       }
     });
+
+    initWallpaper();
   }
 
   function onContextMenu(evt) {
@@ -82,6 +84,7 @@ var Homescreen = (function() {
         iconGrid.addEventListener('click', onClickHandler);
       }
     } else if (!Homescreen.isInEditMode()) {
+      GridManager.cancelPanning();
       // No long press over an icon neither edit mode
       evt.preventDefault();
       var contextMenuEl = document.getElementById('contextmenu-dialog');
@@ -160,6 +163,19 @@ var Homescreen = (function() {
     document.body.dataset.online = mode;
   }
 
+  function initWallpaper() {
+    var wallpaperURL = new SettingsURL();
+    var defaultWallpaper = Configurator.getSection('background');
+
+    var setNewWallpaper = function(value) {
+      var url = 'url(' + wallpaperURL.set(value) + ')';
+      document.body.style.backgroundImage = url;
+    };
+
+    SettingsListener.observe('wallpaper.image',
+                              defaultWallpaper.url, setNewWallpaper);
+  }
+
   window.addEventListener('online', function onOnline(evt) {
     onConnectionChange(true);
   });
@@ -196,6 +212,8 @@ var Homescreen = (function() {
     },
 
     init: initialize,
+
+    initWallpaper: initWallpaper,
 
     setMode: function(newMode) {
       mode = document.body.dataset.mode = newMode;
