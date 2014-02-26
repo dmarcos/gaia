@@ -1,0 +1,76 @@
+
+.indicator {
+  z-index: 10;
+  position: absolute;
+  top: 40%;
+  left: 3%;
+  margin: 0px ;
+  padding: 0px ;
+  border: none;
+  background: transparent;
+}
+
+.indicator[data-orientation='180'] {
+  top: 40%;
+  left: 90%;
+  transform: rotate(0deg);
+}
+
+.indicator ul {
+  border: none;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+}
+
+.indicator li {
+  height: 25px;
+  width: 25px;
+  background-color: #FFFFFF;
+  border-radius: 8px;
+  list-style: none;
+  opacity: 0;
+  margin-bottom:12px;
+  padding: 0;
+  font-size: 25px;
+  text-align: center;
+}
+
+.indicator li[data-mode=off]{
+  opacity: 0.2;
+  /*color:#FFFFFF;*/
+}
+
+.indicator li[data-mode=on]{
+  opacity: 0.8;
+  color:#008EAB;
+}
+.indicator li[data-mode=auto]{
+  opacity: 0.8;
+  color:#008EAB;
+}
+.indicator .batteryStatus {
+  background-color: transparent;
+  color: #D92E2E; 
+  opacity: 0.8;
+  font-size: 30px;
+}
+
+.indicator .batteryStatus[data-value='6']{
+
+  transition: background-image 2s ease-in-out;
+  animation-name: cf3FadeInOut;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+  animation-duration: 3s;
+  animation-direction: alternate;
+}
+
+@keyframes cf3FadeInOut {
+  0% {
+    opacity:1;
+  }
+  50% {
+    opacity:0;
+  }
+}

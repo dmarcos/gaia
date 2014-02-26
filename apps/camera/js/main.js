@@ -31,6 +31,7 @@ require(['config/require', 'config'], function() {
       settings: require('controllers/settings'),
       activity: require('controllers/activity'),
       camera: require('controllers/camera'),
+      indicator:require('controllers/indicator'),
       sounds: require('controllers/sounds')
     };
 
