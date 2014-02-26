@@ -46,6 +46,8 @@ ViewfinderController.prototype.updatePreview = function() {
   var camera = this.app.settings.cameras.selected('key');
   var isFrontCamera = camera === 'front';
   this.viewfinder.updatePreview(this.camera.previewSize(), isFrontCamera);
+
+  this.camera.emit('updatePreview');
 };
 
 /**

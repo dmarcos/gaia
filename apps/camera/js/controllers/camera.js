@@ -75,16 +75,20 @@ CameraController.prototype.bindEvents = function() {
   camera.on('loaded', app.firer('camera:loaded'));
   camera.on('ready', app.firer('camera:ready'));
   camera.on('busy', app.firer('camera:busy'));
+  camera.on('dual', app.firer('camera:dual'));
+  camera.on('updatePreview', app.firer('camera:updatePreview'));
 
   // Camera
   camera.on('filesizelimitreached', this.onFileSizeLimitReached);
   camera.on('newimage', this.onNewImage);
   camera.on('newvideo', this.onNewVideo);
+  camera.on('image-flash', this.onImageFlash);
 
   // App
   app.on('boot', this.camera.load);
   app.on('focus', this.camera.load);
   app.on('capture', this.onCapture);
+  app.on('toggleRecordingDual', this.onToggleRecordingDual);
   app.on('blur', this.teardownCamera);
   app.on('settings:configured', this.onSettingsConfigured);
   settings.pictureSizes.on('change:selected', this.onPictureSizeChange);
@@ -115,8 +119,30 @@ CameraController.prototype.onSettingsConfigured = function() {
 
 CameraController.prototype.onCapture = function() {
   var position = this.app.geolocation.position;
-  this.camera.capture({ position: position });
+
+  // For taking a picture during video recording on dual shutter mode
+  var recording = this.camera.get('recording');  
+  var dualShutter = this.camera.get('dual-shutter');
+
+  if(dualShutter && recording) {
+    this.camera.takePicture({ position: position });
+    this.viewfinder.imageFlash();
+  }  
+  else {
+    this.camera.capture({ position: position });
+  }
 };
+
+CameraController.prototype.onToggleRecordingDual = function() {
+  var position = this.app.geolocation.position;
+  var recording = this.camera.get('recording');
+  if (recording) {
+    this.camera.stopRecording({ position: position });
+    this.app.settings.get('mode').next();
+  }
+  else { this.camera.startRecording({ position: position }); }
+};
+
 
 CameraController.prototype.onNewImage = function(image) {
   var filmstrip = this.filmstrip;
@@ -196,6 +222,7 @@ CameraController.prototype.showSizeLimitAlert = function() {
 
 CameraController.prototype.setMode = function(mode) {
   this.setFlashMode();
+
   this.camera.setMode(mode).configure();
 };
 
@@ -213,6 +240,14 @@ CameraController.prototype.setFlashMode = function() {
   this.camera.setFlashMode(flashSetting.selected('key'));
 };
 
+/**
+ * Image flashed when take a picture 
+ * during the video recording
+ */
+CameraController.prototype.onImageFlash = function() {
+  this.viewfinder.imageFlash();
+};
+
 // TODO: Tidy this crap
 CameraController.prototype.teardownCamera = function() {
   var recording = this.camera.get('recording');
@@ -221,6 +256,7 @@ CameraController.prototype.teardownCamera = function() {
   try {
     if (recording) {
       camera.stopRecording();
+      this.app.settings.get('mode').next();
     }
 
     this.viewfinder.stopPreview();
