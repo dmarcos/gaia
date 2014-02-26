@@ -9,6 +9,8 @@ var performanceTesting = require('performanceTesting');
 var ViewfinderView = require('views/viewfinder');
 var ControlsView = require('views/controls');
 var FocusRing = require('views/focus-ring');
+var IndicatorView = require('views/indicator');
+var LowBatteryView = require('views/low-battery');
 var lockscreen = require('lib/lock-screen');
 var constants = require('config/camera');
 var broadcast = require('lib/broadcast');
@@ -111,6 +113,8 @@ App.prototype.runControllers = function() {
   this.controllers.overlay(this);
   this.controllers.sounds(this);
   this.controllers.hud(this);
+  this.controllers.indicator(this);
+  this.controllers.lowBattery(this);
   debug('controllers run');
 };
 
@@ -119,6 +123,8 @@ App.prototype.initializeViews = function() {
   this.views.controls = new ControlsView();
   this.views.focusRing = new FocusRing();
   this.views.hud = new HudView();
+  this.views.indicator = new IndicatorView();
+  this.views.lowBattery = new LowBatteryView();
   debug('views initialized');
 };
 
@@ -127,6 +133,8 @@ App.prototype.injectViews = function() {
   this.views.controls.appendTo(this.el);
   this.views.viewfinder.appendTo(this.el);
   this.views.focusRing.appendTo(this.el);
+  this.views.indicator.appendTo(this.el);
+  this.views.lowBattery.appendTo(this.el);
   debug('views injected');
 };
 
