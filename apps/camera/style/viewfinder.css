@@ -24,6 +24,7 @@
   position: absolute;
   top: 0;
   left: 0;
+  overflow: hidden;
   transform: rotate(90deg) translate(0px, -100%);
   transform-origin: 0 0;
 }

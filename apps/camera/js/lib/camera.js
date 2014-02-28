@@ -667,4 +667,35 @@ Camera.prototype.setWhiteBalance = function(value){
   }
 };
 
+Camera.prototype.isZoomSupported = function() {
+  return this.mozCamera.capabilities.zoomRatios.length > 1;
+};
+
+Camera.prototype.getMinimumZoom = function() {
+  var zoomRatios = this.mozCamera.capabilities.zoomRatios;
+  if (zoomRatios.length === 0) {
+    return 1.0;
+  }
+
+  return zoomRatios[0];
+};
+
+Camera.prototype.getMaximumZoom = function() {
+  var zoomRatios = this.mozCamera.capabilities.zoomRatios;
+  if (zoomRatios.length === 0) {
+    return 1.0;
+  }
+
+  return zoomRatios[zoomRatios.length - 1];
+};
+
+Camera.prototype.getZoom = function() {
+  return this.mozCamera.zoom;
+};
+
+Camera.prototype.setZoom = function(zoom) {
+  this.mozCamera.zoom = zoom;
+  this.emit('zoomChange', zoom);
+};
+
 });

@@ -17,8 +17,6 @@ var find = require('lib/find');
  * Locals
  */
 
-var MIN_VIEWFINDER_SCALE = constants.MIN_VIEWFINDER_SCALE;
-var MAX_VIEWFINDER_SCALE = constants.MAX_VIEWFINDER_SCALE;
 var lastTouchA = null;
 var lastTouchB = null;
 var isScaling = false;
@@ -55,6 +53,10 @@ var getDeltaScale = function(touchA, touchB) {
   var newDistance = Math.sqrt(Math.pow(touchB.pageX - touchA.pageX, 2) +
                     Math.pow(touchB.pageY - touchA.pageY, 2));
   return newDistance - oldDistance;
+};
+
+var clamp = function(value, minimum, maximum) {
+  return Math.min(Math.max(value, minimum), maximum);
 };
 
 module.exports = View.extend({
@@ -156,35 +158,57 @@ module.exports = View.extend({
 
   onZoomBarChange: function(evt) {
     var value = evt.detail / 100;
-    var range = MAX_VIEWFINDER_SCALE - MIN_VIEWFINDER_SCALE;
-    var scale = (range * value) + MIN_VIEWFINDER_SCALE;
+    var range = this._maximumZoom - this._minimumZoom;
+    var scale = (range * value) + this._minimumZoom;
 
     this.setScale(scale);
   },
 
-  enableZoom: function() {
+  enableZoom: function(minimumZoom, maximumZoom) {
+    if (minimumZoom) {
+      this._minimumZoom = minimumZoom;
+    }
+
+    if (maximumZoom) {
+      this._maximumZoom = maximumZoom;
+    }
+
     isZoomEnabled = true;
   },
 
   disableZoom: function() {
-    this.setScale(MIN_VIEWFINDER_SCALE);
+    this._minimumZoom = 1.0;
+    this._maximumZoom = 1.0;
+
+    this.setScale(1.0);
 
     isZoomEnabled = false;
   },
 
-  _scale: MIN_VIEWFINDER_SCALE,
+  _minimumZoom: 1.0,
+
+  setMinimumZoom: function(minimumZoom) {
+    this._minimumZoom = minimumZoom;
+  },
+
+  _maximumZoom: 1.0,
+
+  setMaximumZoom: function(maximumZoom) {
+    this._maximumZoom = maximumZoom;
+  },
+
+  _scale: 1.0,
 
   setScale: function(scale) {
     if (!isZoomEnabled) {
       return;
     }
 
-    this._scale = Math.min(Math.max(scale, MIN_VIEWFINDER_SCALE),
-                     MAX_VIEWFINDER_SCALE);
+    this._scale = clamp(scale, this._minimumZoom, this._maximumZoom);
 
     this.emit('scaleChange', this._scale);
 
-    if (this._scale > MIN_VIEWFINDER_SCALE) {
+    if (this._scale > this._minimumZoom) {
       this.el.classList.add('zooming');
     }
 
@@ -192,8 +216,8 @@ module.exports = View.extend({
       this.el.classList.remove('zooming');
     }
 
-    var range = MAX_VIEWFINDER_SCALE - MIN_VIEWFINDER_SCALE;
-    var percent = (this._scale - MIN_VIEWFINDER_SCALE) / range * 100;
+    var range = this._maximumZoom - this._minimumZoom;
+    var percent = (this._scale - this._minimumZoom) / range * 100;
 
     this.zoomBar.setValue(percent);
   },
