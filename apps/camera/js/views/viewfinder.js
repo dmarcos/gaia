@@ -22,7 +22,7 @@ var MAX_VIEWFINDER_SCALE = constants.MAX_VIEWFINDER_SCALE;
 var lastTouchA = null;
 var lastTouchB = null;
 var isScaling = false;
-var isScalingEnabled = true;
+var isZoomEnabled = false;
 var scaleSizeTo = {
   fill: CameraUtils.scaleSizeToFillViewport,
   fit: CameraUtils.scaleSizeToFitViewport
@@ -162,20 +162,20 @@ module.exports = View.extend({
     this.setScale(scale);
   },
 
-  enableScaling: function() {
-    isScalingEnabled = true;
+  enableZoom: function() {
+    isZoomEnabled = true;
   },
 
-  disableScaling: function() {
+  disableZoom: function() {
     this.setScale(MIN_VIEWFINDER_SCALE);
 
-    isScalingEnabled = false;
+    isZoomEnabled = false;
   },
 
   _scale: MIN_VIEWFINDER_SCALE,
 
   setScale: function(scale) {
-    if (!isScalingEnabled) {
+    if (!isZoomEnabled) {
       return;
     }
 

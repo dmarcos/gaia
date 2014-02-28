@@ -26,6 +26,7 @@ function ViewfinderController(app) {
   this.camera = app.camera;
   this.activity = app.activity;
   this.filmstrip = app.filmstrip;
+  this.settings = app.settings;
   this.viewfinder = app.views.viewfinder;
   this.bindEvents();
   this.configure();
@@ -35,6 +36,15 @@ function ViewfinderController(app) {
 ViewfinderController.prototype.configure = function() {
   var grid = this.app.settings.grid.selected('key');
   this.viewfinder.set('grid', grid);
+
+  var enableZoom = this.app.settings.enableZoom.selected().value;
+  if (enableZoom) {
+    this.viewfinder.enableZoom();
+  }
+
+  else {
+    this.viewfinder.disableZoom();
+  }
 };
 
 ViewfinderController.prototype.bindEvents = function() {
