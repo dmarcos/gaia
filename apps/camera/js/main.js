@@ -34,7 +34,8 @@ require(['config/require', 'config'], function() {
       camera: require('controllers/camera'),
       sounds: require('controllers/sounds'),
       timer: require('controllers/timer'),
-      hud: require('controllers/hud')
+      hud: require('controllers/hud'),
+      focusring: require('controllers/focusring')
     };
 
     debug('required dependencies');

@@ -122,6 +122,7 @@ App.prototype.runControllers = function() {
   this.controllers.overlay(this);
   this.controllers.sounds(this);
   this.controllers.hud(this);
+  this.controllers.focusring(this);
   debug('controllers run');
 };
 
@@ -141,7 +142,7 @@ App.prototype.injectViews = function() {
   this.views.viewfinder.appendTo(this.el);
   this.views.recordingTimer.appendTo(this.el);
   this.views.indicators.appendTo(this.el);
-  this.views.focusRing.appendTo(this.el);
+  this.views.focusRing.appendTo(this.views.viewfinder.el);
   this.views.controls.appendTo(this.el);
   this.views.hud.appendTo(this.el);
   debug('views injected');

@@ -55,7 +55,7 @@ function Camera(options) {
     storage: navigator.getDeviceStorage('videos'),
     filepath: null,
     minSpace: options.recordSpaceMin || recordSpaceMin,
-    spacePadding : options.recordSpacePadding || recordSpacePadding
+    spacePadding: options.recordSpacePadding || recordSpacePadding
   };
 
   debug('initialized');
@@ -146,6 +146,50 @@ Camera.prototype.configure = function() {
     options.previewSize.height);
 
   this.mozCamera.setConfiguration(options, success, error);
+};
+
+ /**
+ * Stop detecting faces when
+ * switching from face focus to
+ * other focus modes like Touch
+ * Focus and continuous-video
+ * modes, etc.
+ */
+
+Camera.prototype.stopFaceDetection = function() {
+  this.mozCamera.stopFaceDetection();
+};
+
+/**
+ * Starting detecting faces
+ *
+ */
+Camera.prototype.startFaceDetection = function() {
+  var self = this;
+  if (this.mozCamera.capabilities.maxFaceDetected == 0) {
+    this.emit('nofacefocus');
+  } else {
+    try {
+      this.mozCamera.startFaceDetection();
+    } catch (e) {
+      // Although capabilities.maxFaceDetected returns 0,
+      // If you call startFaceDetection(), an exception will be thrown.
+      // the exception types are not implemented and not decided.
+      console.log('StartFaceDetection is failed: ' + e.message);
+    }
+  }
+
+  // Gecko sends callback with status
+  // of face detection. Currently
+  // gecko is not sending callback when
+  // there is no face is detected.
+  //
+  // Gecko callback is needed even when there
+  // is face detected, it will be useful
+  // when switching between focus modes.
+  this.mozCamera.onFacesDetected = function(faces) {
+    self.emit('facedetected', faces);
+  };
 };
 
 Camera.prototype.previewSizes = function() {
@@ -342,7 +386,7 @@ Camera.prototype.takePicture = function(options) {
   var self = this;
   var rotation = orientation.get();
   var selectedCamera = this.get('selectedCamera');
-  rotation = selectedCamera === 'front'? -rotation: rotation;
+  rotation = selectedCamera === 'front' ? -rotation : rotation;
 
   this.emit('busy');
   this.focus(onFocused);
@@ -727,6 +771,54 @@ Camera.prototype.setWhiteBalance = function(value){
 };
 
 /**
+*set focus Area
+* To focus on user specified region
+* of viewfinder set focus areas.
+*
+* @param  {object} rect
+* The argument is an object that
+* contains boundaries of focus area
+* in camera coordinate system, where
+* the top-left of the camera field
+* of view is at (-1000, -1000), and
+* bottom-right of the field at
+* (1000, 1000).
+*
+**/
+Camera.prototype.setFocusArea = function(rect) {
+  this.mozCamera.focusAreas = [{
+    top: rect.top,
+    bottom: rect.bottom,
+    left: rect.left,
+    right: rect.right,
+    weight: 1
+  }];
+};
+
+/**
+* Set the metering area.
+*
+* @param  {object} rect
+* The argument is an object that
+* contains boundaries of metering area
+* in camera coordinate system, where
+* the top-left of the camera field
+* of view is at (-1000, -1000), and
+* bottom-right of the field at
+* (1000, 1000).
+*
+**/
+Camera.prototype.setMeteringArea = function(rect) {
+  this.mozCamera.meteringAreas = [{
+    top: rect.top,
+    bottom: rect.bottom,
+    left: rect.left,
+    right: rect.right,
+    weight: 1
+  }];
+};
+
+/**
  * Set HDR mode.
  *
  * HDR is a scene mode, so we
@@ -797,9 +889,9 @@ Camera.prototype.getZoomPreviewAdjustment = function() {
   if (zoom <= maxHardwareZoom) {
     return 1.0;
   }
-  
+
   var virtualPreviewSize = {
-    width:  previewSize.width  * maxHardwareZoom,
+    width: previewSize.width * maxHardwareZoom,
     height: previewSize.height * maxHardwareZoom
   };
   var targetPreviewSize = {

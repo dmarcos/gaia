@@ -77,6 +77,8 @@ CameraController.prototype.bindEvents = function() {
   camera.on('loaded', app.firer('camera:loaded'));
   camera.on('ready', app.firer('camera:ready'));
   camera.on('busy', app.firer('camera:busy'));
+  camera.on('facedetected', app.firer('camera:facedetected'));
+  camera.on('facenotdetected', app.firer('camera:facenotdetected'));
 
   // Camera
   camera.on('filesizelimitreached', this.onFileSizeLimitReached);
@@ -309,7 +311,7 @@ CameraController.prototype.onBlur = function() {
 * set Self timer value when change from settings
 *@ paramet
 **/
-CameraController.prototype.setSelfTimer = function(value){
+CameraController.prototype.setSelfTimer = function(value) {
   this.camera.configureSelfTimer(value);
 };
 
@@ -317,8 +319,8 @@ CameraController.prototype.setSelfTimer = function(value){
 * cancel Self timer if clicked on viewfinder or any other copenet on screen
 *@ paramet
 **/
-CameraController.prototype.cancelSelfTimer = function(){
-    if(this.selfTimer)
+CameraController.prototype.cancelSelfTimer = function() {
+    if (this.selfTimer)
     {
       clearInterval(this.selfTimer);
       clearTimeout(this.selfTimeout);

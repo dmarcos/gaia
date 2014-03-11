@@ -1,5 +1,10 @@
 .viewfinder {
-  position: absolute;
+  /**
+  * relative because focus ring is
+  * is appended as viewfinder's
+  * child to locate face properly
+  **/
+  position: relative;
   top: 0;
   left: 0;
   width: 100%;
