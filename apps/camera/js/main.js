@@ -15,7 +15,6 @@ require(['config/require', 'config'], function() {
     var Sounds = require('lib/sounds');
     var Config = require('lib/config');
     var Settings = require('lib/settings');
-    var Filmstrip = require('lib/filmstrip');
     var sounds = new Sounds(require('config/sounds'));
     var config = new Config(require('config/app'));
     var settings = new Settings(config.get());
@@ -27,6 +26,7 @@ require(['config/require', 'config'], function() {
       indicators: require('controllers/indicators'),
       controls: require('controllers/controls'),
       recordingTimer: require('controllers/recording-timer'),
+      previewGallery: require('controllers/preview-gallery'),
       settings: require('controllers/settings'),
       activity: require('controllers/activity'),
       overlay: require('controllers/overlay'),
@@ -61,7 +61,6 @@ require(['config/require', 'config'], function() {
       camera: camera,
       sounds: sounds,
       controllers: controllers,
-      filmstrip: Filmstrip,
       storage: new Storage()
     });
 
