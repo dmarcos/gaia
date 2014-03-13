@@ -89,6 +89,7 @@ suite('app', function() {
         activity: sinon.spy(),
         sounds: sinon.spy(),
         recordingTimer: sinon.spy()
+        indicators: sinon.spy()
       }
     };
 

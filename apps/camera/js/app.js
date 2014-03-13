@@ -107,6 +107,7 @@ App.prototype.runControllers = function() {
   this.controllers.camera(this);
   this.controllers.viewfinder(this);
   this.controllers.recordingTimer(this);
+  this.controllers.indicators(this);
   this.controllers.controls(this);
   this.controllers.confirm(this);
   this.controllers.overlay(this);
