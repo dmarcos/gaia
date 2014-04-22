@@ -5,7 +5,9 @@ require(['config/require', 'config'], function() {
     var debug = require('debug')('main');
     var timing = window.performance.timing;
     debug('domloaded in %s', (timing.domComplete - timing.domLoading) + 'ms');
-
+    console.log('CAMERAPERF - DOM LOADED ' +
+      (timing.domComplete - timing.domLoading));
+    window.appStartLoading = new Date().getTime();
     /**
      * Module Dependencies
      */

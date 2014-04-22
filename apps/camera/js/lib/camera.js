@@ -114,7 +114,7 @@ Camera.prototype.loadStreamInto = function(videoElement) {
  */
 Camera.prototype.load = function(done) {
   debug('load camera');
-
+  console.log('CAMERAPERF - load camera');
   var selectedCamera = this.get('selectedCamera');
   var loadingNewCamera = selectedCamera !== this.lastLoadedCamera;
   var self = this;
@@ -161,9 +161,15 @@ Camera.prototype.requestCamera = function(camera, done) {
   done = done || function() {};
 
   var self = this;
+  window.startLoadingCamera = new Date().getTime();
+  console.log('CAMERAPERF - APP INITIALIZED' +
+    (window.startLoadingCamera - window.appStartLoading));
+  console.log('CAMERAPERF - REQUESTS CAMERA mozCamera.getCamera');
   navigator.mozCameras.getCamera(camera, {}, onSuccess, onError);
-
   function onSuccess(mozCamera) {
+    window.gotGamera = new Date().getTime();
+    console.log('CAMERAPERF - mozCamera.gotGamera ' +
+      window.gotGamera - window.startLoadingCamera);
     debug('successfully got mozCamera');
     self.configureCamera(mozCamera);
     done();
@@ -211,6 +217,7 @@ Camera.prototype.configure = function() {
   var success = function() {
     self.emit('configured');
   };
+  console.log('CAMERAPERF - configure');
 
   var error = function() {
     console.log('Error configuring camera');
@@ -686,7 +693,14 @@ Camera.prototype.onPreviewStateChange = function(state) {
   debug('preview state change: %s', state);
   var busy = state === 'stopped' || state === 'paused';
   if (busy) { this.emit('busy'); }
-  else { this.emit('ready'); }
+  else {
+    this.emit('ready');
+    window.previewReady = new Date().getTime();
+    console.log('CAMERAPERF - PREVIEW LOADED: ' + state + ' ' +
+      (window.previewReady - window.gotGamera));
+    console.log('CAMERAPERF - TOTAL CAMERA HARDWARE: ' +
+      (window.previewReady - window.startLoadingCamera));
+  }
 };
 
 /**
@@ -920,7 +934,7 @@ Camera.prototype.configureZoom = function(previewSize) {
   var maxHardwareZoom = maxPreviewSize.width / previewSize.width;
   this.set('maxHardwareZoom', maxHardwareZoom);
 
-  // Bug 983930 - [B2G][Camera] CameraControl API's "zoom" attribute doesn't
+  // Bug 983930 - [B2G][Camera] CameraControl API's 'zoom' attribute doesn't
   // scale preview properly
   //
   // For some reason, the above calculation for `maxHardwareZoom` does not
