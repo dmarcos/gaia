@@ -184,7 +184,7 @@ Camera.prototype.firstLoad = function() {
   this.mozCameraConfig = config.mozCameraConfig;
 
   // Request the camera, passing in the config.
-  // If this is the first time the caemra app
+  // If this is the first time the camera app
   // has been used `mozCameraConfig` will be undefined.
   this.requestCamera(this.selectedCamera, this.mozCameraConfig);
 
@@ -280,7 +280,8 @@ Camera.prototype.requestCamera = function(camera, config) {
     self.emit('focusconfigured', {
       mode: self.mozCamera.focusMode,
       touchFocus: self.focus.touchFocus,
-      faceTracking: self.focus.faceTracking
+      faceDetection: self.focus.faceDetection,
+      maxDetectedFaces: self.focus.maxDetectedFaces
     });
     self.ready();
 
@@ -413,6 +414,11 @@ Camera.prototype.configureFocus = function() {
     focusMode = 'continuous-video';
   }
   this.focus.configure(this.mozCamera, focusMode);
+  this.focus.onFacesDetected = this.onFacesDetected;
+};
+
+Camera.prototype.onFacesDetected = function(faces) {
+  this.emit('facesdetected', faces);
 };
 
 /**
@@ -620,6 +626,9 @@ Camera.prototype.release = function(done) {
   }
 
   this.busy();
+  this.stopRecording();
+  this.focus.stopFaceDetection();
+  this.set('focus', 'none');
   this.mozCamera.release(onSuccess, onError);
   this.releasing = true;
   this.mozCamera = null;

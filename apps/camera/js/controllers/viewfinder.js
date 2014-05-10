@@ -8,7 +8,9 @@ define(function(require, exports, module) {
 var debug = require('debug')('controller:viewfinder');
 var bindAll = require('lib/bind-all');
 var FocusView = require('views/focus');
+var Face = require('views/face');
 var calculateFocusArea = require('lib/calculate-focus-area');
+var convertFaceToPixels = require('lib/convert-face-to-pixel-coordinates');
 
 /**
  * Exports
@@ -34,6 +36,7 @@ function ViewfinderController(app) {
   // Append focus ring to viewfinder
   this.views.focus = new FocusView();
   this.views.focus.appendTo(this.views.viewfinder.el);
+  this.faces = [];
   this.bindEvents();
   this.configure();
   debug('initialized');
@@ -99,6 +102,7 @@ ViewfinderController.prototype.bindEvents = function() {
   this.camera.on('zoomchanged', this.onZoomChanged);
   this.app.on('camera:focusconfigured', this.onFocusConfigured);
   this.app.on('camera:focusstatechanged', this.views.focus.setFocusState);
+  this.app.on('camera:facesdetected', this.onFacesDetected);
   this.app.on('camera:shutter', this.views.viewfinder.shutter);
   this.app.on('camera:busy', this.views.viewfinder.disable);
   this.app.on('camera:ready', this.views.viewfinder.enable);
@@ -141,9 +145,60 @@ ViewfinderController.prototype.show = function() {
  *  Sets appropiate flags when the camera focus is configured
  */
 ViewfinderController.prototype.onFocusConfigured = function(config) {
+  var i;
+  var face;
   this.views.focus.setFocusMode(config.mode);
   this.touchFocusEnabled = config.touchFocus;
-  this.views.focus.enable('face-tracking', config.faceTracking);
+  this.clearFaces();
+  // It creates the DOM elements that will display circles
+  // around the detected faces.
+  if (config.maxDetectedFaces > 0) {
+    for(i = 0; i < config.maxDetectedFaces; ++i) {
+      face = new Face();
+      face.hide();
+      this.faces.push(face);
+      face.appendTo(this.views.viewfinder.el);
+    }
+  }
+};
+
+ViewfinderController.prototype.onFacesDetected = function(faces) {
+  var self = this;
+  var faceInPixels;
+  var viewportHeight = this.views.viewfinder.els.frame.clientHeight;
+  var viewportWidth = this.views.viewfinder.els.frame.clientWidth;
+
+  this.hideFaces();
+  faces.forEach(function(face, index) {
+    // Face comes in camera coordinates from gecko
+    faceInPixels = convertFaceToPixels(face, viewportWidth, viewportHeight);
+    self.showFace(faceInPixels, self.faces[index]);
+    if (face.onFocus) {
+      self.faces[index].highlight();
+    }
+  });
+};
+
+ViewfinderController.prototype.showFace = function(faceCoordinates, faceView) {
+  // Maximum radius is 300px as in the visual spec
+  var radius = faceCoordinates.radius > 300? 300 : faceCoordinates.radius;
+  faceView.setPosition(faceCoordinates.x, faceCoordinates.y);
+  faceView.setRadius(radius);
+  faceView.show();
+};
+
+ViewfinderController.prototype.hideFaces = function() {
+  this.faces.forEach(function(face) {
+    face.hide();
+  });
+};
+
+ViewfinderController.prototype.clearFaces = function() {
+  var self = this;
+  this.faces.forEach(function(face) {
+    self.views.viewfinder.el.removeChild(face.el);
+  });
+  this.faces = [];
 };
 
 /**
@@ -264,11 +319,12 @@ ViewfinderController.prototype.onViewfinderClicked = function(e) {
     x: e.pageX,
     y: e.pageY
   };
+  this.hideFaces();
   focusPoint.area = calculateFocusArea(
     focusPoint.x, focusPoint.y,
     this.views.viewfinder.el.clientWidth,
     this.views.viewfinder.el.clientHeight);
-  this.views.focus.changePosition(focusPoint.x, focusPoint.y);
+  this.views.focus.setPosition(focusPoint.x, focusPoint.y);
   this.app.emit('viewfinder:focuspointchanged', focusPoint);
 };
 
