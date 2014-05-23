@@ -30,7 +30,7 @@ function CameraController(app) {
   this.viewfinder = app.views.viewfinder;
   this.controls = app.views.controls;
   this.hdrDisabled = this.settings.hdr.get('disabled');
-  this.localize = app.localize;
+  this.l10nGet = app.l10nGet;
   this.configure();
   this.bindEvents();
   debug('initialized');
@@ -46,6 +46,7 @@ CameraController.prototype.bindEvents = function() {
   camera.on('change:videoElapsed', app.firer('camera:recorderTimeUpdate'));
   camera.on('focusconfigured',  app.firer('camera:focusconfigured'));
   camera.on('change:focus', app.firer('camera:focusstatechanged'));
+  camera.on('facesdetected', app.firer('camera:facesdetected'));
   camera.on('filesizelimitreached', this.onFileSizeLimitReached);
   camera.on('change:recording', app.setter('recording'));
   camera.on('newcamera', app.firer('camera:newcamera'));
@@ -191,7 +192,7 @@ CameraController.prototype.showSizeLimitAlert = function() {
   var alertText = this.activity.pick ?
     'activity-size-limit-reached' :
     'storage-size-limit-reached';
-  alert(this.localize(alertText));
+  alert(this.l10nGet(alertText));
   this.sizeLimitAlertActive = false;
 };
 

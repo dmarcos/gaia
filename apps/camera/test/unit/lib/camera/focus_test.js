@@ -66,6 +66,8 @@ suite('lib/camera/focus', function() {
       this.focus = new this.Focus(userPreferences);
       this.focus.isTouchFocusSupported = sinon.stub();
       this.focus.isTouchFocusSupported.returns(true);
+      this.focus.isFaceDetectionSupported = sinon.stub();
+      this.focus.isFaceDetectionSupported.returns(true);
     });
 
     test('continous autofocus is enabled by default if supported', function() {
@@ -104,6 +106,19 @@ suite('lib/camera/focus', function() {
     });
 
   });
+
+  suite('Focus#startFaceDetection', function() {
+    setup(function() {
+      this.focus.mozCamera = this.mozCamera;
+      this.mozCamera.startFaceDetection = sinon.spy();
+    });
+
+    test('mozCamera startFaceDetection is called to start face detection', function() {
+      this.focus.startFaceDetection();
+      assert.ok(this.mozCamera.startFaceDetection.called);
+    })
+  });
+
 
   suite('Focus#focus()', function() {
     setup(function() {
@@ -224,6 +239,27 @@ suite('lib/camera/focus', function() {
       this.focus.mozCamera.capabilities.maxMeteringAreas = 4;
       assert.ok(this.focus.isTouchFocusSupported());
     });
+  });
+
+  suite('Focus#isFaceDetectionSupported()', function() {
+    setup(function() {
+      this.focus.mozCamera = this.mozCamera;
+    });
+
+    test('it returns false if hardware doesn\'t support face tracking', function() {
+      this.focus.mozCamera.capabilities = {
+        maxFaceDetected: 5
+      };
+      assert.ok(this.focus.isFaceDetectionSupported() === true);
+    });
+
+    test('it returns false if hardware doesn\'t support face tracking', function() {
+      this.focus.mozCamera.capabilities = {
+        maxFaceDetected: 0
+      };
+      assert.ok(this.focus.isFaceDetectionSupported() === false);
+    });
+
   });
 
   suite('Focus#updateFocusArea()', function() {

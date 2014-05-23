@@ -217,7 +217,10 @@
 
     <!-- Cards View -->
     <link rel="stylesheet" type="text/css" href="style/cards_view/cards_view.css">
-    <script defer src="js/cards_view.js"></script>
+    <script defer src="js/cards_helper.js"></script>
+    <script defer src="js/card.js"></script>
+    <script defer src="js/task_card.js"></script>
+    <script defer src="js/task_manager.js"></script>
 
     <!-- Bluetooth -->
     <script defer src="js/bluetooth.js"></script>
@@ -228,7 +231,7 @@
     <script defer src="js/wifi.js"></script>
 
     <!-- Nfc -->
-    <script defer src="js/nfc_manager_utils.js"></script>
+    <script defer src="js/ndef_utils.js"></script>
     <script defer src="js/nfc_handover_manager.js"></script>
     <script defer src="js/nfc_manager.js"></script>
 
@@ -324,10 +327,6 @@
     <script defer src="js/layout_manager.js"></script>
     <script defer src="js/suspending_app_priority_manager.js"></script>
 
-    <!-- Devtools -->
-    <link rel="stylesheet" type="text/css" href="style/devtools_view.css">
-    <script defer src="js/devtools_view.js"></script>
-
     <!-- Edge Gestures -->
     <script defer src="js/stack_manager.js"></script>
     <script defer src="js/sheets_transition.js"></script>
@@ -338,8 +337,10 @@
     <link rel="stylesheet" type="text/css" href="style/entry_sheet/entry_sheet.css">
     <script defer src="js/entry_sheet.js"></script>
 
-    <!-- Remote Debugger -->
+    <!-- Developer Tools -->
     <script defer src="js/remote_debugger.js"></script>
+    <script defer src="js/devtools/developer_hud.js"></script>
+    <link rel="stylesheet" type="text/css" href="style/devtools/developer_hud.css">
 
     <!-- Call Forwarding  -->
     <script defer src="js/call_forwarding.js"></script>

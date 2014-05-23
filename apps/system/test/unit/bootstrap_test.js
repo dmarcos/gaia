@@ -3,6 +3,7 @@
 /*global MockApplications, Applications*/
 
 requireApp('system/shared/js/async_storage.js');
+requireApp('system/shared/js/screen_layout.js');
 requireApp('system/shared/test/unit/mocks/mock_icc_helper.js');
 requireApp('system/shared/test/unit/mocks/mock_navigator_moz_apps.js');
 requireApp('system/shared/test/unit/mocks/mock_navigator_moz_settings.js');
@@ -14,7 +15,7 @@ requireApp('system/js/activities.js');
 requireApp('system/js/activity_window_factory.js');
 requireApp('system/js/activity_window_manager.js');
 requireApp('system/js/app_window_factory.js');
-requireApp('system/js/devtools_view.js');
+requireApp('system/js/devtools/developer_hud.js');
 requireApp('system/js/dialer_agent.js');
 requireApp('system/js/ftu_launcher.js');
 requireApp('system/js/rocketbar.js');
@@ -41,6 +42,7 @@ requireApp('system/test/unit/mock_applications.js');
 requireApp('system/test/unit/mock_l10n.js');
 requireApp('system/test/unit/mock_places.js');
 requireApp('system/test/unit/mock_screen_manager.js');
+requireApp('system/test/unit/mock_task_manager.js');
 
 mocha.globals([
   'accessibility',
@@ -51,7 +53,7 @@ mocha.globals([
   'cancelHomeTouchstart',
   'cancelHomeTouchend',
   'cancelHomeClick',
-  'devtoolsView',
+  'developerHUD',
   'dialerAgent',
   'homeGesture',
   'homeSearchbar',
@@ -71,6 +73,7 @@ mocha.globals([
   'softwareButtonManager',
   'storage',
   'systemDialogManager',
+  'taskManager',
   'telephonySettings',
   'ttlView',
   'visibilityManager',
@@ -84,6 +87,7 @@ var mocksForBootstrap = new MocksHelper([
   'Places',
   'SettingsListener',
   'SettingsURL',
+  'TaskManager',
   'L10n'
 ]).init();
 

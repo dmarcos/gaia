@@ -78,7 +78,7 @@
     <script defer src="js/app.js"></script>
     <script defer src="js/startup.js"></script>
     <!-- Elements -->
-    <link rel="import" href="/shared/elements/sim-picker.html">
+    <link rel="import" href="/shared/elements/sim_picker.html">
   </head>
 
   <body role="application">
@@ -259,10 +259,9 @@
             <form id="messages-compose-form" role="search" class="bottom" data-message-type="sms">
               <button id="messages-send-button" data-l10n-id="send" type="submit">Send</button>
               <div class="message-complete">
-                <div id="messages-subject-input" contentEditable="true" class="placeholder" data-l10n-id="composeSubject" data-max-length="40">
+                <div id="messages-subject-input" contentEditable="true" class="placeholder js-l10n-placeholder" data-max-length="40">
                 </div>
-                <div id="messages-input" contentEditable="true" name="message"
-            data-l10n-id="composeMessage" x-inputmode="-moz-sms">
+                <div id="messages-input" contentEditable="true" name="message" x-inputmode="-moz-sms" class="js-l10n-placeholder">
                 </div>
               </div>
             </form>
@@ -432,6 +431,7 @@
             <progress class="${progressIndicatorClassName}"></progress>
           </aside>
           <p>${bodyHTML}</p>
+          <time data-time-update="true" data-time-only="true" data-time="${timestamp}"></time>
         </div>
       </section>
       -->

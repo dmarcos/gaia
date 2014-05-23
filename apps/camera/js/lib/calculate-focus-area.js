@@ -67,6 +67,7 @@ module.exports = function(x, y, viewportWidth, viewportHeight, focusAreaSide) {
   var yCameraCoordinates = y * cameraUnitsPerPixelHeight;
 
   // Converts area size from pixel to camera units
+  // screen-pixels * (camera-units / screen-pixels) = camera-units
   var horizontalMargin = focusAreaHalfSide * cameraUnitsPerPixelWidth;
   var verticalMargin = focusAreaHalfSide * cameraUnitsPerPixelHeight;
 

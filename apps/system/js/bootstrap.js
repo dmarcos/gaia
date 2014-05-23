@@ -4,13 +4,13 @@
 /*global ActivityWindowManager, SecureWindowFactory,
          SecureWindowManager, HomescreenLauncher,
          FtuLauncher, SourceView, ScreenManager, Places, Activities,
-         DialerAgent, DevtoolsView, RemoteDebugger, HomeGesture,
+         DeveloperHUD, DialerAgent, RemoteDebugger, HomeGesture,
          SettingsURL, SettingsListener, VisibilityManager, Storage,
          TelephonySettings, SuspendingAppPriorityManager, TTLView,
          MediaRecording, AppWindowFactory, SystemDialogManager,
          applications, Rocketbar, LayoutManager, PermissionManager,
          HomeSearchbar, SoftwareButtonManager, Accessibility,
-         InternetSharing */
+         InternetSharing, TaskManager */
 
 'use strict';
 
@@ -102,7 +102,7 @@ window.addEventListener('load', function startup() {
   window.activities = new Activities();
   window.accessibility = new Accessibility();
   window.accessibility.start();
-  window.devtoolsView = new DevtoolsView();
+  window.developerHUD = new DeveloperHUD().start();
   window.dialerAgent = new DialerAgent().start();
   window.homeGesture = new HomeGesture().start();
   window.homeSearchbar = new HomeSearchbar();
@@ -117,6 +117,8 @@ window.addEventListener('load', function startup() {
   window.rocketbar = new Rocketbar();
   window.softwareButtonManager = new SoftwareButtonManager().start();
   window.sourceView = new SourceView();
+  window.taskManager = new TaskManager();
+  window.taskManager.start();
   window.telephonySettings = new TelephonySettings();
   window.telephonySettings.start();
   window.ttlView = new TTLView();

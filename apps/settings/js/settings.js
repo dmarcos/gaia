@@ -159,7 +159,7 @@ var Settings = {
     }
 
     if (hash === '#wifi') {
-      PerformanceTestingHelper.dispatch('start');
+      PerformanceTestingHelper.dispatch('start-wifi-list-test');
     }
 
     var panelID = hash;
@@ -169,15 +169,10 @@ var Settings = {
 
     this._currentPanel = hash;
     this.SettingsService.navigate(panelID, null, function() {
-      switch (hash) {
-        case 'about-licensing':
-          // Workaround for bug 825622, remove when fixed
-          var iframe = document.getElementById('os-license');
-          iframe.src = iframe.dataset.src;
-          break;
-        case 'wifi':
-          PerformanceTestingHelper.dispatch('settings-panel-wifi-visible');
-          break;
+      if (hash === 'about-licensing') {
+        // Workaround for bug 825622, remove when fixed
+        var iframe = document.getElementById('os-license');
+        iframe.src = iframe.dataset.src;
       }
     });
   },
@@ -232,6 +227,7 @@ var Settings = {
       window.addEventListener('keydown', this.handleSpecialKeys);
     }).bind(this));
 
+    PerformanceTestingHelper.dispatch('startup-path-done');
   },
 
   // An activity can be closed either by pressing the 'X' button

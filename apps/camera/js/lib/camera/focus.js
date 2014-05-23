@@ -2,6 +2,12 @@ define(function(require, exports, module) {
 'use strict';
 
 /**
+ * Module Dependencies
+ */
+
+var bindAll = require('lib/bind-all');
+
+/**
  * Exports
  */
 
@@ -12,10 +18,12 @@ module.exports = Focus;
  *
  *   - {Boolean} `continousAutoFocus`
  *   - {Boolean} `touchFocus`
- *   - {Boolean} `faceTracking`
+ *   - {Boolean} `faceDetection`
  */
 function Focus(options) {
+  bindAll(this);
   this.userPreferences = options || {};
+  this.detectedFaces = [];
 }
 
 Focus.prototype.configure = function(mozCamera, focusMode) {
@@ -52,15 +60,136 @@ Focus.prototype.configureFocusModes = function() {
   var continuousAutoFocusEnabled = true;
   var touchFocusUserEnabled = userPreferences.touchFocus;
   var touchFocusSupported = this.isTouchFocusSupported();
-
+  var faceDetectionUserEnabled = userPreferences.faceDetection;
+  var faceDetectionSupported = this.isFaceDetectionSupported();
   // User preferences overrided defaults
   if (userPreferences.continuousAutoFocus !== undefined) {
     continuousAutoFocusEnabled = userPreferences.continuousAutoFocus;
   }
   this.touchFocus = touchFocusUserEnabled && touchFocusSupported;
+  this.faceDetection = faceDetectionUserEnabled && faceDetectionSupported;
   this.continuousAutoFocus = continuousAutoFocusEnabled;
+  if (this.faceDetection) {
+    this.startFaceDetection();
+  }
 };
 
+Focus.prototype.startFaceDetection = function() {
+  if (!this.faceDetection) {
+    return;
+  }
+  this.mozCamera.onFacesDetected = this.focusOnMainFace;
+  this.mozCamera.startFaceDetection();
+};
+
+Focus.prototype.stopFaceDetection = function() {
+  if (this.faceDetection) {
+    this.focusOnMainFace([]);
+    this.mozCamera.stopFaceDetection();
+  }
+};
+
+Focus.prototype.suspendFaceDetection = function(ms, delay) {
+  var self = this;
+  clearTimeout(this.faceDetectionSuspended);
+  clearTimeout(this.faceDetectionSuspensionTimer);
+  this.faceDetectionSuspensionTimer = setTimeout(suspendFaceDetection, delay);
+  function suspendFaceDetection() {
+    self.faceDetectionSuspended = setTimeout(clearTimer, ms);
+  }
+  function clearTimer() {
+    self.faceFocused = false;
+    self.faceDetectionSuspended = undefined;
+  }
+};
+
+Focus.prototype.stopContinuousFocus = function() {
+  var focusMode = this.mozCamera.focusMode;
+  if (focusMode === 'continuous-picture' || focusMode === 'continuous-video') {
+    this.previousFocusMode = focusMode;
+    focusMode = 'auto';
+    this.mozCamera.focusMode = focusMode;
+  }
+};
+
+Focus.prototype.resumeContinuousFocus = function() {
+  this.mozCamera.focusMode = this.previousFocusMode;
+  this.mozCamera.resumeContinuousFocus();
+};
+
+Focus.prototype.suspendContinuousFocus = function(ms) {
+  var self = this;
+  clearTimeout(this.continuousModeTimer);
+  this.stopContinuousFocus();
+  this.continuousModeTimer = setTimeout(resumeContinuousFocus, ms);
+  function resumeContinuousFocus(){
+    self.resumeContinuousFocus();
+  }
+};
+
+Focus.prototype.onFacesDetected = function(faces) {
+  // NO OP by default
+};
+
+Focus.prototype.facesAlreadyDetected = function(faces) {
+  return faces.length === this.detectedFaces.length;
+};
+
+Focus.prototype.filterDetectedFaces = function(faces) {
+  var maxArea = -1;
+  var minFaceScore = 60;
+  var area;
+  var detectedFaces = [];
+
+  faces.forEach(function(face, index) {
+    if (face.score < minFaceScore) {
+      return;
+    }
+    area = face.bounds.width * face.bounds.height;
+    if (area > maxArea) {
+      maxArea = area;
+      detectedFaces.unshift(face);
+    } else {
+      detectedFaces.push(face);
+    }
+  });
+
+  return detectedFaces;
+};
+
+Focus.prototype.focusOnMainFace = function(faces) {
+  var self = this;
+  var detectedFaces = this.filterDetectedFaces(faces);
+  var facesAlreadyDetected = this.facesAlreadyDetected(detectedFaces);
+
+  // It touch to focus is not available we cannot focus on the face area
+  if (!this.touchFocus) {
+    return;
+  }
+
+  if (this.faceDetectionSuspended || detectedFaces.length === 0) {
+    this.onFacesDetected([]);
+    return;
+  }
+
+  if (!facesAlreadyDetected) {
+    this.detectedFaces = detectedFaces;
+    this.suspendFaceDetection(2000, 2000);
+    if (!this.faceFocused) {
+      this.stopContinuousFocus();
+      // First face in the array is the one we focus on (largest area on image)
+      this.updateFocusArea(detectedFaces[0].bounds, focusDone);
+    }
+  }
+  //detectedFaces[0].onFocus = true;
+  this.onFacesDetected(detectedFaces);
+
+  function focusDone(error) {
+    self.faceFocused = true;
+    self.suspendContinuousFocus(4000);
+  }
+
+};
 
 /**
  * Focus the camera, invoke the callback asynchronously when done.
@@ -76,34 +205,12 @@ Focus.prototype.configureFocusModes = function() {
  */
 Focus.prototype.focus = function(done) {
   var self = this;
-  var focusMode = this.mozCamera.focusMode;
-
-  // It there's already a timer to go back to continuous focus we restart it
-  if (this.continuousModeTimer) {
-    startContinousModeTimer();
-  }
-
-  if (focusMode === 'continuous-picture' || focusMode === 'continuous-video') {
-    this.previousFocusMode = focusMode;
-    focusMode = 'auto';
-    this.mozCamera.focusMode = focusMode;
-    startContinousModeTimer();
-  }
-
-  function startContinousModeTimer() {
-    clearTimeout(self.continuousModeTimer);
-    self.continuousModeTimer = setTimeout(switchToContinuousMode, 10000);
-  }
-
-  function switchToContinuousMode(){
-    self.mozCamera.focusMode = self.previousFocusMode;
-    self.mozCamera.resumeContinuousFocus();
-  }
-
-  if (focusMode !== 'auto') {
+  this.suspendContinuousFocus(10000);
+  if (this.mozCamera.focusMode !== 'auto') {
     done();
     return;
   }
+
   //
   // In either focus mode, we call autoFocus() to ensure that the user gets
   // a sharp picture. The difference between the two modes is that if
@@ -121,7 +228,6 @@ Focus.prototype.focus = function(done) {
   // This is fixed focus: there is nothing we can do here so we
   // should just call the callback and take the photo. No focus
   // happens so we don't display a focus ring.
-
   function onFocused(success) {
     if (success) {
       self.focused = true;
@@ -145,9 +251,7 @@ Focus.prototype.reset = function() {
 };
 
 Focus.prototype.resume = function() {
-  if (this.mozCamera.focusMode === 'continuous-picture') {
-    this.mozCamera.resumeContinuousFocus();
-  }
+  this.suspendContinuousFocus(0);
 };
 
 /**
@@ -159,14 +263,26 @@ Focus.prototype.isTouchFocusSupported = function() {
   return maxFocusAreas > 0 && maxMeteringAreas > 0;
 };
 
-Focus.prototype.updateFocusArea = function(rect, done) {
-  var flashMode = this.mozCamera.flashMode;
-  var self = this;
+/**
+ * Check if hardware supports face detection
+ */
+Focus.prototype.isFaceDetectionSupported = function() {
+  var cameraDetectsFaces = this.mozCamera.capabilities.maxDetectedFaces > 0;
+  var apiAvailable = !!this.mozCamera.startFaceDetection;
+  this.maxDetectedFaces = this.mozCamera.capabilities.maxDetectedFaces;
+  return cameraDetectsFaces && apiAvailable;
+};
 
+Focus.prototype.updateFocusArea = function(rect, done) {
+  var previousFlashMode = this.mozCamera.flashMode;
+  done = done || function() {};
+  var self = this;
   if (!this.touchFocus) {
+    done('touchToFocusNotAvailable');
     return;
   }
 
+  this.stopFaceDetection();
   this.mozCamera.setFocusAreas([rect]);
   this.mozCamera.setMeteringAreas([rect]);
   if (this.mozCamera.focusMode === 'continuous-picture') {
@@ -177,8 +293,10 @@ Focus.prototype.updateFocusArea = function(rect, done) {
   // Call auto focus to focus on focus area.
   this.focus(focusDone);
   function focusDone(state) {
+    self.startFaceDetection();
+    self.suspendFaceDetection(2000, 0);
     // Restores previous flash mode
-    self.mozCamera.flashMode = flashMode;
+    self.mozCamera.flashMode = previousFlashMode;
     done(state);
   }
 

@@ -5,6 +5,7 @@ define(function(require, exports, module) {
  * Dependencies
  */
 
+var PerformanceTestingHelper = require('performance-testing-helper');
 var NotificationView = require('views/notification');
 var LoadingView = require('views/loading-screen');
 var ViewfinderView = require('views/viewfinder');
@@ -152,6 +153,9 @@ App.prototype.bindEvents = function() {
 
   // DOM
   bind(this.doc, 'visibilitychange', this.onVisibilityChange);
+
+  // we bind to window.onlocalized in order not to depend
+  // on l10n.js loading (which is lazy). See bug 999132
   bind(this.win, 'localized', this.firer('localized'));
   bind(this.win, 'beforeunload', this.onBeforeUnload);
   bind(this.el, 'click', this.onClick);
@@ -209,7 +213,9 @@ App.prototype.onCriticalPathDone = function() {
   var start = window.performance.timing.domLoading;
   var took = Date.now() - start;
 
+  PerformanceTestingHelper.dispatch('startup-path-done');
   console.log('critical-path took %s', took + 'ms');
+
   this.clearLoading();
   this.loadController(this.controllers.previewGallery);
   this.loadController(this.controllers.storage);
@@ -296,9 +302,15 @@ App.prototype.localized = function() {
  * @param  {String} key
  * @public
  */
-App.prototype.localize = function(key) {
+App.prototype.l10nGet = function(key) {
   var l10n = navigator.mozL10n;
-  return (l10n && l10n.get(key)) || key;
+  if (l10n) {
+    return l10n.get(key);
+  }
+
+  // in case we don't have mozL10n loaded yet, we want to
+  // return the key. See bug 999132
+  return key;
 };
 
 /**

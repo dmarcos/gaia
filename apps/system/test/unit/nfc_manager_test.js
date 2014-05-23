@@ -3,9 +3,8 @@
 mocha.globals(['NfcManager', 'ScreenManager', 'SettingsListener',
       'lockScreen']);
 
-/* globals MockDOMRequest, MockNfc, MocksHelper, MozNDEFRecord, NDEF, 
+/* globals MockDOMRequest, MockNfc, MocksHelper, MozNDEFRecord, NDEF,
            NfcUtils, NfcManager */
-
 
 require('/shared/test/unit/mocks/mock_moz_ndefrecord.js');
 require('/shared/test/unit/mocks/mock_settings_listener.js');
@@ -17,7 +16,6 @@ requireApp('system/test/unit/mock_activity.js');
 requireApp('system/test/unit/mock_nfc.js');
 requireApp('system/test/unit/mock_screen_manager.js');
 requireApp('system/test/unit/mock_settingslistener_installer.js');
-requireApp('system/js/nfc_manager_utils.js');
 requireApp('system/js/nfc_manager.js');
 requireApp('system/test/unit/mock_lock_screen.js');
 
@@ -45,7 +43,7 @@ suite('Nfc Manager Functions', function() {
     window.navigator.mozSetMessageHandler = MockMozSetMessageHandler;
     realLockScreen = window.lockScreen;
     window.lockScreen = window.MockLockScreen;
-    
+
     requireApp('system/js/nfc_manager.js', done);
   });
 
@@ -59,10 +57,10 @@ suite('Nfc Manager Functions', function() {
       var stubHandleTechnologyDiscovered =
         this.sinon.stub(NfcManager, 'handleTechnologyDiscovered');
       var stubHandleTechLost = this.sinon.stub(NfcManager, 'handleTechLost');
-      
+
       // calling init once more to register stubs as handlers
       NfcManager.init();
-      
+
       MockMessageHandlers['nfc-manager-tech-discovered']();
       assert.isTrue(stubHandleTechnologyDiscovered.calledOnce);
 
@@ -121,7 +119,7 @@ suite('Nfc Manager Functions', function() {
       assert.isTrue(stubChangeHardwareState.calledOnce);
       assert.equal(stubChangeHardwareState.getCall(0).args[0],
                    NfcManager.NFC_HW_STATE_DISABLE_DISCOVERY);
-      
+
       // no change in NfcManager.hwState
       NfcManager.hwState = NfcManager.NFC_HW_STATE_DISABLE_DISCOVERY;
       NfcManager.handleEvent(new CustomEvent('screenchange'));
@@ -133,7 +131,7 @@ suite('Nfc Manager Functions', function() {
       assert.isTrue(stubChangeHardwareState.calledTwice);
       assert.equal(stubChangeHardwareState.getCall(1).args[0],
                    NfcManager.NFC_HW_STATE_ENABLE_DISCOVERY);
-      
+
       // NFC off
       NfcManager.hwState = NfcManager.NFC_HW_STATE_OFF;
       NfcManager.handleEvent(new CustomEvent('lock'));
@@ -148,7 +146,7 @@ suite('Nfc Manager Functions', function() {
       var stubDispatchEvent = this.sinon.stub(window, 'dispatchEvent');
 
       NfcManager.handleEvent(new CustomEvent('shrinking-sent'));
-      
+
       assert.isTrue(stubRemoveEventListner.calledOnce);
       assert.equal(stubRemoveEventListner.getCall(0).args[0], 'shrinking-sent');
       assert.equal(stubRemoveEventListner.getCall(0).args[1], NfcManager);
@@ -162,14 +160,13 @@ suite('Nfc Manager Functions', function() {
   });
 
   suite('handleNdefMessage', function() {
-    
     var execCommonTest = function(message, type) {
       var activityOptions = NfcManager.handleNdefMessage(message);
 
       assert.equal(activityOptions.name, 'nfc-ndef-discovered');
       assert.equal(activityOptions.data.type, type);
       assert.equal(activityOptions.data.records, message);
-      
+
       return activityOptions;
     };
 
@@ -187,7 +184,7 @@ suite('Nfc Manager Functions', function() {
                                             NDEF.RTD_TEXT,
                                             new Uint8Array(),
                                             payload)];
-      
+
       var activityOptions = execCommonTest(dummyNdefMsg, 'text');
       assert.equal(activityOptions.data.text, 'Hey! UTF-8 en');
       assert.equal(activityOptions.data.rtd, NDEF.RTD_TEXT);
@@ -205,7 +202,7 @@ suite('Nfc Manager Functions', function() {
                                             NDEF.RTD_URI,
                                             new Uint8Array(),
                                             payload)];
-      
+
       var activityOptions = execCommonTest(dummyNdefMsg, 'url');
       assert.equal(activityOptions.data.url, 'https://wiki.mozilla.org');
     });
@@ -231,7 +228,7 @@ suite('Nfc Manager Functions', function() {
                                             type,
                                             new Uint8Array(),
                                             payload)];
-      
+
       execCommonTest(dummyNdefMsg, 'text/plain');
     });
 
@@ -246,7 +243,7 @@ suite('Nfc Manager Functions', function() {
                                             type,
                                             new Uint8Array(),
                                             new Uint8Array())];
-      
+
       execCommonTest(dummyNdefMsg, 'http://mozilla.org');
     });
 
@@ -263,6 +260,23 @@ suite('Nfc Manager Functions', function() {
                                             payload)];
 
       execCommonTest(dummyNdefMsg, 'mozilla.org:bug');
+    });
+
+    //Bug 1004977 TNF Unknown, Unchanged, Reserved handling in NfcManager
+    test('TNF unknown, unchanged, reserved', function() {
+      var pld = NfcUtils.fromUTF8('payload');
+      var empt = new Uint8Array();
+      var unknwn = [new MozNDEFRecord(NDEF.TNF_UNKNOWN, empt, empt, pld)];
+      var unchngd = [new MozNDEFRecord(NDEF.TNF_UNCHANGED, empt, empt, pld)];
+      var rsrvd = [new MozNDEFRecord(NDEF.TNF_RESERVED, empt, empt, pld)];
+
+      execCommonTest(unknwn, undefined);
+      execCommonTest(rsrvd, undefined);
+
+      var activityUnchngd = NfcManager.handleNdefMessage(unchngd);
+      assert.equal(activityUnchngd.name, 'nfc-ndef-discovered');
+      assert.isUndefined(activityUnchngd.data.type);
+      assert.isUndefined(activityUnchngd.data.records);
     });
   });
 
@@ -371,7 +385,8 @@ suite('Nfc Manager Functions', function() {
       NfcManager.handleTechLost(command);
       assert.isTrue(stubDispatchEvent.calledThrice);
       assert.equal(stubDispatchEvent.getCall(1).args[0].type, 'nfc-tech-lost');
-      assert.equal(stubDispatchEvent.getCall(2).args[0].type, 'shrinking-stop');
+      assert.equal(stubDispatchEvent.getCall(2).args[0].type,
+        'shrinking-rejected');
     });
 
     test('NFC Manager P2P: checkP2PRegistration success', function() {
@@ -454,7 +469,7 @@ suite('Nfc Manager Functions', function() {
 
   // if bugs will be fixed tests should be moved into handleNdefMessage suite
   suite.skip('handleNdefMessage not supported records', function() {
-    // Bug 1003723 NfcManager not supporting UTF-16 TNF_WELL_KNOWN RTD_TEXT 
+    // Bug 1003723 NfcManager not supporting UTF-16 TNF_WELL_KNOWN RTD_TEXT
     test('TNF well known rtd text utf 16', function() {
       var payload = Uint8Array([0x82, 0x65, 0x6E, 0xFF,
                                 0xFE, 0x48, 0x00, 0x6F,
@@ -479,28 +494,5 @@ suite('Nfc Manager Functions', function() {
       assert.equal(activityOptions.data.records, dummyNdefMsg);
     });
 
-    //Bug 1004977 TNF Unknown, Unchanged, Reserved handling in NfcManager
-    test('TNF unknown, unchanged, reserved', function() {
-      var pld = NfcUtils.fromUTF8('payload');
-      var empt = new Uint8Array();
-      var unknwn = [new MozNDEFRecord(NDEF.TNF_UNKNOWN, empt, empt, pld)];
-      var unchngd = [new MozNDEFRecord(NDEF.TNF_UNCHANGED, empt, empt, pld)];
-      var rsrvd = [new MozNDEFRecord(NDEF.TNF_RESERVED, empt, empt, pld)];
-
-      var activityUnknown = NfcManager.handleNdefMessage(unknwn);
-      assert.equal(activityUnknown.name, 'nfc-ndef-discovered');
-      assert.equal(activityUnknown.data.type, undefined);
-      assert.equal(activityUnknown.data.records, unknwn);
-
-      var activityUnchngd = NfcManager.handleNdefMessage(unchngd);
-      assert.equal(activityUnchngd.name, 'nfc-ndef-discovered');
-      assert.equal(activityUnchngd.data.type, undefined);
-      assert.equal(activityUnchngd.data.records, unchngd);
-
-      var activityRsrvd = NfcManager.handleNdefMessage(rsrvd);
-      assert.equal(activityRsrvd.name, 'nfc-ndef-discovered');
-      assert.equal(activityRsrvd.data.type, undefined);
-      assert.equal(activityRsrvd.data.records, rsrvd);
-    });
   });
 });
