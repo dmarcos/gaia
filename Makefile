@@ -78,6 +78,7 @@ PRODUCTION?=0
 DESKTOP_SHIMS?=0
 GAIA_OPTIMIZE?=0
 GAIA_DEV_PIXELS_PER_PX?=1
+GAIA_DEV_DISPLAY_HEIGHT?=480
 DOGFOOD?=0
 NODE_MODULES_SRC?=modules.tar
 
@@ -456,6 +457,7 @@ define BUILD_CONFIG
 	"GAIA_OPTIMIZE" : "$(GAIA_OPTIMIZE)", \
 	"GAIA_DEVICE_TYPE" : "$(GAIA_DEVICE_TYPE)", \
 	"GAIA_DEV_PIXELS_PER_PX" : "$(GAIA_DEV_PIXELS_PER_PX)", \
+	"GAIA_DEV_DISPLAY_HEIGHT" : "$(GAIA_DEV_DISPLAY_HEIGHT)", \
 	"DOGFOOD" : "$(DOGFOOD)", \
 	"OFFICIAL" : "$(MOZILLA_OFFICIAL)", \
 	"GAIA_DEFAULT_LOCALE" : "$(GAIA_DEFAULT_LOCALE)", \
@@ -484,19 +486,19 @@ define app-makefile-template
 .PHONY: $(1)
 $(1): $(XULRUNNER_BASE_DIRECTORY) keyboard-layouts contacts-import-services $(STAGE_DIR)/settings_stage.json webapp-manifests svoperapps clear-stage-app webapp-shared | $(STAGE_DIR)
 	@if [[ ("$(2)" =~ "${BUILD_APP_NAME}") || ("${BUILD_APP_NAME}" == "*") ]]; then \
-  	if [ -r "$(2)/Makefile" ]; then \
-  		echo "execute Makefile for $(1) app" ; \
-  		STAGE_APP_DIR="../../build_stage/$(1)" make -C "$(2)" ; \
-  	else \
-  		echo "copy $(1) to build_stage/" ; \
-  		cp -LR "$(2)" $(STAGE_DIR) && \
-  		if [ -r "$(2)/build/build.js" ]; then \
-  			echo "execute $(1)/build/build.js"; \
-  			export APP_DIR=$(2); \
-  			$(call run-js-command,app/build); \
-  		fi; \
-  	fi && \
-  	$(call clean-build-files,$(STAGE_DIR)/$(1)); \
+	if [ -r "$(2)/Makefile" ]; then \
+		echo "execute Makefile for $(1) app" ; \
+		STAGE_APP_DIR="../../build_stage/$(1)" make -C "$(2)" ; \
+	else \
+		echo "copy $(1) to build_stage/" ; \
+		cp -LR "$(2)" $(STAGE_DIR) && \
+		if [ -r "$(2)/build/build.js" ]; then \
+			echo "execute $(1)/build/build.js"; \
+			export APP_DIR=$(2); \
+			$(call run-js-command,app/build); \
+		fi; \
+	fi && \
+	$(call clean-build-files,$(STAGE_DIR)/$(1)); \
   fi;
 endef
 
@@ -811,7 +813,10 @@ caldav-server-install:
 
 .PHONY: test-perf
 test-perf:
-	MOZPERFOUT="$(MOZPERFOUT)" APPS="$(APPS)" MARIONETTE_RUNNER_HOST=$(MARIONETTE_RUNNER_HOST) GAIA_DIR="`pwd`" ./bin/gaia-perf-marionette
+	MOZPERFOUT="$(MOZPERFOUT)" APPS="$(APPS)" \
+	MARIONETTE_RUNNER_HOST=$(MARIONETTE_RUNNER_HOST) GAIA_DIR="`pwd`" \
+	REPORTER=$(REPORTER) \
+	./bin/gaia-perf-marionette
 
 .PHONY: tests
 tests: app-makefiles offline
@@ -919,7 +924,7 @@ ifdef APP
   JSHINTED_PATH = apps/$(APP)
   GJSLINTED_PATH = $(shell grep "^apps/$(APP)" build/jshint/xfail.list | ( while read file ; do test -f "$$file" && echo $$file ; done ) )
 else
-  JSHINTED_PATH = apps shared build/test/unit dev_apps/home2 dev_apps/collection
+  JSHINTED_PATH = apps shared build/test/unit
   GJSLINTED_PATH = $(shell ( while read file ; do test -f "$$file" && echo $$file ; done ) < build/jshint/xfail.list )
 endif
 endif
@@ -998,9 +1003,9 @@ install-media-samples:
 	$(ADB) shell 'if test -d /sdcard/music; then mv /sdcard/music /sdcard/music.temp; mv /sdcard/music.temp /sdcard/Music; fi'
 	$(ADB) shell 'if test -d /sdcard/videos; then mv /sdcard/videos /sdcard/Movies;	fi'
 
-	$(ADB) push media-samples/DCIM $(MSYS_FIX)/sdcard/DCIM
-	$(ADB) push media-samples/Movies $(MSYS_FIX)/sdcard/Movies
-	$(ADB) push media-samples/Music $(MSYS_FIX)/sdcard/Music
+	$(ADB) push test_media/samples/DCIM $(MSYS_FIX)/sdcard/DCIM
+	$(ADB) push test_media/samples/Movies $(MSYS_FIX)/sdcard/Movies
+	$(ADB) push test_media/samples/Music $(MSYS_FIX)/sdcard/Music
 
 install-test-media:
 	$(ADB) push test_media/Pictures $(MSYS_FIX)/sdcard/DCIM

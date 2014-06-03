@@ -5,8 +5,8 @@
 require('/shared/test/unit/mocks/mock_navigator_moz_apps.js');
 require('/shared/test/unit/mocks/mock_navigator_moz_set_message_handler.js');
 require('/shared/test/unit/mocks/mock_moz_activity.js');
-
 require('/shared/js/url_helper.js');
+requireApp('search/js/dedupe.js');
 
 suite('search/search', function() {
   var realMozApps;
@@ -219,12 +219,6 @@ suite('search/search', function() {
           abort: function() {},
           search: function() {},
           fullscreen: function() {}
-        },
-        BGImage: {
-          clear: function() {},
-          abort: function() {},
-          search: function() {},
-          fetchImage: function() {}
         }
       };
     });
@@ -233,12 +227,6 @@ suite('search/search', function() {
       var stub = this.sinon.stub(Search.providers.WebResults,'fullscreen');
       Search.expandSearch();
       assert.ok(stub.calledOnce);
-    });
-
-    test('calls fetchImage for BGImage', function() {
-      var searchStub = this.sinon.stub(Search.providers.BGImage, 'fetchImage');
-      Search.expandSearch();
-      assert.ok(searchStub.calledOnce);
     });
   });
 
@@ -255,8 +243,8 @@ suite('search/search', function() {
   suite('collect', function() {
 
     setup(function() {
-      Search.exactResults = {};
-      Search.fuzzyResults = {};
+      Search.dedupe.exactResults = {};
+      Search.dedupe.fuzzyResults = {};
     });
 
     // Suppport functions
