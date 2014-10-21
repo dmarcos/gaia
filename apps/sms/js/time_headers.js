@@ -1,4 +1,4 @@
-/*global FixedHeader, Utils */
+/*global Utils */
 (function(exports) {
   'use strict';
 
@@ -10,61 +10,56 @@
       document.addEventListener('visibilitychange', onvisibilityChange);
     },
     startScheduler: function th_startScheduler() {
-      var updateFunction = (function() {
-        this.updateAll();
+      var now = Date.now(),
+          nextTimeout = new Date(now + 60000);
+      nextTimeout.setSeconds(0);
+      nextTimeout.setMilliseconds(0);
 
-        var now = Date.now(),
-            nextTimeout = new Date(now + 60000);
-        nextTimeout.setSeconds(0);
-        nextTimeout.setMilliseconds(0);
+      // stop updateTimer first
+      this.stopScheduler();
 
-        // stop updateTimer first
-        this.stopScheduler();
-
-        // then register a new one
-        updateTimer = setTimeout(updateFunction,
-          nextTimeout.getTime() - now);
-      }).bind(this);
-
-      updateFunction();
+      // then register a new one
+      updateTimer = setTimeout(function() {
+        this.updateAll('header[data-time-update=repeat]');
+        this.startScheduler();
+      }.bind(this), nextTimeout.getTime() - now);
     },
     stopScheduler: function th_stopScheduler() {
       clearTimeout(updateTimer);
     },
-    updateAll: function th_updateAll() {
-      var headers = document.querySelectorAll('header[data-time-update]'),
-          length = headers.length,
+    updateAll: function th_updateAll(selector) {
+      selector = selector || '[data-time-update]';
+      var elements = document.querySelectorAll(selector),
+          length = elements.length,
           i;
 
       for (i = 0; i < length; i++) {
-        this.update(headers[i]);
+        this.update(elements[i]);
       }
-
-      FixedHeader.updateHeaderContent();
     },
-    update: function th_update(header) {
-      var ts = header.dataset.time;
+    update: function th_update(element) {
+      var ts = element.dataset.time;
       if (!ts) {
         return;
       }
 
-      var newHeader;
+      var newElement;
 
       // only date
-      if (header.dataset.isThread === 'true') {
-        newHeader = Utils.getHeaderDate(ts);
+      if (element.dataset.dateOnly === 'true') {
+        newElement = Utils.getHeaderDate(ts);
 
       // only time
-      } else if (header.dataset.timeOnly === 'true') {
-        newHeader = Utils.getFormattedHour(ts);
+      } else if (element.dataset.timeOnly === 'true') {
+        newElement = Utils.getFormattedHour(ts);
 
       // date + time
       } else {
-        newHeader = Utils.getHeaderDate(ts) + ' ' + Utils.getFormattedHour(ts);
+        newElement = Utils.getHeaderDate(ts) + ' ' + Utils.getFormattedHour(ts);
       }
 
-      if (newHeader !== header.textContent) {
-        header.textContent = newHeader;
+      if (newElement !== element.textContent) {
+        element.textContent = newElement;
       }
     }
   };
@@ -74,6 +69,7 @@
       TimeHeaders.stopScheduler();
     }
     else {
+      TimeHeaders.updateAll();
       TimeHeaders.startScheduler();
     }
   }

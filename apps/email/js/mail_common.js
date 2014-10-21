@@ -2,12 +2,15 @@
  * UI infrastructure code and utility code for the gaia email app.
  **/
 /*jshint browser: true */
-/*global define, console, hookupInputAreaResetButtons */
+/*global define, console, startupCacheEventsSent */
+'use strict';
 define(function(require, exports) {
 
-var Cards, Toaster,
+var Cards,
+    Toaster = require('./toaster'),
+    evt = require('evt'),
     mozL10n = require('l10n!'),
-    toasterNode = require('tmpl!./cards/toaster.html'),
+    confirmDialogTemplateNode = require('tmpl!./cards/confirm_dialog.html'),
     ValueSelector = require('value_selector');
 
 var hookupInputAreaResetButtons = require('input_areas');
@@ -28,13 +31,6 @@ function batchAddClass(domNode, searchClass, classToAdd) {
   var nodes = domNode.getElementsByClassName(searchClass);
   for (var i = 0; i < nodes.length; i++) {
     nodes[i].classList.add(classToAdd);
-  }
-}
-
-function batchRemoveClass(domNode, searchClass, classToRemove) {
-  var nodes = domNode.getElementsByClassName(searchClass);
-  for (var i = 0; i < nodes.length; i++) {
-    nodes[i].classList.remove(classToRemove);
   }
 }
 
@@ -82,42 +78,6 @@ function bindContainerHandler(containerNode, eventName, func) {
     }
     func(node, event);
   }, false);
-}
-
-/**
- * Bind both 'click' and 'contextmenu' (synthetically created by b2g), plus
- * handling click suppression that is currently required because we still
- * see the click event.  We also suppress contextmenu's default event so that
- * we don't trigger the browser's right-click menu when operating in firefox.
- */
-function bindContainerClickAndHold(containerNode, clickFunc, holdFunc) {
-  // Rather than tracking suppressClick ourselves in here, we maintain the
-  // state globally in Cards.  The rationale is that popup menus will be
-  // triggered on contextmenu, which transfers responsibility of the click
-  // event to the popup handling logic.  There is also no chance for multiple
-  // contextmenu events overlapping (that we would consider reasonable).
-  bindContainerHandler(
-    containerNode, 'click',
-    function(node, event) {
-      if (Cards._suppressClick) {
-        Cards._suppressClick = false;
-        return;
-      }
-      clickFunc(node, event);
-    });
-  bindContainerHandler(
-    containerNode, 'contextmenu',
-    function(node, event) {
-      // Always preventDefault, as this terminates processing of the click as a
-      // drag event.
-      event.preventDefault();
-      // suppress the subsequent click if this was actually a left click
-      if (event.button === 0) {
-        Cards._suppressClick = true;
-      }
-
-      return holdFunc(node, event);
-    });
 }
 
 /**
@@ -216,10 +176,12 @@ Cards = {
   _transitionCount: 0,
 
   /**
-   * Annoying logic related to contextmenu event handling; search for the uses
-   * for more info.
+   * Tracks if startup events have been emitted. The events only need to be
+   * emitted once.
+   * @type {Boolean}
    */
-  _suppressClick: false,
+  _startupEventsEmitted: false,
+
   /**
    * Is a tray card visible, suggesting that we need to intercept clicks in the
    * tray region so that we can transition back to the thing visible because of
@@ -247,12 +209,11 @@ Cards = {
     this._containerNode = document.getElementById('cardContainer');
     this._cardsNode = document.getElementById('cards');
 
-    this._containerNode.appendChild(toasterNode);
+    this._statusColorMeta = document.querySelector('meta[name="theme-color"]');
+
+    Toaster.init(this._containerNode);
 
     this._containerNode.addEventListener('click',
-                                         this._onMaybeIntercept.bind(this),
-                                         true);
-    this._containerNode.addEventListener('contextmenu',
                                          this._onMaybeIntercept.bind(this),
                                          true);
 
@@ -261,6 +222,16 @@ Cards = {
     this._cardsNode.addEventListener('transitionend',
                                      this._onTransitionEnd.bind(this),
                                      false);
+
+    // Listen for visibility changes to let current card know of them too.
+    // Do this here instead of each card needing to listen, and needing to know
+    // if it is also the current card.
+    document.addEventListener('visibilitychange', function(evt) {
+      var card = this._cardStack[this.activeCardIndex];
+      if (card && card.cardImpl.onCurrentCardDocumentVisibilityChange) {
+        card.cardImpl.onCurrentCardDocumentVisibilityChange(document.hidden);
+      }
+    }.bind(this));
   },
 
   /**
@@ -268,26 +239,21 @@ Cards = {
    * back to the visible thing (which must be to our right currently.)
    */
   _onMaybeIntercept: function(event) {
-    // Contextmenu-derived click suppression wants to gobble an explicitly
-    // expected event, and so takes priority over other types of suppression.
-    if (event.type === 'click' && this._suppressClick) {
-      this._suppressClick = false;
-      event.stopPropagation();
-      return;
-    }
     if (this._eatingEventsUntilNextCard) {
       event.stopPropagation();
+      event.preventDefault();
       return;
     }
     if (this._popupActive) {
       event.stopPropagation();
+      event.preventDefault();
       this._popupActive.close();
       return;
     }
 
     // Find the card containing the event target.
     var cardNode = event.target;
-    for (cardNode = event.target; cardNode; cardNode = cardNode.parentNode) {
+    for (cardNode = event.target; cardNode; cardNode = cardNode.parentElement) {
       if (cardNode.classList.contains('card'))
         break;
     }
@@ -297,6 +263,7 @@ Cards = {
     // that card.
     if (this._trayActive && cardNode && cardNode.classList.contains('after')) {
       event.stopPropagation();
+      event.preventDefault();
 
       // Look for a card with a data-tray-target attribute
       var targetIndex = -1;
@@ -400,7 +367,6 @@ Cards = {
    */
   pushCard: function(type, mode, showMethod, args, placement) {
     var cardDef = this._cardDefs[type];
-    var typePrefix = type.split('-')[0];
 
     args = args || {};
 
@@ -460,13 +426,26 @@ Cards = {
     }
     this._cardStack.splice(cardIndex, 0, cardInst);
 
-    if (!args.cachedNode)
+    if (!args.cachedNode) {
       this._cardsNode.insertBefore(domNode, insertBuddy);
+    }
 
     // If the card has any <button type="reset"> buttons,
     // make them clear the field they're next to and not the entire form.
     // See input_areas.js and shared/style/input_areas.css.
     hookupInputAreaResetButtons(domNode);
+
+    // Only do auto font size watching for cards that do not have more
+    // complicated needs, like message_list, which modifies children contents
+    // that are not caught by the font_size_util.
+    if (!cardImpl.callHeaderFontSize) {
+      // We're appending new elements to DOM so to make sure headers are
+      // properly resized and centered, we emit a lazyload event.
+      // This will be removed when the gaia-header web component lands.
+      window.dispatchEvent(new CustomEvent('lazyload', {
+        detail: domNode
+      }));
+    }
 
     if ('postInsert' in cardImpl)
       cardImpl.postInsert();
@@ -482,6 +461,87 @@ Cards = {
 
     if (args.onPushed)
       args.onPushed(cardImpl);
+  },
+
+  /**
+   * Pushes a new card if none exists, otherwise, uses existing
+   * card and passes args to that card via tellCard. Arguments
+   * are the same as pushCard.
+   * @return {Boolean} true if card was pushed.
+   */
+  pushOrTellCard: function(type, mode, showMethod, args, placement) {
+    var query = [type, mode];
+    if (this.hasCard(query)) {
+      this.tellCard(query, args);
+      return false;
+    } else {
+      this.pushCard.apply(this, Array.slice(arguments));
+      return true;
+    }
+  },
+
+  /**
+   * Sets the status bar color. The element, or any of its children, can specify
+   * the color by setting data-statuscolor to one of the following values:
+   * - default: uses the default data-statuscolor set on the meta theme-color
+   * tag is used.
+   * - background: the CSS background color, via getComputedStyle, is used. This
+   * is useful if the background that is desired is not the one from the element
+   * itself, but from one of its children.
+   * - a specific color value.
+   *
+   * If no data-statuscolor attribute is found, then the background color for
+   * the element, via getComputedStyle, is used. If that value is not a valid
+   * color value, then the default statuscolor on the meta tag is used.
+   *
+   * Note that this method uses getComputedStyle. This could be expensive
+   * depending on when it is called. For the card infrastructure, since it is
+   * done as part of a card transition, and done before the card transition code
+   * applies transition styles, the target element should not be visible at the
+   * time of the query. In practice no negligble end user effect has been seen,
+   * and that query is much more desirable than hardcoding colors in JS or HTML.
+   *
+   * @param {Element} [element] the card element of interest. If no element is
+   * passed, the the current card is used.
+   */
+  setStatusColor: function(element) {
+    var color;
+    // Some use cases, like dialogs, are outside the card stack, so they may
+    // not know what element to use for a baseline. In those cases, Cards
+    // decides the target element.
+    if (!element) {
+      element = this._cardStack[this.activeCardIndex].domNode;
+    }
+
+    // Try first for specific color override. Do a node query, since for custom
+    // elements, the custom elment tag may not set its color, but the template
+    // used inside the tag may.
+    var statusElement = element.dataset.statuscolor ? element :
+                        element.querySelector('[data-statuscolor]');
+
+    if (statusElement) {
+      color = statusElement.dataset.statuscolor;
+      // Allow cards to just indicate they want the default.
+      if (color === 'default') {
+        color = null;
+      } else if (color === 'background') {
+        color = getComputedStyle(statusElement).backgroundColor;
+      }
+    } else {
+      // Just use the background color of the original element.
+      color = getComputedStyle(element).backgroundColor;
+    }
+
+    // Only use specific color values, not values like 'transparent'.
+    if (color && color.indexOf('rgb') !== 0 && color.indexOf('#') !== 0) {
+      color = null;
+    }
+
+    color = color || this._statusColorMeta.dataset.statuscolor;
+    var existingColor = this._statusColorMeta.getAttribute('content');
+    if (color !== existingColor) {
+      this._statusColorMeta.setAttribute('content', color);
+    }
   },
 
   _findCardUsingTypeAndMode: function(type, mode) {
@@ -539,10 +599,27 @@ Cards = {
     return this._cardStack[this._findCard(query)];
   },
 
-  folderSelector: function(callback) {
+  getCurrentCardType: function() {
+    var result = null,
+        card = this._cardStack[this.activeCardIndex];
+
+    // Favor any _pendingPush value as it is about to
+    // become current, just waiting on an async cycle
+    // to finish. Otherwise use current card value.
+    if (this._pendingPush) {
+      result = this._pendingPush;
+    } else if (card) {
+      result = [card.cardDef.name, card.cardImpl.mode];
+    }
+    return result;
+  },
+
+  // Filter is an optional paramater. It is a function that returns
+  // true if the folder passed to it should be included in the selector
+  folderSelector: function(callback, filter) {
     var self = this;
 
-    require(['model', 'value_selector'], function(model) {
+    require(['model'], function(model) {
       // XXX: Unified folders will require us to make sure we get the folder
       //      list for the account the message originates from.
       if (!self.folderPrompt) {
@@ -554,14 +631,18 @@ Cards = {
         var folders = foldersSlice.items;
         for (var i = 0; i < folders.length; i++) {
           var folder = folders[i];
-          self.folderPrompt.addToList(folder.name, folder.depth,
-            function(folder) {
-              return function() {
-                self.folderPrompt.hide();
-                callback(folder);
-              };
-            }(folder));
 
+          var isMatch = !filter || filter(folder);
+          if (folder.neededForHierarchy || isMatch) {
+            self.folderPrompt.addToList(folder.name, folder.depth,
+              isMatch,
+              function(folder) {
+                return function() {
+                  self.folderPrompt.hide();
+                  callback(folder);
+                };
+              }(folder));
+          }
         }
         self.folderPrompt.show();
       });
@@ -576,7 +657,7 @@ Cards = {
     var cardIndex = this._findCard(query),
         cardInst = this._cardStack[cardIndex];
     if (!('told' in cardInst.cardImpl))
-      console.warn("Tried to tell a card that's not listening!", query, what);
+      console.warn('Tried to tell a card that\'s not listening!', query, what);
     else
       cardInst.cardImpl.told(what);
   },
@@ -649,14 +730,18 @@ Cards = {
    *   @param[nextCardSpec #:optional]{
    *     If a showMethod is not 'none', the card to show after removal.
    *   }
+   *   @param[skipDefault #:optional Boolean]{
+   *     Skips the default pushCard if the removal ends up with no more
+   *     cards in the stack.
+   *   }
    * ]
    */
   removeCardAndSuccessors: function(cardDomNode, showMethod, numCards,
-                                    nextCardSpec) {
+                                    nextCardSpec, skipDefault) {
     if (!this._cardStack.length)
       return;
 
-    if (cardDomNode && this._cardStack.length === 1) {
+    if (cardDomNode && this._cardStack.length === 1 && !skipDefault) {
       // No card to go to when done, so ask for a default
       // card and continue work once it exists.
       return Cards.pushDefaultCard(function() {
@@ -690,13 +775,16 @@ Cards = {
       numCards = this._cardStack.length - firstIndex;
 
     if (showMethod !== 'none') {
-      var nextCardIndex = null;
-      if (nextCardSpec)
+      var nextCardIndex = -1;
+      if (nextCardSpec) {
         nextCardIndex = this._findCard(nextCardSpec);
-      else if (this._cardStack.length)
+      } else if (this._cardStack.length) {
         nextCardIndex = Math.min(firstIndex - 1, this._cardStack.length - 1);
+      }
 
-      this._showCard(nextCardIndex, showMethod, 'back');
+      if (nextCardIndex > -1) {
+        this._showCard(nextCardIndex, showMethod, 'back');
+      }
     }
 
     // Update activeCardIndex if nodes were removed that would affect its
@@ -743,6 +831,13 @@ Cards = {
       return;
     }
 
+    // If the active element is one that can have focus, blur it so that the
+    // keyboard goes away.
+    var activeElement = document.activeElement;
+    if (activeElement && activeElement.blur) {
+      activeElement.blur();
+    }
+
     if (cardIndex > this._cardStack.length - 1) {
       // Some cards were removed, adjust.
       cardIndex = this._cardStack.length - 1;
@@ -783,12 +878,17 @@ Cards = {
       if (isForward) {
         // If a forward animation and overlay had a vertical transition,
         // disable it, use normal horizontal transition.
-        if (showMethod !== 'immediate' &&
-            beginNode.classList.contains('anim-vertical')) {
-          removeClass(beginNode, 'anim-vertical');
-          addClass(beginNode, 'disabled-anim-vertical');
+        if (showMethod !== 'immediate') {
+          if (beginNode.classList.contains('anim-vertical')) {
+            removeClass(beginNode, 'anim-vertical');
+            addClass(beginNode, 'disabled-anim-vertical');
+          } else if (beginNode.classList.contains('anim-fade')) {
+            removeClass(beginNode, 'anim-fade');
+            addClass(beginNode, 'disabled-anim-fade');
+          }
         }
       } else {
+        this.setStatusColor(endNode);
         endNode = null;
         this._zIndex -= 10;
       }
@@ -801,6 +901,12 @@ Cards = {
     }
 
     var cardsNode = this._cardsNode;
+
+    // Do the status bar color work before triggering transitions, otherwise
+    // we lose some animation frames on the card transitions.
+    if (endNode) {
+      this.setStatusColor(endNode);
+    }
 
     if (showMethod === 'immediate') {
       addClass(beginNode, 'no-anim');
@@ -848,8 +954,7 @@ Cards = {
       removeClass(beginNode, 'no-anim');
       removeClass(endNode, 'no-anim');
 
-      if (cardInst && cardInst.onCardVisible)
-        cardInst.onCardVisible();
+      this._onCardVisible(cardInst);
     }
 
     // Hide toaster while active card index changed:
@@ -861,6 +966,11 @@ Cards = {
   },
 
   _onTransitionEnd: function(event) {
+    // Avoid other transitions except ones on cards as a whole.
+    if (!event.target.classList.contains('card')) {
+      return;
+    }
+
     var activeCard = this._cardStack[this.activeCardIndex];
     // If no current card, this could be initial setup from cache, no valid
     // cards yet, so bail.
@@ -890,16 +1000,13 @@ Cards = {
       // If an vertical overlay transition was was disabled, if
       // current node index is an overlay, enable it again.
       var endNode = activeCard.domNode;
+
       if (endNode.classList.contains('disabled-anim-vertical')) {
         removeClass(endNode, 'disabled-anim-vertical');
         addClass(endNode, 'anim-vertical');
-      }
-
-      // Popup toaster that pended for previous card view.
-      var pendingToaster = Toaster.pendingStack.slice(-1)[0];
-      if (pendingToaster) {
-        pendingToaster();
-        Toaster.pendingStack.pop();
+      } else if (endNode.classList.contains('disabled-anim-fade')) {
+        removeClass(endNode, 'disabled-anim-fade');
+        addClass(endNode, 'anim-fade');
       }
 
       // If any action to do at the end of transition trigger now.
@@ -909,8 +1016,7 @@ Cards = {
         afterTransitionAction();
       }
 
-      if (activeCard.cardImpl.onCardVisible)
-        activeCard.cardImpl.onCardVisible();
+      this._onCardVisible(activeCard);
 
       // If the card has next cards that can be preloaded, load them now.
       // Use of nextCards should be balanced with startup performance.
@@ -924,6 +1030,44 @@ Cards = {
           return 'cards/' + id;
         }));
       }
+    }
+  },
+
+  /**
+   * Handles final notification of card visibility in the stack.
+   * @param  {Card} cardInst the card instance.
+   */
+  _onCardVisible: function(cardInst) {
+    if (cardInst.cardImpl.onCardVisible) {
+      cardInst.cardImpl.onCardVisible();
+    }
+    this._emitStartupEvents(cardInst.cardImpl.skipEmitContentEvents);
+  },
+
+  /**
+   * Handles emitting startup events used for performance tracking.
+   * @param  {Boolean} skipEmitContentEvents if content events should be skipped
+   * because the card itself handles it.
+   */
+  _emitStartupEvents: function(skipEmitContentEvents) {
+    if (!this._startupEventsEmitted) {
+      if (startupCacheEventsSent) {
+        // Cache already loaded, so at this point the content shown is wired
+        // to event handlers.
+        window.dispatchEvent(new CustomEvent('moz-content-interactive'));
+      } else {
+        // Cache was not used, so only now is the chrome dom loaded.
+        window.dispatchEvent(new CustomEvent('moz-chrome-dom-loaded'));
+      }
+      window.dispatchEvent(new CustomEvent('moz-chrome-interactive'));
+
+      // If a card that has a simple static content DOM, content is complete.
+      // Otherwise, like message_list, need backend data to call complete.
+      if (!skipEmitContentEvents) {
+        evt.emit('metrics:contentDone');
+      }
+
+      this._startupEventsEmitted = true;
     }
   },
 
@@ -966,192 +1110,113 @@ Cards = {
   }
 };
 
-/**
- * Central tracker of poptart messages; specifically, ongoing message sends,
- * failed sends, and recently performed undoable mutations.
- */
-Toaster = {
-  get body() {
-    delete this.body;
-    return this.body =
-           document.querySelector('section[role="status"]');
-  },
-  get text() {
-    delete this.text;
-    return this.text =
-           document.querySelector('section[role="status"] p');
-  },
-  get undoBtn() {
-    delete this.undoBtn;
-    return this.undoBtn =
-           document.querySelector('.toaster-banner-undo');
-  },
-  get retryBtn() {
-    delete this.retryBtn;
-    return this.retryBtn =
-           document.querySelector('.toaster-banner-retry');
-  },
+////////////////////////////////////////////////////////////////////////////////
+// ConfirmDialog: defined inline with mail_common because of a cycle
+// with Cards. When Cards is split out of mail_common, this card
+// can be moved out too.
+function ConfirmDialog(domNode, mode, args) {
+  this.domNode = domNode;
 
-  undoableOp: null,
-  retryCallback: null,
+  var dialogBodyNode = args.dialogBodyNode,
+      confirm = args.confirm,
+      cancel = args.cancel,
+      callback = args.callback;
 
-  /**
-   * Toaster timeout setting.
-   */
-  _timeout: 5000,
-  /**
-   * Toaster fadeout animation event handling.
-   */
-  _animationHandler: function() {
-    this.body.addEventListener('transitionend', this, false);
-    this.body.classList.add('fadeout');
-  },
-  /**
-   * The list of cards that want to hear about what's up with the toaster.  For
-   * now this will just be the message-list, but it might also be the
-   * message-search card as well.  If it ends up being more, then we probably
-   * want to rejigger things so we can just overlay stuff on most cards...
-   */
-  _listeners: [],
+  if (dialogBodyNode) {
+    this.domNode.appendChild(dialogBodyNode);
+  } else {
+    // If no dialogBodyNode passed in, use the default form display, and
+    // configure the confirm/cancel hand, for the simple way of handling
+    // confirm dialogs.
+    dialogBodyNode = this.domNode.querySelector('.confirm-dialog-form');
 
-  pendingStack: [],
+    dialogBodyNode.querySelector('.confirm-dialog-message')
+                  .textContent = args.message;
 
-  /**
-   * Tell toaster listeners about a mutation we just made.
-   *
-   * @param {Object} undoableOp undoable operation.
-   * @param {Boolean} pending
-   *   If true, indicates that we should wait to display this banner until we
-   *   transition to the next card.  This is appropriate for things like
-   *   deleting the message that is displayed on the current card (and which
-   *   will be imminently closed).
-   */
-  logMutation: function(undoableOp, pending) {
-    if (pending) {
-      this.pendingStack.push(this.show.bind(this, 'undo', undoableOp));
-    } else {
-      this.show('undo', undoableOp);
-    }
-  },
+    dialogBodyNode.classList.remove('collapsed');
 
-  /**
-   * Something failed that it makes sense to let the user explicitly trigger
-   * a retry of!  For example, failure to synchronize.
-   */
-  logRetryable: function(retryStringId, retryCallback) {
-    this.show('retry', retryStringId, retryCallback);
-  },
-
-  handleEvent: function(evt) {
-    switch (evt.type) {
-      case 'click' :
-        var classList = evt.target.classList;
-        if (classList.contains('toaster-banner-undo')) {
-          this.undoableOp.undo();
-          this.hide();
-        } else if (classList.contains('toaster-banner-retry')) {
-          if (this.retryCallback)
-            this.retryCallback();
-          this.hide();
-        } else if (classList.contains('toaster-cancel-btn')) {
-          this.hide();
-        }
-        break;
-      case 'transitionend' :
-        this.hide();
-        break;
-    }
-  },
-
-  show: function(type, operation, callback) {
-    // Close previous toaster before showing the new one.
-    if (!this.body.classList.contains('collapsed')) {
-      this.hide();
-    }
-
-    var text, textId, showUndo = false;
-    var undoBtn = this.body.querySelector('.toaster-banner-undo');
-    if (type === 'undo') {
-      this.undoableOp = operation;
-      // There is no need to show toaster if affected message count < 1
-      if (!this.undoableOp || this.undoableOp.affectedCount < 1) {
-        return;
+    confirm = {
+      handler: function() {
+        callback(true);
       }
-      textId = 'toaster-message-' + this.undoableOp.operation;
-      text = mozL10n.get(textId, { n: this.undoableOp.affectedCount });
-      // https://bugzilla.mozilla.org/show_bug.cgi?id=804916
-      // Remove undo email move/delete UI for V1.
-      showUndo = (this.undoableOp.operation !== 'move' &&
-                  this.undoableOp.operation !== 'delete');
-    } else if (type === 'retry') {
-      textId = 'toaster-retryable-' + operation;
-      text = mozL10n.get(textId);
-      this.retryCallback = callback;
-    // XXX I assume this is for debug purposes?
-    } else if (type === 'text') {
-      text = operation;
-    }
-
-    if (type === 'undo' && showUndo)
-      this.undoBtn.classList.remove('collapsed');
-    else
-      this.undoBtn.classList.add('collapsed');
-    if (type === 'retry')
-      this.retryBtn.classList.remove('collapsed');
-    else
-      this.retryBtn.classList.add('collapsed');
-
-    this.body.title = type;
-    this.text.textContent = text;
-    this.body.addEventListener('click', this, false);
-    this.body.classList.remove('collapsed');
-    this.fadeTimeout = window.setTimeout(this._animationHandler.bind(this),
-                                         this._timeout);
-  },
-
-  hide: function() {
-    this.body.classList.add('collapsed');
-    this.body.classList.remove('fadeout');
-    window.clearTimeout(this.fadeTimeout);
-    this.fadeTimeout = null;
-    this.body.removeEventListener('click', this);
-    this.body.removeEventListener('transitionend', this);
-
-    // Clear operations:
-    this.undoableOp = null;
-    this.retryCallback = null;
-  }
-};
-
-/**
- * Confirm dialog helper function. Display the dialog by providing dialog body
- * element and button id/handler function.
- *
- */
-var ConfirmDialog = {
-  dialog: null,
-  show: function(dialog, confirm, cancel) {
-    this.dialog = dialog;
-    var formSubmit = function(evt) {
-      this.hide();
-      switch (evt.explicitOriginalTarget.id) {
-        case confirm.id:
-          confirm.handler();
-          break;
-        case cancel.id:
-          if (cancel.handler)
-            cancel.handler();
-          break;
-      }
-      return false;
     };
-    dialog.addEventListener('submit', formSubmit.bind(this));
-    document.body.appendChild(dialog);
-  },
+    cancel = {
+      handler: function() {
+        callback(false);
+      }
+    };
+  }
+
+  // Wire up the event handling
+  dialogBodyNode.addEventListener('submit', function(evt) {
+    evt.preventDefault();
+    evt.stopPropagation();
+
+    this.hide();
+
+    var target = evt.explicitOriginalTarget,
+        targetId = target.id,
+        isOk = target.classList.contains('confirm-dialog-ok'),
+        isCancel = target.classList.contains('confirm-dialog-cancel');
+
+    if ((isOk || targetId === confirm.id) && confirm.handler) {
+      confirm.handler();
+    } else if ((isCancel || targetId === cancel.id) && cancel.handler) {
+      cancel.handler();
+    }
+  }.bind(this));
+}
+
+ConfirmDialog.prototype = {
   hide: function() {
-    document.body.removeChild(this.dialog);
+    Cards.removeCardAndSuccessors(this.domNode, 'immediate', 1, null, true);
+  },
+  die: function() {
   }
 };
+
+/**
+ * A class method used by others to create confirm dialogs.
+ * This method has two call types, to accommodate older
+ * code that used ConfirmDialog to pass a full form node:
+ *
+ *  ConfirmDialog.show(dialogFormNode, confirmObject, cancelObject);
+ *
+ * and simpler code that just wants to pass a string message
+ * and a callback that returns true (if OK is pressed) or
+ * false (if cancel is pressed):
+ *
+ *  ConfirmDialog.show(messageString, function(confirmed) {});
+ *
+ * This newer style mimics a plain confirm dialog, with an
+ * OK and Cancel that are not customizable.
+ */
+ConfirmDialog.show = function(message, callback, cancel) {
+  var dialogBodyNode;
+
+  // Old style confirms that have their own form.
+  if (typeof message !== 'string') {
+    dialogBodyNode = message;
+    message = null;
+  }
+
+  Cards.pushCard('confirm_dialog', 'default', 'immediate', {
+    dialogBodyNode: dialogBodyNode,
+    message: message,
+    confirm: callback,
+    callback: callback,
+    cancel: cancel
+  }, 'right');
+};
+
+Cards.defineCardWithDefaultMode(
+    'confirm_dialog',
+    { tray: false },
+    ConfirmDialog,
+    confirmDialogTemplateNode
+);
+
+
 ////////////////////////////////////////////////////////////////////////////////
 // Attachment Formatting Helpers
 
@@ -1187,17 +1252,21 @@ function prettyDate(time, useCompactFormat) {
   };
   var timer = setInterval(updatePrettyDate, 60 * 1000);
 
-  window.addEventListener('message', function visibleAppUpdatePrettyDate(evt) {
-    var data = evt.data;
-    if (!data || (typeof(data) !== 'object') ||
-        !('message' in data) || data.message !== 'visibilitychange')
-      return;
+  function updatePrettyDateOnEvent() {
     clearTimeout(timer);
-    if (!data.hidden) {
-      updatePrettyDate();
-      timer = setInterval(updatePrettyDate, 60 * 1000);
+    updatePrettyDate();
+    timer = setInterval(updatePrettyDate, 60 * 1000);
+  }
+  // When user changes the language, update timestamps.
+  mozL10n.ready(updatePrettyDateOnEvent);
+
+  // On visibility change to not hidden, update timestamps
+  document.addEventListener('visibilitychange', function() {
+    if (document && !document.hidden) {
+      updatePrettyDateOnEvent();
     }
   });
+
 })();
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1237,6 +1306,8 @@ function FormNavigation(options) {
 
   this.options.formElem.addEventListener('keypress',
     this.onKeyPress.bind(this));
+  this.options.formElem.addEventListener('click',
+    this.onClick.bind(this));
 }
 
 FormNavigation.prototype = {
@@ -1246,11 +1317,22 @@ FormNavigation.prototype = {
       // element is the last one and the form is valid, submit the form.
       var nextInput = this.focusNextInput(event);
       if (!nextInput && this.options.checkFormValidity()) {
-        this.options.onLast();
+        this.options.onLast(event);
       }
     }
   },
-
+  onClick: function formNav_onClick(event) {
+    if (event.target.type === 'reset') {
+      var formValidity = this.options.checkFormValidity();
+      var buttonElems = this.options.formElem.getElementsByTagName('button');
+      for (var i = 0; i < buttonElems.length; i++) {
+        var button = buttonElems[i];
+        if (button.type !== 'reset') {
+            button.disabled = !formValidity;
+        }
+      }
+    }
+  },
   focusNextInput: function formNav_focusNextInput(event) {
     var currentInput = event.target;
     var inputElems = this.options.formElem.getElementsByTagName('input');
@@ -1297,21 +1379,32 @@ function displaySubject(subjectNode, message) {
     subjectNode.classList.remove('msg-no-subject');
   }
   else {
-    subjectNode.textContent = mozL10n.get('message-no-subject');
+    mozL10n.setAttributes(subjectNode, 'message-no-subject');
     subjectNode.classList.add('msg-no-subject');
   }
 }
 
+/**
+ * Given a mime type, generates a CSS class name that uses just the first part
+ * of the mime type. So, audio/ogg becomes mime-audio.
+ * @param  {String} mimeType
+ * @return {String} a class name usable in CSS.
+ */
+function mimeToClass(mimeType) {
+  mimeType = mimeType || '';
+  return 'mime-' + (mimeType.split('/')[0] || '');
+}
+
 exports.Cards = Cards;
-exports.Toaster = Toaster;
 exports.ConfirmDialog = ConfirmDialog;
 exports.FormNavigation = FormNavigation;
 exports.prettyDate = prettyDate;
 exports.prettyFileSize = prettyFileSize;
+exports.addClass = addClass;
+exports.removeClass = removeClass;
 exports.batchAddClass = batchAddClass;
-exports.bindContainerClickAndHold = bindContainerClickAndHold;
 exports.bindContainerHandler = bindContainerHandler;
 exports.appendMatchItemTo = appendMatchItemTo;
-exports.bindContainerHandler = bindContainerHandler;
 exports.displaySubject = displaySubject;
+exports.mimeToClass = mimeToClass;
 });

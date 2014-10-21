@@ -1,4 +1,10 @@
 'use strict';
+/* global fb */
+/* global MockAllFacebookContacts */
+/* global MockContactAllFields */
+/* global MockLinkedContacts */
+/* global MockImportStatusData */
+/* global utils */
 
 var FB_ID = 220439;
 
@@ -25,12 +31,33 @@ Mockfb.init = function(callback) {
   callback();
 };
 
+Mockfb.setEmptyContacts = function() {
+  this.contacts = [];
+};
+
 Mockfb.setIsFbContact = function(isFB) {
   this.fbContact = isFB;
 };
 
 Mockfb.setIsFbLinked = function(isLinked) {
   this.fbLinked = isLinked;
+};
+
+// This function redirects to the implementation
+// inside the Mockfb.Contact.  Purpose is to allow
+// reuse of this mock by the contacts_test.js
+// and to allow the existing tests to work.
+Mockfb.getData = function(con) {
+  var fbContact = new Mockfb.Contact(con);
+  return fbContact.getData();
+};
+
+Mockfb.getContactByNumber = function(number, onsuccess, onerror) {
+  if(this.contacts.length === 0) {
+    return onsuccess(null);
+  } else {
+    return onsuccess(this.contacts);
+  }
 };
 
 Mockfb.setIsEnabled = function(isEnabled) {
@@ -44,7 +71,6 @@ Mockfb.contacts = function() {
         // Fetch FB data, that is returning a contact info
         this.result = {};
         this.result[FB_ID] = new MockContactAllFields();
-        var deviceContact = this.result[FB_ID];
         this.result[FB_ID].id = '567';
         this.result[FB_ID].familyName = ['Taylor'];
         this.result[FB_ID].givenName = ['Bret'];
@@ -69,11 +95,11 @@ Mockfb.contacts = function() {
 
 Mockfb.Contact = function(devContact, mozCid) {
   var deviceContact = devContact;
-  var cid = mozCid;
   var contactData;
 
-  if (devContact)
+  if (devContact) {
     setFacebookUid(FB_ID);
+  }
 
   function markAsFb(deviceContact) {
     if (!deviceContact.category) {
@@ -93,8 +119,7 @@ Mockfb.Contact = function(devContact, mozCid) {
     if (!out) {
       if (Mockfb.isFbLinked(data)) {
         out = getLinkedTo(data);
-      }
-      else if (data.category) {
+      } else if (data.category) {
         var idx = data.category.indexOf(fb.CATEGORY);
         if (idx !== -1) {
           out = data.category[idx + 2];
@@ -197,13 +222,16 @@ Mockfb.Contact = function(devContact, mozCid) {
         this.result = [];
         this.result[0] = new MockContactAllFields();
         this.result[0].adr = Mockfb.getAddresses();
+        var date = new Date(0).toString();
         this.result[1] = {
           '+346578888888': true,
           'test@test.com': true,
           'Palencia': true,
           'Castilla y León': true,
-          'España': true
+          'España': true,
+          'Test ORG': true
         };
+        this.result[1][date] = true;
 
         callback.call(this);
       },
@@ -214,7 +242,7 @@ Mockfb.Contact = function(devContact, mozCid) {
   };
 
   this.promoteToLinked = function promoteToLinked() {
-
+    Mockfb.promoteToLinked();
   };
 
   Object.defineProperty(this, 'uid', {
@@ -230,12 +258,20 @@ Mockfb.isFbContact = function(contact) {
   return this.fbContact;
 };
 
-Mockfb.isFbLinked = function(contact) {
-  return this.fbLinked;
+Mockfb.promoteToLinked = function() {
+  this.fbLinked = true;
 };
 
-Mockfb.isEnabled = function() {
-  return this.isEnabled;
+Mockfb.setPropagatedFlag = function(field, contact) {
+  // Do nothing...
+};
+
+Mockfb.removePropagatedFlag = function(field, contact) {
+  // Do nothing...
+};
+
+Mockfb.isFbLinked = function(contact) {
+  return this.fbLinked;
 };
 
 Mockfb.getWorksAt = function(fbData) {
@@ -295,8 +331,80 @@ Mockfb.utils = (function() {
       }
     },
 
-    getImportChecked: function() {
+    getImportChecked: function(cb) {
+      MockImportStatusData.get('tokenData').then(function(data){
+        if (data && data.access_token) {
+          cb('logged-in');
+        } else {
+          cb('logged-out');
+        }
+      });
+    },
 
+    TOKEN_DATA_KEY: 'tokenData',
+
+    SCHEDULE_SYNC_KEY: 'facebookShouldHaveScheduledAt',
+
+    setLastUpdate: function(date, callback) {
+      typeof callback === 'function' && callback();
+    },
+    setCachedNumFriends: function() {
+
+    },
+
+    _fbData: [],
+
+    getNumFbContacts: function() {
+      return {
+        result: 25,
+        set onsuccess(cb) {
+          cb();
+        }
+      };
+    },
+
+    numFbFriendsData: function(cbl) {
+      var localCb = cbl.local;
+      var remoteCb = cbl.remote;
+
+      if (typeof localCb == 'function'){
+        localCb(50);
+      }
+      if (typeof remoteCb == 'function'){
+        remoteCb(50);
+      }
+    },
+
+    getAllFbContacts: function() {
+      return {
+        result: Mockfb.utils._fbData,
+        set onsuccess(cb) {
+          cb();
+        }
+      };
     }
   };
 }());
+
+Mockfb.contacts = {
+  _importedContacts: 40,
+  getLength: function() {
+    return {
+      result: this._importedContacts,
+      set onsuccess(cb) {
+        cb();
+      }
+    };
+  }
+};
+
+Mockfb.sync = {
+  scheduleNextSync: function() {}
+};
+
+Mockfb.markFbCleaningInProgress = function(value) {
+  utils.cookie.update({
+    fbCleaningInProgress: value
+  });
+};
+

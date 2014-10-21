@@ -1,5 +1,5 @@
-/* -*- Mode: js; js-indent-level: 2; indent-tabs-mode: nil -*- */
-/* vim: set shiftwidth=2 tabstop=2 autoindent cindent expandtab: */
+/* globals indexedDB */
+/* exported MediaDB */
 
 'use strict';
 
@@ -79,7 +79,15 @@
  *          app to update the metadata record of specified file. The return
  *          value of this function is the updated metadata. If client app does
  *          not update any metadata, client app still needs to return
- *          file.metadata.
+ *          file.metadata. The client may also set file.needsReparse to indicate
+ *          that the source file should be reparsed.
+ *
+ *       reparsedRecord:
+ *          If in updateRecord, a record has been marked with file.needsReparse,
+ *          this function is called after the file has been reparsed to allow
+ *          the client app to merge any old metadata (e.g. metadata set by the
+ *          user). This function takes two arguments: the old metadata and the
+ *          new metadata, and should return the merged metadata.
  *
  *       excludeFilter:
  *          excludeFilter is used when client app wants MediaDB to filter out
@@ -340,6 +348,12 @@
  *     named file in DeviceStorage and passes it (a Blob) to the callback.
  *     An error callback is available as an optional third argument.
  *
+ * - getFileInfo(): given a filename and a callback, this method looks up
+ *     the database record for that file and passes it to the callback. If
+ *     no such record exists and an error callback was passed as the 3rd
+ *     argument, then an error message is passed to that error callback.
+ *     Note that unlike getFile() this method does not return file content.
+ *
  * - count(): count the number of records in the database and pass the value
  *     to the specified callback. Like enumerate(), this method allows you
  *     to specify the name of an index and a key range if you only want to
@@ -364,8 +378,9 @@ var MediaDB = (function() {
   function MediaDB(mediaType, metadataParser, options) {
     this.mediaType = mediaType;
     this.metadataParser = metadataParser;
-    if (!options)
+    if (!options) {
       options = {};
+    }
     this.indexes = options.indexes || [];
     this.version = options.version || 1;
     this.mimeTypes = options.mimeTypes;
@@ -373,7 +388,11 @@ var MediaDB = (function() {
     this.state = MediaDB.OPENING;
     this.scanning = false;  // becomes true while scanning
     this.parsingBigFiles = false;
-    this.updateRecord = options.updateRecord; // for data upgrade from client.
+
+    // These are for data upgrade from the client.
+    this.updateRecord = options.updateRecord;
+    this.reparsedRecord = options.reparsedRecord;
+
     if (options.excludeFilter && (options.excludeFilter instanceof RegExp)) {
       // only regular expression object is accepted.
       this.clientExcludeFilter = options.excludeFilter;
@@ -459,7 +478,7 @@ var MediaDB = (function() {
         oldClientVersion = oldVersion / oldDbVersion;
       }
 
-      if (0 == db.objectStoreNames.length) {
+      if (0 === db.objectStoreNames.length) {
         // No objectstore found. It is the first time use MediaDB, we need to
         // create it.
         createObjectStores(db);
@@ -518,8 +537,9 @@ var MediaDB = (function() {
       // passed to the constructor
       media.indexes.forEach(function(indexName)  {
         // Don't recreate indexes we've already got
-        if (indexName === 'name' || indexName === 'date')
+        if (indexName === 'name' || indexName === 'date') {
           return;
+        }
         // the index name is also the keypath
         filestore.createIndex(indexName, indexName);
       });
@@ -586,7 +606,6 @@ var MediaDB = (function() {
     function upgradeIndexesChanges(store) {
       var dbIndexes = store.indexNames; // note: it is DOMStringList not array.
       var clientIndexes = media.indexes;
-      var clientIndex;
 
       for (var i = 0; i < dbIndexes.length; i++) {
         // indexes provided by mediadb, can't remove it.
@@ -620,6 +639,12 @@ var MediaDB = (function() {
       try {
         dbfile.metadata = media.updateRecord(dbfile, oldClientVersion,
                                              media.version);
+        if (dbfile.needsReparse && !media.reparsedRecord) {
+          console.warn(
+            'client app requested reparse, but no reparsedRecord was set'
+          );
+          delete dbfile.needsReparse;
+        }
         store.put(dbfile);
       } catch (ex) {
         // discard client upgrade error, client app should handle it.
@@ -671,8 +696,9 @@ var MediaDB = (function() {
       function setupHandlers() {
         // Now that we know the state of all of the storage areas, register
         // an event listener to monitor changes to that state.
-        for (var i = 0; i < details.storages.length; i++)
+        for (var i = 0; i < details.storages.length; i++) {
           details.storages[i].addEventListener('change', changeHandler);
+        }
 
         // Remember the listener so we can remove it in stop()
         details.dsEventListener = changeHandler;
@@ -689,8 +715,9 @@ var MediaDB = (function() {
         changeState(media, state);
 
         // If the state is ready, and we're auto scanning then start a scan
-        if (media.autoscan)
+        if (media.autoscan) {
           scan(media);
+        }
       }
 
       // Given a storage name -> availability map figure out what state
@@ -724,12 +751,14 @@ var MediaDB = (function() {
         // rescan and discard all the files on the shared volume, which means
         // it will take much longer to recover when the volume comes back. So
         // it is better to just act as if all volumes are shared together
-        if (s > 0)
+        if (s > 0) {
           return MediaDB.UNMOUNTED;
+        }
 
         // If all volumes are unavailable, then MediaDB is unavailable
-        if (u === n)
+        if (u === n) {
           return MediaDB.NOCARD;
+        }
 
         // Otherwise, there is at least one available volume, so MediaDB
         // is available.
@@ -758,8 +787,9 @@ var MediaDB = (function() {
         var storageName = e.target.storageName;
 
         // If nothing changed, ignore this event
-        if (details.availability[storageName] === e.reason)
+        if (details.availability[storageName] === e.reason) {
           return;
+        }
 
         var oldState = media.state;
 
@@ -775,8 +805,9 @@ var MediaDB = (function() {
 
           // Start scanning if we're available, and cancel scanning otherwise
           if (newState === MediaDB.READY) {
-            if (media.autoscan)
+            if (media.autoscan) {
               scan(media);
+            }
           }
           else {
             endscan(media);
@@ -800,8 +831,9 @@ var MediaDB = (function() {
             // It would be more efficient if the scan() function could scan
             // just one storage area at a time. But SD card insertion should
             // be rare enough that efficiency is not so important.
-            if (media.autoscan)
+            if (media.autoscan) {
               scan(media);
+            }
           }
           else if (e.reason === 'unavailable') {
             // An SD card was just removed. First send an event.
@@ -817,15 +849,17 @@ var MediaDB = (function() {
 
       function fileChangeHandler(e) {
         var filename = e.path;
-        if (ignoreName(media, filename))
+        if (ignoreName(media, filename)) {
           return;
+        }
 
         // insertRecord and deleteRecord will send events to the client once
         // the db has been updated.
-        if (e.reason === 'modified')
+        if (e.reason === 'modified') {
           insertRecord(media, filename);
-        else
+        } else {
           deleteRecord(media, filename);
+        }
       }
 
       // Enumerate all entries in the DB and call deleteRecord for any whose
@@ -866,29 +900,64 @@ var MediaDB = (function() {
     },
 
     addEventListener: function addEventListener(type, listener) {
-      if (!this.details.eventListeners.hasOwnProperty(type))
+      if (!this.details.eventListeners.hasOwnProperty(type)) {
         this.details.eventListeners[type] = [];
+      }
       var listeners = this.details.eventListeners[type];
-      if (listeners.indexOf(listener) !== -1)
+      if (listeners.indexOf(listener) !== -1) {
         return;
+      }
       listeners.push(listener);
     },
 
     removeEventListener: function removeEventListener(type, listener) {
-      if (!this.details.eventListeners.hasOwnProperty(type))
+      if (!this.details.eventListeners.hasOwnProperty(type)) {
         return;
+      }
       var listeners = this.details.eventListeners[type];
       var position = listeners.indexOf(listener);
-      if (position === -1)
+      if (position === -1) {
         return;
+      }
       listeners.splice(position, 1);
+    },
+
+    // Look up the database record for the specfied filename and pass it
+    // to the specified callback.
+    getFileInfo: function getFile(filename, callback, errback) {
+      if (this.state === MediaDB.OPENING) {
+        throw Error('MediaDB is not ready. State: ' + this.state);
+      }
+
+      var media = this;
+
+      // First, look up the fileinfo record in the db
+      var read = media.db.transaction('files', 'readonly')
+        .objectStore('files')
+        .get(filename);
+
+      read.onerror = function() {
+        var msg = 'MediaDB.getFileInfo: unknown filename: ' + filename;
+        if (errback) {
+          errback(msg);
+        } else {
+          console.error(msg);
+        }
+      };
+
+      read.onsuccess = function() {
+        if (callback) {
+          callback(read.result);
+        }
+      };
     },
 
     // Look up the specified filename in DeviceStorage and pass the
     // resulting File object to the specified callback.
     getFile: function getFile(filename, callback, errback) {
-      if (this.state !== MediaDB.READY)
+      if (this.state !== MediaDB.READY) {
         throw Error('MediaDB is not ready. State: ' + this.state);
+      }
 
       var storage = navigator.getDeviceStorage(this.mediaType);
       var getRequest = storage.get(filename);
@@ -897,10 +966,11 @@ var MediaDB = (function() {
       };
       getRequest.onerror = function() {
         var errmsg = getRequest.error && getRequest.error.name;
-        if (errback)
+        if (errback) {
           errback(errmsg);
-        else
+        } else {
           console.error('MediaDB.getFile:', errmsg);
+        }
       };
     },
 
@@ -909,8 +979,9 @@ var MediaDB = (function() {
     // mediadb to remove the file from the database and send out a
     // mediadb change event, which will notify the application UI.
     deleteFile: function deleteFile(filename) {
-      if (this.state !== MediaDB.READY)
+      if (this.state !== MediaDB.READY) {
         throw Error('MediaDB is not ready. State: ' + this.state);
+      }
 
       var storage = navigator.getDeviceStorage(this.mediaType);
       storage.delete(filename).onerror = function(e) {
@@ -926,8 +997,9 @@ var MediaDB = (function() {
     // send out a mediadb event to the application UI.
     //
     addFile: function addFile(filename, file) {
-      if (this.state !== MediaDB.READY)
+      if (this.state !== MediaDB.READY) {
         throw Error('MediaDB is not ready. State: ' + this.state);
+      }
 
       var media = this;
       // Refetch the default storage area, since the user can change it
@@ -952,8 +1024,9 @@ var MediaDB = (function() {
     // updated record back to the database. The third argument is optional. If
     // you pass a function, it will be called when the metadata is written.
     updateMetadata: function(filename, metadata, callback) {
-      if (this.state === MediaDB.OPENING)
+      if (this.state === MediaDB.OPENING) {
         throw Error('MediaDB is not ready. State: ' + this.state);
+      }
 
       var media = this;
 
@@ -999,8 +1072,9 @@ var MediaDB = (function() {
     // arguments.  If one argument is passed, it is the callback. If two
     // arguments are passed, they are assumed to be the range and callback.
     count: function(key, range, callback) {
-      if (this.state !== MediaDB.READY)
+      if (this.state !== MediaDB.READY) {
         throw Error('MediaDB is not ready. State: ' + this.state);
+      }
 
       // range is an optional argument
       if (arguments.length === 1) {
@@ -1015,8 +1089,9 @@ var MediaDB = (function() {
       }
 
       var store = this.db.transaction('files').objectStore('files');
-      if (key && key !== 'name')
+      if (key && key !== 'name') {
         store = store.index(key);
+      }
 
       var countRequest = store.count(range || null);
 
@@ -1053,8 +1128,9 @@ var MediaDB = (function() {
     // 'cancelled', or 'error'
     //
     enumerate: function enumerate(key, range, direction, callback) {
-      if (this.state !== MediaDB.READY)
+      if (this.state !== MediaDB.READY) {
         throw Error('MediaDB is not ready. State: ' + this.state);
+      }
 
       var handle = { state: 'enumerating' };
 
@@ -1077,8 +1153,9 @@ var MediaDB = (function() {
 
       // If a key other than "name" is specified, then use the index for that
       // key instead of the store.
-      if (key && key !== 'name')
+      if (key && key !== 'name') {
         store = store.index(key);
+      }
 
       // Now create a cursor for the store or index.
       var cursorRequest = store.openCursor(range || null, direction || 'next');
@@ -1099,13 +1176,95 @@ var MediaDB = (function() {
         var cursor = cursorRequest.result;
         if (cursor) {
           try {
-            if (!cursor.value.fail)   // if metadata parsing succeeded
-              callback(cursor.value);
+            // If metadata parsing succeeded and the file doesn't need
+            // reparsing.
+            var fileinfo = cursor.value;
+            if (!fileinfo.fail) {
+              callback(fileinfo);
+            }
           }
           catch (e) {
             console.warn('MediaDB.enumerate(): callback threw', e, e.stack);
           }
           cursor.continue();
+        }
+        else {
+          // Final time, tell the callback that there are no more.
+          handle.state = 'complete';
+          callback(null);
+        }
+      };
+
+      return handle;
+    },
+
+    // Basically this function is a variation of enumerate(), since retrieving
+    // a large number of records from indexedDB takes some time and if the
+    // enumeration is cancelled, people can use this function to resume getting
+    // the rest records by providing an index where it was stopped.
+    // Also, if you want to get just one record, just give the target index and
+    // the first returned record is the record you want, remember to call
+    // cancelEnumeration() immediately after you got the record.
+    // All the arguments are required because this function is for advancing
+    // enumeration, people who use this function should already have all the
+    // arguments, and pass them again to get the target records from the index.
+    advancedEnumerate: function(key, range, direction, index, callback) {
+      if (this.state !== MediaDB.READY) {
+        throw Error('MediaDB is not ready. State: ' + this.state);
+      }
+
+      var handle = { state: 'enumerating' };
+
+      var store = this.db.transaction('files').objectStore('files');
+
+      // If a key other than "name" is specified, then use the index for that
+      // key instead of the store.
+      if (key && key !== 'name') {
+        store = store.index(key);
+      }
+
+      // Now create a cursor for the store or index.
+      var cursorRequest = store.openCursor(range || null, direction || 'next');
+      var isTarget = false;
+
+      cursorRequest.onerror = function() {
+        console.error('MediaDB.enumerate() failed with', cursorRequest.error);
+        handle.state = 'error';
+      };
+
+      cursorRequest.onsuccess = function() {
+        // If the enumeration has been cancelled, return without
+        // calling the callback and without calling cursor.continue();
+        if (handle.state === 'cancelling') {
+          handle.state = 'cancelled';
+          return;
+        }
+
+        var cursor = cursorRequest.result;
+        if (cursor) {
+          try {
+            // when the index is 0, we should just return the first
+            // record and does not need to advance the cursor.
+            if (index === 0) {
+              isTarget = true;
+            }
+
+            // if metadata parsing succeeded and is the target record
+            var fileinfo = cursor.value;
+            if (!fileinfo.fail && isTarget) {
+              callback(cursor.value);
+              cursor.continue();
+            }
+            else {
+              // cursor.advance() should be given with index values
+              // greater than or equal to 1.
+              cursor.advance(index);
+              isTarget = true;
+            }
+          }
+          catch (e) {
+            console.warn('MediaDB.enumerate(): callback threw', e, e.stack);
+          }
         }
         else {
           // Final time, tell the callback that there are no more.
@@ -1140,26 +1299,29 @@ var MediaDB = (function() {
       }
 
       return this.enumerate(key, range, direction, function(fileinfo) {
-        if (fileinfo !== null)
+        if (fileinfo !== null) {
           batch.push(fileinfo);
-        else
+        } else {
           callback(batch);
+        }
       });
     },
 
     // Cancel a pending enumeration. After calling this the callback for
     // the specified enumeration will not be invoked again.
     cancelEnumeration: function cancelEnumeration(handle) {
-      if (handle.state === 'enumerating')
+      if (handle.state === 'enumerating') {
         handle.state = 'cancelling';
+      }
     },
 
     // Use the non-standard mozGetAll() function to return all of the
     // records in the database in one big batch. The records will be
     // sorted by filename
     getAll: function getAll(callback) {
-      if (this.state !== MediaDB.READY)
+      if (this.state !== MediaDB.READY) {
         throw Error('MediaDB is not ready. State: ' + this.state);
+      }
 
       var store = this.db.transaction('files').objectStore('files');
       var request = store.mozGetAll();
@@ -1186,8 +1348,9 @@ var MediaDB = (function() {
     // Use the device storage freeSpace() method and pass the returned
     // value to the callback.
     freeSpace: function freeSpace(callback) {
-      if (this.state !== MediaDB.READY)
+      if (this.state !== MediaDB.READY) {
         throw Error('MediaDB is not ready. State: ' + this.state);
+      }
 
       var storage = navigator.getDeviceStorage(this.mediaType);
       var freereq = storage.freeSpace();
@@ -1219,7 +1382,7 @@ var MediaDB = (function() {
   MediaDB.READY = 'ready';         // MediaDB is available and ready for use
   MediaDB.NOCARD = 'nocard';       // Unavailable because there is no sd card
   MediaDB.UNMOUNTED = 'unmounted'; // Unavailable because card unmounted
-  MediaDB.CLOSED = 'closed';       // Unavailalbe because MediaDB has closed
+  MediaDB.CLOSED = 'closed';       // Unavailable because MediaDB has closed
 
   /* Details of helper functions follow */
 
@@ -1235,10 +1398,12 @@ var MediaDB = (function() {
   // and the type of this file is not a member of that list, then ignore it.
   //
   function ignore(media, file) {
-    if (ignoreName(media, file.name))
+    if (ignoreName(media, file.name)) {
       return true;
-    if (media.mimeTypes && media.mimeTypes.indexOf(file.type) === -1)
+    }
+    if (media.mimeTypes && media.mimeTypes.indexOf(file.type) === -1) {
       return true;
+    }
     return false;
   }
 
@@ -1309,12 +1474,14 @@ var MediaDB = (function() {
       }
 
       cursor.onsuccess = function() {
-        if (!media.scanning)  // Abort if scanning has been cancelled
+        if (!media.scanning) { // Abort if scanning has been cancelled
           return;
+        }
         var file = cursor.result;
         if (file) {
-          if (!ignore(media, file))
+          if (!ignore(media, file)) {
             insertRecord(media, file);
+          }
           cursor.continue();
         }
         else {
@@ -1363,8 +1530,9 @@ var MediaDB = (function() {
       var dsfiles = [];
       var cursor = enumerateAll(media.details.storages, '');
       cursor.onsuccess = function() {
-        if (!media.scanning)  // Abort if scanning has been cancelled
+        if (!media.scanning) { // Abort if scanning has been cancelled
           return;
+        }
         var file = cursor.result;
         if (file) {
           if (!ignore(media, file)) {
@@ -1390,8 +1558,9 @@ var MediaDB = (function() {
         var getAllRequest = store.mozGetAll();
 
         getAllRequest.onsuccess = function() {
-          if (!media.scanning)  // Abort if scanning has been cancelled
+          if (!media.scanning) { // Abort if scanning has been cancelled
             return;
+          }
           var dbfiles = getAllRequest.result;  // Should already be sorted
           compareLists(dbfiles, dsfiles);
         };
@@ -1401,10 +1570,11 @@ var MediaDB = (function() {
         // The dbfiles are sorted when we get them from the db.
         // But the ds files are not sorted
         dsfiles.sort(function(a, b) {
-          if (a.name < b.name)
+          if (a.name < b.name) {
             return -1;
-          else
+          } else {
             return 1;
+          }
         });
 
         // Loop through both the dsfiles and dbfiles lists
@@ -1412,21 +1582,24 @@ var MediaDB = (function() {
         while (true) {
           // Get the next DeviceStorage file or null
           var dsfile;
-          if (dsindex < dsfiles.length)
+          if (dsindex < dsfiles.length) {
             dsfile = dsfiles[dsindex];
-          else
+          } else {
             dsfile = null;
+          }
 
           // Get the next DB file or null
           var dbfile;
-          if (dbindex < dbfiles.length)
+          if (dbindex < dbfiles.length) {
             dbfile = dbfiles[dbindex];
-          else
+          } else {
             dbfile = null;
+          }
 
           // Case 1: both files are null.  If so, we're done.
-          if (dsfile === null && dbfile === null)
+          if (dsfile === null && dbfile === null) {
             break;
+          }
 
           // Case 2: no more files in the db.  This means that
           // the file from ds is a new one
@@ -1445,14 +1618,32 @@ var MediaDB = (function() {
           }
 
           // Case 4: two files with the same name.
-          // 4a: date and size are the same for both: do nothing
-          // 4b: file has changed: it is both a deletion and a creation
+          // 4a: date or size has changed: it is both a deletion and a creation
+          // 4b: dbfile needs reparse: it is both a deletion and an update
+          // 4c: date and size are the same for both, and no reparse needed:
+          //     do nothing
           if (dsfile.name === dbfile.name) {
+            // In release 1.3 and before files reported local times, and in 1.4
+            // and later they report UTC times. If the user has upgraded from
+            // 1.3 to 1.4 they may have files in the db whose times are in a
+            // local timezone. We want to recognize those files as matching
+            // existing files so we consider two files to have the same time if
+            // they are within +/- 12 hours of each other and if the difference
+            // in times is an exactly multiple of 10 minutes. (This assumes all
+            // world timezones are exact multiples of 10 minutes.)
             var lastModified = dsfile.lastModifiedDate;
-            if ((lastModified && lastModified.getTime() !== dbfile.date) ||
-                dsfile.size !== dbfile.size) {
+            var timeDifference = lastModified.getTime() - dbfile.date;
+            var sameTime = (timeDifference === 0 ||
+              ((Math.abs(timeDifference) <= 12 * 60 * 60 * 1000) &&
+              (timeDifference % 10 * 60 * 1000 === 0)));
+            var sameSize = dsfile.size === dbfile.size;
+
+            if (!sameTime || !sameSize) {
               deleteRecord(media, dbfile.name);
               insertRecord(media, dsfile);
+            } else if (dbfile.needsReparse) {
+              deleteRecord(media, dbfile.name);
+              insertRecord(media, dsfile, dbfile.metadata);
             }
             dsindex++;
             dbindex++;
@@ -1505,15 +1696,16 @@ var MediaDB = (function() {
   // Ensures that only one file is being parsed at a time, but tries
   // to make as many db changes in one transaction as possible.  The
   // special value null indicates that scanning is complete.
-  function insertRecord(media, fileOrName) {
+  function insertRecord(media, fileOrName, oldMetadata) {
     var details = media.details;
 
     // Add this file to the queue of files to process
-    details.pendingInsertions.push(fileOrName);
+    details.pendingInsertions.push([fileOrName, oldMetadata]);
 
     // If the queue is already being processed, just return
-    if (details.processingQueue)
+    if (details.processingQueue) {
       return;
+    }
 
     // Otherwise, start processing the queue.
     processQueue(media);
@@ -1527,8 +1719,9 @@ var MediaDB = (function() {
     details.pendingDeletions.push(filename);
 
     // If there is already a transaction in progress return now.
-    if (details.processingQueue)
+    if (details.processingQueue) {
       return;
+    }
 
     // Otherwise, start processing the queue
     processQueue(media);
@@ -1536,10 +1729,11 @@ var MediaDB = (function() {
 
   function whenDoneProcessing(media, f) {
     var details = media.details;
-    if (details.processingQueue)
+    if (details.processingQueue) {
       details.whenDoneProcessing.push(f);
-    else
+    } else {
       f();
+    }
   }
 
   function processQueue(media) {
@@ -1558,7 +1752,7 @@ var MediaDB = (function() {
         deleteFiles();
       }
       else if (details.pendingInsertions.length > 0) {
-        insertFile(details.pendingInsertions.shift());
+        insertFile(...details.pendingInsertions.shift());
       }
       else {
         details.processingQueue = false;
@@ -1599,8 +1793,10 @@ var MediaDB = (function() {
     }
 
     // Insert a file into the db. One transaction per insertion.
-    // The argument might be a filename or a File object.
-    function insertFile(f) {
+    // The argument f might be a filename or a File object.
+    // oldMetadata is the metadata of this file before it was reparsed (or
+    // undefined).
+    function insertFile(f, oldMetadata) {
       // null is a special value pushed on to the queue when a scan()
       // is complete.  We use it to trigger a scanend event
       // after all the change events from the scan are delivered
@@ -1630,19 +1826,20 @@ var MediaDB = (function() {
           // against the mimeTypes array. So if necessary we check again.
           // If the file is not one of the types we're interested in we skip
           // it. Otherwise, parse its metadata.
-          if (media.mimeTypes && ignore(media, getreq.result))
+          if (media.mimeTypes && ignore(media, getreq.result)) {
             next();
-          else
-            parseMetadata(getreq.result, f);
+          } else {
+            parseMetadata(getreq.result, f, oldMetadata);
+          }
         };
       }
       else {
         // otherwise f is the file we want
-        parseMetadata(f, f.name);
+        parseMetadata(f, f.name, oldMetadata);
       }
     }
 
-    function parseMetadata(file, filename) {
+    function parseMetadata(file, filename, oldMetadata) {
       if (!file.lastModifiedDate) {
         console.warn('MediaDB: parseMetadata: no lastModifiedDate for',
                      filename,
@@ -1659,8 +1856,9 @@ var MediaDB = (function() {
           Date.now()
       };
 
-      if (fileinfo.date > details.newestFileModTime)
+      if (fileinfo.date > details.newestFileModTime) {
         details.newestFileModTime = fileinfo.date;
+      }
 
       // Get metadata about the file
       media.metadataParser(file, gotMetadata, metadataError, parsingBigFile);
@@ -1680,6 +1878,9 @@ var MediaDB = (function() {
       }
       function gotMetadata(metadata) {
         fileinfo.metadata = metadata;
+        if (oldMetadata && media.reparsedRecord) {
+          fileinfo.metadata = media.reparsedRecord(oldMetadata, metadata);
+        }
         storeRecord(fileinfo);
         if (!media.scanning) {
           // single file parsing.
@@ -1712,8 +1913,9 @@ var MediaDB = (function() {
 
         request.onsuccess = function() {
           // Remember to send an event about this new file
-          if (!fileinfo.fail)
+          if (!fileinfo.fail) {
             queueCreateNotification(media, fileinfo);
+          }
           // And go on to the next
           next();
         };
@@ -1732,8 +1934,9 @@ var MediaDB = (function() {
             var putrequest = store.put(fileinfo);
             putrequest.onsuccess = function() {
               queueDeleteNotification(media, fileinfo.name);
-              if (!fileinfo.fail)
+              if (!fileinfo.fail) {
                 queueCreateNotification(media, fileinfo);
+              }
               next();
             };
             putrequest.onerror = function() {
@@ -1760,28 +1963,31 @@ var MediaDB = (function() {
   function queueCreateNotification(media, fileinfo) {
     var creates = media.details.pendingCreateNotifications;
     creates.push(fileinfo);
-    if (media.batchSize && creates.length >= media.batchSize)
+    if (media.batchSize && creates.length >= media.batchSize) {
       sendNotifications(media);
-    else
+    } else {
       resetNotificationTimer(media);
+    }
   }
 
   function queueDeleteNotification(media, filename) {
     var deletes = media.details.pendingDeleteNotifications;
     deletes.push(filename);
-    if (media.batchSize && deletes.length >= media.batchSize)
+    if (media.batchSize && deletes.length >= media.batchSize) {
       sendNotifications(media);
-    else
+    } else {
       resetNotificationTimer(media);
+    }
   }
 
   function resetNotificationTimer(media) {
     var details = media.details;
-    if (details.pendingNotificationTimer)
+    if (details.pendingNotificationTimer) {
       clearTimeout(details.pendingNotificationTimer);
+    }
     details.pendingNotificationTimer =
       setTimeout(function() { sendNotifications(media); },
-                 media.batchHoldTime);
+                 media.scanning ? media.batchHoldTime : 100);
   }
 
   // Send out notifications for creations and deletions
@@ -1798,20 +2004,33 @@ var MediaDB = (function() {
     }
 
     if (details.pendingCreateNotifications.length > 0) {
+      var creations = details.pendingCreateNotifications;
+      details.pendingCreateNotifications = [];
 
       // If this is a first scan, and we have records that are not
       // in the db yet, write them to the db now
       if (details.firstscan && details.records.length > 0) {
         var transaction = media.db.transaction('files', 'readwrite');
         var store = transaction.objectStore('files');
-        for (var i = 0; i < details.records.length; i++)
+        for (var i = 0; i < details.records.length; i++) {
           store.add(details.records[i]);
+        }
         details.records.length = 0;
-      }
 
-      var creations = details.pendingCreateNotifications;
-      details.pendingCreateNotifications = [];
-      dispatchEvent(media, 'created', creations);
+        // One of the original points of this firstscan optimization was that
+        // we could dispatch the created events without waiting for the
+        // database writes to complete. It turns out (see bug 963917) that
+        // we can't do that because the Gallery app needs to read records
+        // from the db in order to be sure it is holding file-based blobs
+        // instead of memory-based blobs. So we wait for the transaction to
+        // complete before sending the notifications.
+        transaction.oncomplete = function() {
+          dispatchEvent(media, 'created', creations);
+        };
+      }
+      else {
+        dispatchEvent(media, 'created', creations);
+      }
     }
   }
 
@@ -1820,8 +2039,9 @@ var MediaDB = (function() {
     var listeners = media.details.eventListeners[type];
 
     // Return if there is nothing to handle the event
-    if (!handler && (!listeners || listeners.length == 0))
+    if (!handler && (!listeners || listeners.length === 0)) {
       return;
+    }
 
     // We use a fake event object
     var event = {
@@ -1844,8 +2064,9 @@ var MediaDB = (function() {
     }
 
     // Now call the listeners if there are any
-    if (!listeners)
+    if (!listeners) {
       return;
+    }
     for (var i = 0; i < listeners.length; i++) {
       try {
         var listener = listeners[i];
@@ -1865,10 +2086,11 @@ var MediaDB = (function() {
   function changeState(media, state) {
     if (media.state !== state) {
       media.state = state;
-      if (state === MediaDB.READY)
+      if (state === MediaDB.READY) {
         dispatchEvent(media, 'ready');
-      else
+      } else {
         dispatchEvent(media, 'unavailable', state);
+      }
     }
   }
 

@@ -1,26 +1,32 @@
 'use strict';
 
-requireCommon('test/synthetic_gestures.js');
-require('/tests/performance/performance_helper.js');
-require('apps/communications/dialer/test/integration/app.js');
+var assert = require('assert');
 
-suite(window.mozTestInfo.appPath + '>', function() {
-  var device;
-  var app;
+requireGaia('/dev_apps/test-agent/common/test/synthetic_gestures.js');
 
-  MarionetteHelper.start(function(client) {
-    app = new DialerIntegration(client);
-    device = app.device;
+var PerformanceHelper =
+  requireGaia('/tests/performance/performance_helper.js');
+var DialerIntegration = require('./integration.js');
+
+marionette(config.appPath + ' >', function() {
+  var client = marionette.client({
+    settings: {
+      'ftu.manifestURL': null,
+      'lockscreen.enabled': false
+    }
   });
+  // Do nothing on script timeout. Bug 987383
+  client.onScriptTimeout = null;
 
   setup(function() {
-    yield IntegrationHelper.unlock(device);
+    this.timeout(config.timeout);
+    client.setScriptTimeout(config.scriptTimeout);
+    PerformanceHelper.injectHelperAtom(client);
   });
 
   test('Dialer/callLog rendering time >', function() {
+    var app = new DialerIntegration(client);
 
-    this.timeout(500000);
-    yield device.setScriptTimeout(50000);
 
     var lastEvent = 'call-log-ready';
 
@@ -29,18 +35,28 @@ suite(window.mozTestInfo.appPath + '>', function() {
       lastEvent: lastEvent
     });
 
-    yield performanceHelper.repeatWithDelay(function(app, next) {
+    performanceHelper.disableScreenTimeout();
+
+    performanceHelper.repeatWithDelay(function(app, next) {
       var waitForBody = true;
-      yield app.launch(waitForBody);
+      app.launch(waitForBody);
 
-      var recentsButton = yield app.element('optionRecents');
+      app.element('optionRecents', function(err, recentsButton) {
+        recentsButton.tap();
+      });
 
-      yield recentsButton.singleTap();
+      performanceHelper.waitForPerfEvent(function(runResults, error) {
+        if (error) {
+          app.close();
+          throw error;
+        } else {
+          performanceHelper.reportRunDurations(runResults, 'start-call-log');
 
-      var runResults = yield performanceHelper.observe(next);
-      performanceHelper.reportRunDurations(runResults);
+          assert.ok(Object.keys(runResults).length, 'empty results');
+          app.close();
+        }
+      });
 
-      yield app.close();
     });
 
     performanceHelper.finish();

@@ -1,5 +1,6 @@
 {
   "settings": {},
+  "prefs": {},
   "carrier":{
     "phone_number": "",
     "country": "",
@@ -35,5 +36,10 @@
       "active_sync_username": ""
     }
 
+  },
+  "plivo": {
+    "auth_id": "",
+    "auth_token": "",
+    "phone_number": ""
   }
 }

@@ -1,261 +1,323 @@
-const { Cc, Ci, Cr, Cu } = require('chrome');
-Cu.import('resource://gre/modules/XPCOMUtils.jsm');
-Cu.import('resource://gre/modules/FileUtils.jsm');
-Cu.import('resource://gre/modules/Services.jsm');
+/**
+ * This file exports all 'utils' functions, which indeed exports the
+ * implementations inside the 'utils-node' and 'utils-xpc' files.
+ */
 
-function isSubjectToBranding(path) {
-  return /shared[\/\\][a-zA-Z]+[\/\\]branding$/.test(path) ||
-         /branding[\/\\]initlogo.png/.test(path);
+'use strict';
+/* global exports, require, process*/
+const FILE_TYPE_FILE = 0;
+const FILE_TYPE_DIRECTORY = 1;
+
+var utils;
+if (isNode()) {
+  utils = require('./utils-node.js');
+} else {
+  utils = require('./utils-xpc.js');
 }
 
 /**
- * Returns an array of nsIFile's for a given directory
+ * Detect if we're in Node.js mode.
  *
- * @param  {nsIFile} dir       directory to read.
- * @param  {boolean} recursive set to true in order to walk recursively.
- * @param  {RegExp}  exclude   optional filter to exclude file/directories.
- *
- * @return {Array}   list of nsIFile's.
+ * @return {bool}
  */
-function ls(dir, recursive, exclude) {
-  let results = [];
-  if (!dir.exists()) {
-    return results;
-  }
-
-  let files = dir.directoryEntries;
-  while (files.hasMoreElements()) {
-    let file = files.getNext().QueryInterface(Ci.nsILocalFile);
-    if (!exclude || !exclude.test(file.leafName)) {
-      results.push(file);
-      if (recursive && file.isDirectory()) {
-        results = results.concat(ls(file, true, exclude));
-      }
-    }
-  }
-  return results;
-}
-
-function getFileContent(file) {
+function isNode() {
   try {
-    let fileStream = Cc['@mozilla.org/network/file-input-stream;1']
-                     .createInstance(Ci.nsIFileInputStream);
-    fileStream.init(file, 1, 0, false);
-
-    let converterStream = Cc['@mozilla.org/intl/converter-input-stream;1']
-                            .createInstance(Ci.nsIConverterInputStream);
-    converterStream.init(fileStream, 'utf-8', fileStream.available(),
-        Ci.nsIConverterInputStream.DEFAULT_REPLACEMENT_CHARACTER);
-
-    let out = {};
-    let count = fileStream.available();
-    converterStream.readString(count, out);
-
-    var content = out.value;
-    converterStream.close();
-    fileStream.close();
+    return process && process.versions && process.versions.node;
   } catch (e) {
-    let msg = (file && file.path) ? '\nfile not found: ' + file.path : '';
-    throw new Error(' -*- build/utils.js: ' + e + msg + '\n');
+    return false;
   }
-  return content;
 }
 
-function writeContent(file, content) {
-  var fileStream = Cc['@mozilla.org/network/file-output-stream;1']
-                     .createInstance(Ci.nsIFileOutputStream);
-  fileStream.init(file, 0x02 | 0x08 | 0x20, 0666, 0);
-
-  let converterStream = Cc['@mozilla.org/intl/converter-output-stream;1']
-                          .createInstance(Ci.nsIConverterOutputStream);
-
-  converterStream.init(fileStream, 'utf-8', 0, 0);
-  converterStream.writeString(content);
-  converterStream.close();
+/**
+ * Detect if this path is a Mozilla branding logo or L10N resource.
+ *
+ * @param path {string} - the file path
+ * @return {bool}
+ */
+function isSubjectToBranding(path) {
+  return /shared[\/\\]?[a-zA-Z]*[\/\\]?branding$/.test(path) ||
+         /branding[\/\\]initlogo.png/.test(path);
 }
 
-// Return an nsIFile by joining paths given as arguments
-// First path has to be an absolute one
-function getFile() {
-  try {
-    let file = new FileUtils.File(arguments[0]);
-    if (arguments.length > 1) {
-      for (let i = 1; i < arguments.length; i++) {
-        let dir = arguments[i];
-        dir.split('/').forEach(function(name) {
-          file.append(name);
-        });
+// XXX: We should use @formFactor for device specific L10N support,
+// isSubjectToDeviceType should be removed after bug 936532 landed.
+/**
+ * Detect if this path is a device specific L10N resource.
+ *
+ * @param path {string} - the file path
+ * @return {bool}
+ */
+function isSubjectToDeviceType(path) {
+  return /locales[\/\\]?[a-zA-Z\/]*[\/\\]?device_type/.test(path);
+}
+
+/**
+ * Get file extension from a name.
+ *
+ * @return string: the extension name
+ */
+function getExtension(filename) {
+  return filename.substr(filename.lastIndexOf('.') + 1).toLowerCase();
+}
+
+/**
+ * We parse list like ps aux and b2g-ps into object
+ * ex: root 24692 nginx -> {
+ *     user: 'root',
+ *     pid: '24692',
+ *     command: 'nginx'
+ * }
+ *
+ * @param psresult {string} - the result of `ps` command.
+ * @return object - {ps title: ps column content}
+ */
+function psParser(psresult) {
+  var rows = psresult.split('\n');
+  if (rows.length < 2) {
+    return {};
+  }
+
+  // We use indexes of each title of the first row to
+  // get correct position of each values.
+  // We don't use split(' ') here, because some app name
+  // may contain white space, ex. FM Radio.
+  var titles = rows[0].trim().split(/\s+/);
+  var titleIndexes = titles.map(function(name) {
+    return rows[0].indexOf(name);
+  });
+  var result = {};
+
+  for (var r = 1; r < rows.length; r++) {
+    var name =
+      rows[r].slice(titleIndexes[0], titleIndexes[1]).
+      trim();
+    result[name] = {};
+    for (var i = 1; i < titleIndexes.length; i++) {
+      var value =
+        rows[r].slice(titleIndexes[i], titleIndexes[i + 1]);
+      if(value[0] !== ' ') {
+        value = rows[r].slice(titleIndexes[i] - 1,
+                              titleIndexes[i + 1] && titleIndexes[i + 1] - 1);
       }
-    }
-    return file;
-  } catch (e) {
-    throw new Error(' -*- build/utils.js: Invalid file path (' +
-                    Array.slice(arguments).join(', ') + ')\n' + e + '\n');
-  }
-}
-
-function ensureFolderExists(file) {
-  if (!file.exists()) {
-    try {
-      file.create(Ci.nsIFile.DIRECTORY_TYPE, parseInt('0755', 8));
-    } catch (e if e.result == Cr.NS_ERROR_FILE_ALREADY_EXISTS) {
-      // Bug 808513: Ignore races between `if exists() then create()`.
-      return;
+      value = value.trim();
+      result[name][titles[i]] = value;
     }
   }
+  return result;
 }
 
-function getJSON(file) {
-  try {
-    let content = getFileContent(file);
-    return JSON.parse(content);
-  } catch (e) {
-    dump('Invalid JSON file : ' + file.path + '\n');
-    throw e;
-  }
-}
-
-function makeWebappsObject(appdirs, domain, scheme, port) {
-  return {
-    forEach: function(fun) {
-      appdirs.forEach(function(app) {
-        let appDir = getFile(app);
-        if (!appDir.exists()) {
-          throw new Error(' -*- build/utils.js: file not found (' + app + ')\n');
-        }
-
-        let manifestFile = appDir.clone();
-        manifestFile.append('manifest.webapp');
-
-        let updateFile = appDir.clone();
-        updateFile.append('update.webapp');
-
-        // Ignore directories without manifest
-        if (!manifestFile.exists() && !updateFile.exists()) {
-          return;
-        }
-
-        let manifest = manifestFile.exists() ? manifestFile : updateFile;
-
-        // Use the folder name as the the domain name
-        let appDomain = appDir.leafName + '.' + domain;
-        let webapp = {
-          manifest: getJSON(manifest),
-          manifestFile: manifest,
-          url: scheme + appDomain + (port ? port : ''),
-          domain: appDomain,
-          sourceDirectoryFile: manifestFile.parent,
-          buildDirectoryFile: manifestFile.parent,
-          sourceDirectoryName: appDir.leafName,
-          sourceAppDirectoryName: appDir.parent.leafName
-        };
-
-        // External webapps have a `metadata.json` file
-        let metaData = webapp.sourceDirectoryFile.clone();
-        metaData.append('metadata.json');
-        if (metaData.exists()) {
-          webapp.metaData = getJSON(metaData);
-        }
-
-        // Some webapps control their own build
-        let buildMetaData = webapp.sourceDirectoryFile.clone();
-        buildMetaData.append('gaia_build.json');
-        if (buildMetaData.exists()) {
-          webapp.build = getJSON(buildMetaData);
-
-          if (webapp.build.dir) {
-            let buildDirectoryFile = webapp.sourceDirectoryFile.clone();
-            webapp.build.dir.split('/').forEach(function(segment) {
-              if (segment == "..")
-                buildDirectoryFile = buildDirectoryFile.parent;
-              else
-                buildDirectoryFile.append(segment);
-            });
-
-            webapp.buildDirectoryFile = buildDirectoryFile;
-          }
-        }
-
-        fun(webapp);
-      });
-    }
-  };
-}
-
-function registerProfileDirectory(profileDir) {
-  let directoryProvider = {
-    getFile: function provider_getFile(prop, persistent) {
-      persistent.value = true;
-      if (prop != 'ProfD' && prop != 'ProfLDS') {
-        throw Cr.NS_ERROR_FAILURE;
-      }
-
-      return new FileUtils.File(profileDir);
-    },
-
-    QueryInterface: XPCOMUtils.generateQI([Ci.nsIDirectoryServiceProvider,
-                                           Ci.nsISupports])
-  };
-
-  Cc['@mozilla.org/file/directory_service;1']
-    .getService(Ci.nsIProperties)
-    .QueryInterface(Ci.nsIDirectoryService)
-    .registerProvider(directoryProvider);
-}
-
-function getGaia(options) {
-  registerProfileDirectory(options.PROFILE_DIR);
-  return {
-    engine: options.GAIA_ENGINE,
-    sharedFolder: getFile(options.GAIA_DIR, 'shared'),
-    webapps: makeWebappsObject(options.GAIA_APPDIRS.split(' '),
-      options.GAIA_DOMAIN, options.GAIA_SCHEME, options.GAIA_PORT),
-    aggregatePrefix: 'gaia_build_',
-    distributionDir: options.GAIA_DISTRIBUTION_DIR
-  }
-}
-
+/**
+ * Concat to Gaia URL original like:
+ * 'app://system.gaiamobile.org'
+ *
+ * @param name {string} - the app name
+ * @param scheme {string} - the scheme, like 'app://' or 'http://'
+ * @param domain {string} - the domain for Gaia, like 'gaiamobile.org'
+ * @param port {string} - the port, but we don't use it
+ * @return {string}
+ */
 function gaiaOriginURL(name, scheme, domain, port) {
-  return scheme + name + '.' + domain + (port ? port : '');
+  return scheme + name + '.' + domain;
 }
 
+/**
+ * Give the default app manifest URL like:
+ * 'app://system.gaiamobile.org:8080/manifest.webapp'
+ *
+ * In fact, what we do is only to append the '/manifest.webapp'
+ * to the origin URL.
+ *
+ * @param name {string} - the app name
+ * @param scheme {string} - the scheme, like 'app://' or 'http://'
+ * @param domain {string} - the domain for Gaia, like 'gaiamobile.org'
+ * @param port {string} - the port, like 8080 or '8080'
+ * @return {string}
+ */
 function gaiaManifestURL(name, scheme, domain, port) {
   return gaiaOriginURL(name, scheme, domain, port) + '/manifest.webapp';
 }
 
-function getDistributionFileContent(name, defaultContent, distDir) {
-  if (distDir) {
-    let distributionFile = getFile(distDir, name + '.json');
-    if (distributionFile.exists()) {
-      return getFileContent(distributionFile);
-    }
+/**
+ * To see if the app status is 'certified', 'privileged' or 'web',
+ * and give the corresponding status code:
+ *
+ * 'certified': 3,
+ * 'privileged': 2,
+ * 'web': 1
+ *
+ * @param status {string} - 'certified', 'privileged' or 'web'
+ * @return {number} - 3, 2 or 1
+ */
+function getAppStatus(status) {
+  var appStatus;
+  switch (status) {
+    case 'certified':
+      appStatus = 3;
+      break;
+    case 'privileged':
+      appStatus = 2;
+      break;
+    case 'web':
+      appStatus = 1;
+      break;
+    default: // By default, apps are installed
+      appStatus = 1;
+      break;
   }
-  return JSON.stringify(defaultContent, null, '  ');
+  return appStatus;
 }
 
-function getAbsoluteOrRelativePath(path, gaiaDir) {
-  // First check relative path to gaia folder
-  let abs_path_chunks = [gaiaDir].concat(path.split(/\/|\\/));
-  let file = getFile.apply(null, abs_path_chunks);
-  if (!file.exists()) {
-    try {
-      // Then check absolute path
-      return getFile(path);
-    } catch(e) {}
+/**
+ * Serialize an object, then parse it as a cloned, new object.
+ *
+ * @param obj {object}
+ * @return {object} - the cloned new object
+ */
+function cloneJSON(obj) {
+  var result = null;
+  try {
+    result = JSON.parse(JSON.stringify(obj));
+  } catch (e) {
+    throw new Error('Its type is not supported JSON format.');
   }
-  return file;
+  return result;
 }
 
+/**
+ * Compare contents of two JavaScript scripts.
+ *
+ * @param jsa {string}
+ * @param jsb {string}
+ * @return {bool} - if they're strictly equal
+ */
+function jsComparator(jsa, jsb) {
+  try {
+    var jsaPrsed = JSON.stringify(utils.scriptParser(jsa, {loc: 0}));
+    var jsbPrsed = JSON.stringify(utils.scriptParser(jsb, {loc: 0}));
+    return jsaPrsed === jsbPrsed;
+  } catch (e) {
+    throw e;
+  }
+}
+
+/**
+ * convert BUILD_APP_NAME to regular expression and automatically convert to
+ * /.+/ if BUILD_APP_NAME is *
+ *
+ * @param buildAppName {string} BUILD_APP_NAME from Makefile
+ *
+ * @return {RegExp}             a RegExp object
+ */
+function getAppNameRegex(buildAppName) {
+  return buildAppName === '*' ? /.+/ : new RegExp(buildAppName);
+}
+
+/**
+ * NodeJS library Q for promise.
+ * @exports Q
+ */
+exports.Q = utils.Q;
+
+/**
+ * Common function.
+ * @exports isSubjectToBranding
+ */
 exports.isSubjectToBranding = isSubjectToBranding;
-exports.ls = ls;
-exports.getFileContent = getFileContent;
-exports.writeContent = writeContent;
-exports.getFile = getFile;
-exports.ensureFolderExists = ensureFolderExists;
-exports.getJSON = getJSON;
-exports.makeWebappsObject = makeWebappsObject;
+exports.isSubjectToDeviceType = isSubjectToDeviceType;
+exports.ls = utils.ls;
+exports.getFileContent = utils.getFileContent;
+exports.writeContent = utils.writeContent;
+exports.getFile = utils.getFile;
+exports.ensureFolderExists = utils.ensureFolderExists;
+exports.getJSON = utils.getJSON;
+exports.getFileAsDataURI = utils.getFileAsDataURI;
+exports.makeWebappsObject = utils.makeWebappsObject;
+
+/**
+ * Common function.
+ * @exports gaiaOriginURL
+ */
 exports.gaiaOriginURL = gaiaOriginURL;
+
+/**
+ * Common function.
+ * @exports gaiaManifestURL
+ */
 exports.gaiaManifestURL = gaiaManifestURL;
-exports.getDistributionFileContent = getDistributionFileContent;
-exports.getAbsoluteOrRelativePath = getAbsoluteOrRelativePath
-exports.getGaia = getGaia;
+exports.getDistributionFileContent = utils.getDistributionFileContent;
+exports.resolve = utils.resolve;
+exports.gaia = utils.gaia;
+exports.getBuildConfig = utils.getBuildConfig;
+exports.getAppsByList = utils.getAppsByList;
+exports.getApp = utils.getApp;
+exports.getAppName = utils.getAppName;
+exports.getXML = utils.getXML;
+exports.getTempFolder = utils.getTempFolder;
+exports.normalizeString = utils.normalizeString;
+exports.Commander = utils.Commander;
+exports.getEnvPath = utils.getEnvPath;
+exports.getLocaleBasedir = utils.getLocaleBasedir;
+exports.getNewURI = utils.getNewURI;
+exports.getOsType = utils.getOsType;
+exports.generateUUID = utils.generateUUID;
+exports.copyRec = utils.copyRec;
+
+/**
+ * Common function.
+ * @exports getAppStatus
+ */
+exports.getAppStatus = getAppStatus;
+exports.createZip = utils.createZip;
+exports.scriptParser = utils.scriptParser;
+// ===== the following functions support node.js compitable interface.
+exports.scriptLoader = utils.scriptLoader;
+exports.FILE_TYPE_FILE = FILE_TYPE_FILE;
+exports.FILE_TYPE_DIRECTORY = FILE_TYPE_DIRECTORY;
+exports.deleteFile = utils.deleteFile;
+exports.listFiles = utils.listFiles;
+
+/**
+ * Common function.
+ * @exports psParser
+ */
+exports.psParser = psParser;
+exports.fileExists = utils.fileExists;
+exports.mkdirs = utils.mkdirs;
+exports.joinPath = utils.joinPath;
+exports.copyFileTo = utils.copyFileTo;
+exports.copyToStage = utils.copyToStage;
+exports.createXMLHttpRequest = utils.createXMLHttpRequest;
+exports.downloadJSON = utils.downloadJSON;
+exports.readJSONFromPath = utils.readJSONFromPath;
+exports.readZipManifest = utils.readZipManifest;
+exports.writeContentToFile = utils.writeContentToFile;
+exports.processEvents = utils.processEvents;
+exports.log = utils.log;
+exports.getExtension = getExtension;
+exports.killAppByPid = utils.killAppByPid;
+exports.getEnv = utils.getEnv;
+exports.isExternalApp = utils.isExternalApp;
+exports.getDocument = utils.getDocument;
+exports.getWebapp = utils.getWebapp;
+exports.Services = utils.Services;
+exports.concatenatedScripts = utils.concatenatedScripts;
+exports.dirname = utils.dirname;
+exports.basename = utils.basename;
+exports.addEntryContentWithTime = utils.addEntryContentWithTime;
+exports.copyDirTo = utils.copyDirTo;
+exports.existsInAppDirs = utils.existsInAppDirs;
+exports.getCompression = utils.getCompression;
+exports.removeFiles = utils.removeFiles;
+exports.getAppNameRegex = getAppNameRegex;
+
+/**
+ * Common function.
+ * @exports cloneJSON
+ */
+exports.cloneJSON = cloneJSON;
+
+/**
+ * Common function.
+ * @exports jsComparator
+ */
+exports.jsComparator = jsComparator;

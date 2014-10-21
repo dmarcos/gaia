@@ -1,62 +1,16 @@
-requireLib('responder.js');
-requireLib('timespan.js');
-requireLib('store/event.js');
-requireLib('store/busytime.js');
-requireLib('store/alarm.js');
+define(function(require) {
+'use strict';
+
+var Factory = require('test/support/factory');
+var Timespan = require('timespan');
 
 suite('store/busytime', function() {
-
   var app;
   var subject;
   var db;
   var id = 0;
 
-  function event(start, end) {
-    var remote = {};
-
-    if (start)
-      remote.startDate = start;
-
-    if (end)
-      remote.endDate = end;
-
-    remote.id = ++id;
-
-    var out = Factory('event', {
-      remote: remote
-    });
-
-    if (!out.remote.end || !out.remote.end.utc) {
-      throw new Error('event has no end');
-    }
-
-    return out;
-  }
-
-  function eventRecuring(date) {
-    return Factory('event.recurring', {
-      remote: {
-        startDate: date,
-        _id: ++id,
-        _recurres: 1
-      }
-    });
-  }
-
-  function time(event) {
-    return event.remote.startDate.valueOf();
-  }
-
-  function record(event) {
-    var record = subject._eventToRecord(
-      event
-    );
-
-    return subject._createModel(record);
-  }
-
   setup(function(done) {
-    this.timeout(5000);
     id = 0;
     app = testSupport.calendar.app();
     db = app.db;
@@ -151,7 +105,7 @@ suite('store/busytime', function() {
 
     setup(function() {
       list = Object.create(null);
-      span = new Calendar.Timespan(
+      span = new Timespan(
         new Date(2012, 1, 5),
         new Date(2012, 1, 10)
       );
@@ -159,7 +113,6 @@ suite('store/busytime', function() {
 
     function add(name, start, end) {
       setup(function(done) {
-        var store = subject.db.getStore('Event');
         var item = list[name] = Factory('busytime', {
           startDate: start,
           endDate: end
@@ -329,4 +282,6 @@ suite('store/busytime', function() {
       });
     });
   });
+});
+
 });

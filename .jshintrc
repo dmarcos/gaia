@@ -27,16 +27,6 @@
   "devel": true,
   "nonstandard": true,
   "worker": true,
-  "predef": [
-    "suite",
-    "test",
-    "setup",
-    "teardown",
-    "suiteSetup",
-    "suiteTeardown",
-    "assert",
-    "require",
-    "requireApp",
-    "sinon"
-  ]
+
+  "-W078": true
 }

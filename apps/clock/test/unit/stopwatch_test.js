@@ -1,10 +1,11 @@
+'use strict';
 suite('Stopwatch', function() {
 
   var Stopwatch;
   var oneHour = 1 * 60 * 60 * 1000;
 
   suiteSetup(function(done) {
-    testRequire(['stopwatch'], function(stopwatch) {
+    require(['stopwatch'], function(stopwatch) {
       Stopwatch = stopwatch;
       this.sw = new Stopwatch();
       done();

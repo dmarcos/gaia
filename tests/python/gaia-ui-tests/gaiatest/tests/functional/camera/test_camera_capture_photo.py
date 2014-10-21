@@ -15,15 +15,18 @@ class TestCamera(GaiaTestCase):
         self.apps.set_permission('Camera', 'geolocation', 'deny')
 
     def test_capture_a_photo(self):
-        # https://moztrap.mozilla.org/manage/case/1325/
+        """https://moztrap.mozilla.org/manage/case/1325/"""
+        self.previous_number_of_pictures = len(self.data_layer.picture_files)
 
         self.camera = Camera(self.marionette)
         self.camera.launch()
 
+        # Take a photo
         self.camera.take_photo()
 
-        if not self.camera.is_filmstrip_visible:
-            self.camera.tap_to_display_filmstrip()
+        # Check that Filmstrip is visible
+        self.assertTrue(self.camera.is_thumbnail_visible)
 
-        image_preview = self.camera.filmstrip_images[0].tap()
-        self.assertTrue(image_preview.is_image_preview_visible)
+        # Check that picture saved to SD card
+        self.wait_for_condition(lambda m: len(self.data_layer.picture_files) == self.previous_number_of_pictures + 1, 10)
+        self.assertEqual(len(self.data_layer.picture_files), self.previous_number_of_pictures + 1)

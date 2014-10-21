@@ -1,8 +1,12 @@
-requireLib('models/calendar.js');
-requireLib('models/account.js');
+define(function(require) {
+'use strict';
 
-suiteGroup('Controllers.Sync', function() {
+var CalendarError = require('error');
+var Factory = require('test/support/factory');
+var SyncController = require('controllers/sync');
+var nextTick = require('next_tick');
 
+suite('Controllers.Sync', function() {
   var account;
   var calendar;
   var event;
@@ -17,16 +21,14 @@ suiteGroup('Controllers.Sync', function() {
     account.sync = function() {
       var args = Array.slice(arguments);
       var cb = args.pop();
-      Calendar.nextTick(cb.bind(this, err));
+      nextTick(cb.bind(this, err));
     };
   }
 
   setup(function(done) {
-    this.timeout(10000);
-
     app = testSupport.calendar.app();
     db = app.db;
-    subject = new Calendar.Controllers.Sync(app);
+    subject = new SyncController(app);
 
     calendar = app.store('Calendar');
     account = app.store('Account');
@@ -185,7 +187,7 @@ suiteGroup('Controllers.Sync', function() {
           });
         };
 
-        var err = new Calendar.Error();
+        var err = new CalendarError();
         stageAccountSyncError(err);
         subject.account(accModel);
         assert.equal(subject.pending, 1);
@@ -217,7 +219,7 @@ suiteGroup('Controllers.Sync', function() {
           assert.equal(accModel._id, acc._id);
           assert.equal(calendar.accountId, acc._id);
 
-          Calendar.nextTick(function() {
+          nextTick(function() {
             callback();
             if (!--pendingCalendarSync) {
               assert.notEqual(lastCalendar._id, calendar._id);
@@ -239,11 +241,9 @@ suiteGroup('Controllers.Sync', function() {
     suite('#calendar', function() {
 
       test('multiple in progress', function() {
-        var complete = 0;
-
         subject.calendar(accModel, calendars[0]);
         assertEmit('syncStart');
-        delete events['syncStart'];
+        delete events.syncStart;
 
         subject.calendar(accModel, calendars[1]);
         assertDoesNotEmit('syncStart');
@@ -268,7 +268,7 @@ suiteGroup('Controllers.Sync', function() {
         });
         assertEmit('syncStart');
 
-        assert.length(calendarSyncCalls, 1, 'emits syncComplete');
+        assert.lengthOf(calendarSyncCalls, 1, 'emits syncComplete');
 
         var sync = calendarSyncCalls[0];
 
@@ -297,5 +297,6 @@ suiteGroup('Controllers.Sync', function() {
       });
     });
   });
+});
 
 });

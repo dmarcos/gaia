@@ -39,8 +39,15 @@ function initDB() {
   };
 
   videodb.onscanend = function() {
-    firstScanEnded = true;
+    // If this was the first scan after startup, then tell
+    // performance monitors that the app is finally fully loaded and stable.
+    if (!firstScanEnded) {
+      firstScanEnded = true;
+      window.dispatchEvent(new CustomEvent('moz-app-loaded'));
+    }
+
     updateDialog();
+    updateLoadingSpinner();
   };
 
   videodb.oncreated = function(event) {
@@ -60,6 +67,7 @@ function enumerateDB() {
   if (enumerated)
     return;
   enumerated = true;
+  var firstBatchDisplayed = false;
 
   var batch = [];
   var batchSize = 4;
@@ -99,6 +107,14 @@ function enumerateDB() {
   function flush() {
     batch.forEach(addVideo);
     batch.length = 0;
+
+    if (!firstBatchDisplayed) {
+      firstBatchDisplayed = true;
+      // Tell performance monitors that "above the fold" content is displayed
+      // and is ready to interact with.
+      window.dispatchEvent(new CustomEvent('moz-app-visually-complete'));
+      window.dispatchEvent(new CustomEvent('moz-content-interactive'));
+    }
   }
 }
 
@@ -111,6 +127,7 @@ function addVideo(videodata) {
   var view = thumbnailList.addItem(videodata);
   // thumbnailClickHandler is defined in video.js
   view.addTapListener(thumbnailClickHandler);
+  view.updateTitleText();
 
   // If we just added the first video we need to hide the "no video" overlay
   if (thumbnailList.count === 1) {
@@ -125,6 +142,14 @@ function videoCreated(videoinfo) {
 }
 
 function videoDeleted(filename) {
+
+  // In tablet landscape mode, we use currentVideo to be the current playing
+  // video and last played video. When deleting file and the file is playing or
+  // last played video, we need to change the it to the next, previous or null.
+  if (currentVideo && filename === currentVideo.name) {
+    resetCurrentVideo();
+  }
+
   // And remove its thumbnail from the document
   thumbnailList.removeItem(filename);
 

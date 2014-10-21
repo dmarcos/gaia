@@ -1,14 +1,16 @@
-/*global loadBodyHTML, Dialog, MockL10n */
+/*global loadBodyHTML,
+   Dialog,
+   MockL10n
+*/
 'use strict';
 
-requireApp('sms/test/unit/mock_l10n.js');
-requireApp('sms/js/dialog.js');
+require('/shared/test/unit/mocks/mock_l10n.js');
+
+require('/js/dialog.js');
 
 suite('Dialog', function() {
   var nativeMozL10n = navigator.mozL10n;
-
   var params = null;
-
 
   suiteSetup(function() {
     loadBodyHTML('/index.html');
@@ -46,13 +48,14 @@ suite('Dialog', function() {
 
   test('Appending to DOM', function() {
     var previouslyDefinedForms = document.getElementsByTagName('form').length;
-    // In this case we have several forms pre-defined (5):
+    // In this case we have several forms pre-defined (6):
     // - "messages-compose-form"
     // - "messages-edit-form"
     // - "loading"
     // - "attachment"
     // - "threads-edit-form"
-    assert.equal(previouslyDefinedForms, 5);
+    // - "sim-picker"
+    assert.equal(previouslyDefinedForms, 6);
     // Now we create the new element
     var dialog = new Dialog(params);
     // We check if the object is appended to the DOM
@@ -60,7 +63,7 @@ suite('Dialog', function() {
     // Is appended properly?
     var currentlyDefinedForms = document.getElementsByTagName('form');
     var currentlyDefinedFormsLength = currentlyDefinedForms.length;
-    assert.equal(currentlyDefinedFormsLength, 6);
+    assert.equal(currentlyDefinedFormsLength, 7);
     // We check the type
     var dialogForm = currentlyDefinedForms[currentlyDefinedFormsLength - 1];
     assert.equal(dialogForm.dataset.type, 'confirm');
@@ -75,6 +78,32 @@ suite('Dialog', function() {
     dialog.show();
 
     assert.ok(dialog.form.focus.called);
+  });
+
+  test('Redundant shows have no effect', function() {
+    var dialog = new Dialog(params);
+
+    var spy = this.sinon.spy(document.body, 'appendChild');
+
+    dialog.show();
+    dialog.show();
+
+    assert.ok(spy.calledOnce);
+  });
+
+  test('Hiding removes element after transition', function() {
+    var dialog = new Dialog(params);
+
+    dialog.show();
+    assert.notEqual(dialog.form.parentElement, null);
+
+    dialog.hide();
+    assert.notEqual(dialog.form.parentElement, null);
+
+    var transitionend =
+      new CustomEvent('transitionend', { target: dialog.form });
+    dialog.form.dispatchEvent(transitionend);
+    assert.equal(dialog.form.parentElement, null);
   });
 
   test('Checking the structure. Default.', function() {
@@ -116,6 +145,32 @@ suite('Dialog', function() {
     assert.equal(optionalOptions.length, 1);
   });
 
+  test('Checking the structure. Confirm (with custom class name).', function() {
+    // We add the confirm
+    params.options.confirm = {
+      text: {
+        value: 'Foo Cancel'
+      },
+      className: 'test-class'
+    };
+    // Now we create the new element
+    var dialog = new Dialog(params);
+    // We append the element to the DOM
+    dialog.show();
+    // We retrieve the last created form
+    var currentlyDefinedForms = document.getElementsByTagName('form');
+    var currentlyDefinedFormsLength = currentlyDefinedForms.length;
+    // We check the type
+    var dialogForm = currentlyDefinedForms[currentlyDefinedFormsLength - 1];
+
+    // We check whether default 'recommend' class wasn't applied
+    var optionalOptions = dialogForm.getElementsByClassName('recommend');
+    assert.equal(optionalOptions.length, 0);
+    // We check whether custom class name was applied
+    optionalOptions = dialogForm.getElementsByClassName('test-class');
+    assert.equal(optionalOptions.length, 1);
+  });
+
   test('Checking the localization.', function() {
     params.title = {
       l10nId: 'l10n Title'
@@ -133,7 +188,7 @@ suite('Dialog', function() {
         l10nId: 'l10n keyConfirm'
       }
     };
-    var l10nSpy = this.sinon.spy(navigator.mozL10n, 'localize');
+    var l10nSpy = this.sinon.spy(navigator.mozL10n, 'setAttributes');
     // Now we create the new element
     var dialog = new Dialog(params);
     // We append the element to the DOM
@@ -154,10 +209,10 @@ suite('Dialog', function() {
     assert.ok(l10nSpy.calledWith(bodyDOM, params.body.l10nId),
       'Body DOM localized with proper string');
     assert.ok(l10nSpy.calledWith(formOptions[0],
-      params.options.confirm.text.l10nId),
+      params.options.cancel.text.l10nId),
       'Confirm DOM localized with proper string');
     assert.ok(l10nSpy.calledWith(formOptions[1],
-      params.options.cancel.text.l10nId),
+      params.options.confirm.text.l10nId),
       'Cancel DOM localized with proper string');
   });
 
@@ -183,7 +238,6 @@ suite('Dialog', function() {
       }
     };
 
-    var l10nSpy = this.sinon.spy(navigator.mozL10n, 'localize');
     // Now we create the new element
     var dialog = new Dialog(params);
     // We append the element to the DOM
@@ -196,8 +250,7 @@ suite('Dialog', function() {
     // We check how many buttons we have (mandatory + confirm one)
     var bodyDOM = dialogForm.querySelector('small');
     // We check localization
-    assert.ok(l10nSpy.calledWith(bodyDOM, params.body.l10nId),
+    assert.equal(bodyDOM.getAttribute('data-l10n-id'), params.body.l10nId,
       'Body DOM localized with proper string');
   });
-
 });

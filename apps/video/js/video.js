@@ -1,31 +1,41 @@
 'use strict';
 
+// Layout Mode Transition:
+// list <-> selection
+// list <-> fullscreen player
+// Note: the mode text is also used as css style.
+const LAYOUT_MODE = {
+  list: 'layout-list',
+  selection: 'layout-selection',
+  fullscreenPlayer: 'layout-fullscreen-player'
+};
+
 var dom = {};
 
-var ids = ['thumbnail-list-view', 'thumbnails-bottom',
+var ids = ['thumbnail-list-view', 'thumbnails-bottom', 'thumbnail-list-title',
            'thumbnails', 'thumbnails-video-button', 'thumbnails-select-button',
            'thumbnail-select-view',
            'thumbnails-delete-button', 'thumbnails-share-button',
-           'thumbnails-cancel-button', 'thumbnails-number-selected',
-           'fullscreen-view',
+           'thumbnails-select-top', 'thumbnails-number-selected',
+           'player-view', 'fullscreen-button', 'spinner-overlay',
            'thumbnails-single-delete-button', 'thumbnails-single-share-button',
            'thumbnails-single-info-button', 'info-view', 'info-close-button',
            'player', 'overlay', 'overlay-title', 'overlay-text',
-           'overlay-menu', 'storage-setting-button',
-           'videoControls', 'videoBar', 'videoActionBar',
+           'overlay-menu', 'overlay-action-button', 'player-header',
+           'video-container', 'videoControls', 'videoBar', 'videoControlBar',
            'close', 'play', 'playHead', 'timeSlider', 'elapsedTime',
            'video-title', 'duration-text', 'elapsed-text', 'bufferedTime',
-           'slider-wrapper', 'throbber', 'delete-video-button',
-           'picker-header', 'picker-close', 'picker-title', 'picker-done'];
+           'slider-wrapper', 'throbber', 'picker-close', 'picker-title',
+           'picker-header', 'picker-done', 'options', 'options-view',
+           'options-cancel-button', 'seek-backward', 'seek-forward'];
 
 ids.forEach(function createElementRef(name) {
   dom[toCamelCase(name)] = document.getElementById(name);
 });
 
-var currentView = dom.thumbnailListView;
-
 dom.player.mozAudioChannelType = 'content';
 
+function $(id) { return document.getElementById(id); }
 var playing = false;
 
 // if this is true then the video tag is showing
@@ -50,11 +60,8 @@ var currentVideo;  // The data for the currently playing video
 var currentVideoBlob; // The blob for the currently playing video
 var firstScanEnded = false;
 
-// use devicePixelRatio as the scale ratio for thumbnail creation.
-var scaleRatio = (window.devicePixelRatio || 1);
-
-var THUMBNAIL_WIDTH = 210 * scaleRatio;
-var THUMBNAIL_HEIGHT = 120 * scaleRatio;
+var THUMBNAIL_WIDTH;
+var THUMBNAIL_HEIGHT;
 
 // Enumerating the readyState for html5 video api
 var HAVE_NOTHING = 0;
@@ -75,10 +82,21 @@ var pendingPick;
 // But Camera and Gallery also need to use that hardware, and those three apps
 // may only have one video playing at a time among them. So we need to be
 // careful to relinquish the hardware when we are not visible.
-var restoreTime;
+var restoreTime = null;
+
+var isPhone;
+var isPortrait;
+var currentLayoutMode;
+
+// When user entering fullscreen mode and rotate the screen, the text overflow
+// calculation of video title should not be invoked. We pend this request when
+// leaving fullscreen mode.
+var pendingUpdateTitleText = false;
 
 // Videos recorded by our own camera have filenames of this form
 var FROMCAMERA = /DCIM\/\d{3}MZLLA\/VID_\d{4}\.3gp$/;
+
+var videoControlsAutoHidingMsOverride;
 
 // Pause on visibility change
 document.addEventListener('visibilitychange', function visibilityChange() {
@@ -91,33 +109,48 @@ document.addEventListener('visibilitychange', function visibilityChange() {
       releaseVideo();
   }
   else {
-    startParsingMetadata();
     if (playerShowing) {
-      showVideoControls(true);
+      setControlsVisibility(true);
       restoreVideo();
+    } else {
+      // We only start parsing metadata when player is not shown.
+      startParsingMetadata();
     }
   }
 });
 
-window.addEventListener('localized', function initLocale() {
-  document.documentElement.lang = navigator.mozL10n.language.code;
-  document.documentElement.dir = navigator.mozL10n.language.direction;
+navigator.mozL10n.once(function() {
+
+  // Tell performance monitors that our chrome is visible
+  window.dispatchEvent(new CustomEvent('moz-chrome-dom-loaded'));
+
+  init();
+
+  // Tell performance monitors that our chrome is ready to interact with.
+  window.dispatchEvent(new CustomEvent('moz-chrome-interactive'));
 });
 
-navigator.mozL10n.ready(function initVideo() {
-  // This function should be called once. According to the implementation of
-  // mozL10n.ready, it may become the event handler of localized. So, we need to
-  // prevent database re-initialize.
-  // XXX: once bug 882592 is fixed, we should remove it and just call init.
-  if (!videodb)
-    init();
-});
+// we don't need to wait for l10n ready to have correct css layout.
+initLayout();
+initThumbnailSize();
+
+if (!isPhone) {
+  navigator.mozL10n.ready(function localizeThumbnailListTitle() {
+    // reload the thumbnail list title field for tablet which is the app name.
+    var req = navigator.mozApps.getSelf();
+    req.onsuccess = function() {
+      var manifest = new ManifestHelper(req.result.manifest);
+      dom.thumbnailListTitle.textContent = manifest.name;
+    };
+  });
+}
 
 function init() {
   thumbnailList = new ThumbnailList(ThumbnailDateGroup, dom.thumbnails);
   // configure the template id for template group and view.
   ThumbnailDateGroup.Template = new Template('thumbnail-group-header');
   ThumbnailItem.Template = new Template('thumbnail-template');
+  ThumbnailItem.titleMaxLines = isPhone ? 2 : (isPortrait ? 4 : 2);
 
   initDB();
 
@@ -130,10 +163,7 @@ function init() {
   }
 
   initPlayerControls();
-
-  // Rescale when window size changes. This should get called when
-  // orientation changes
-  window.addEventListener('resize', handleResize);
+  ForwardRewindController.init(dom.player, dom.seekForward, dom.seekBackward);
 
   // We get headphoneschange event when the headphones is plugged or unplugged
   var acm = navigator.mozAudioChannelManager;
@@ -145,22 +175,71 @@ function init() {
     });
   }
 
-  // Click to open the media storage panel when the default storage is
-  // unavailable.
-  dom.storageSettingButton.addEventListener('click', launchSettingsApp);
-
   navigator.mozSetMessageHandler('activity', handleActivityEvents);
+
+  // the overlay action button may be used in both normal mode and activity
+  // mode, we need to wire its event handler here.
+  dom.overlayActionButton.addEventListener('click', function() {
+    if (pendingPick) {
+      cancelPick();
+    } else if (currentOverlay === 'empty') {
+      launchCameraApp();
+    }
+  });
+}
+
+function initThumbnailSize() {
+  // use devicePixelRatio as the scale ratio for thumbnail creation.
+  if (isPhone) {
+    THUMBNAIL_WIDTH = 210 * window.devicePixelRatio;
+    THUMBNAIL_HEIGHT = 120 * window.devicePixelRatio;
+  } else {
+    var shortEdge = Math.min(window.innerWidth, window.innerHeight);
+    THUMBNAIL_WIDTH = 424 * window.devicePixelRatio * shortEdge / 800;
+    THUMBNAIL_HEIGHT = Math.round(THUMBNAIL_WIDTH * 4 / 7);
+  }
+}
+
+function initLayout() {
+  ScreenLayout.watch('portrait', '(orientation: portrait)');
+  isPhone = ScreenLayout.getCurrentLayout('tiny');
+  isPortrait = ScreenLayout.getCurrentLayout('portrait');
+
+  // We need to disable video playing and show a loading spinner when the first
+  // startup under tablet and landscape mode.
+  if (isPhone || isPortrait) {
+    dom.spinnerOverlay.classList.add('hidden');
+    dom.playerView.classList.remove('disabled');
+  } else {
+    dom.spinnerOverlay.classList.remove('hidden');
+    dom.playerView.classList.add('disabled');
+  }
+
+  // We handle the isPortrait calculation here, because window dispatches
+  // multiple resize event with different width and height in Firefox nightly.
+  window.addEventListener('screenlayoutchange', handleScreenLayoutChange);
+
+  switchLayout(LAYOUT_MODE.list);
 }
 
 function initPlayerControls() {
-  // handles buttons, slider dragging, and show/hide video controls
-  dom.videoControls.addEventListener('touchstart', handlePlayerTouchStart);
+  // slider dragging
+  dom.sliderWrapper.addEventListener('touchstart', handleSliderTouchStart);
   // handles slider dragging
-  dom.videoControls.addEventListener('touchmove', handlePlayerTouchMove);
-  dom.videoControls.addEventListener('touchend', handlePlayerTouchEnd);
+  dom.sliderWrapper.addEventListener('touchmove', handleSliderTouchMove);
+  dom.sliderWrapper.addEventListener('touchend', handleSliderTouchEnd);
 
+  // handle video player
   dom.player.addEventListener('timeupdate', timeUpdated);
+  dom.player.addEventListener('seeked', updateVideoControlSlider);
   dom.player.addEventListener('ended', playerEnded);
+
+  // handle user tapping events
+  dom.videoControls.addEventListener('click', toggleVideoControls, true);
+  dom.play.addEventListener('click', handlePlayButtonClick);
+  dom.playerHeader.addEventListener('action', handleCloseButtonClick);
+  dom.pickerDone.addEventListener('click', postPickResult);
+  dom.options.addEventListener('click', showOptionsView);
 }
 
 function initOptionsButtons() {
@@ -168,34 +247,132 @@ function initOptionsButtons() {
   dom.thumbnailsVideoButton.addEventListener('click', launchCameraApp);
   // buttons for entering/exiting selection mode
   dom.thumbnailsSelectButton.addEventListener('click', showSelectView);
-  dom.thumbnailsCancelButton.addEventListener('click', hideSelectView);
+  dom.thumbnailsSelectTop.addEventListener('action', hideSelectView);
   // action buttons for selection mode
   dom.thumbnailsDeleteButton.addEventListener('click', deleteSelectedItems);
   dom.thumbnailsShareButton.addEventListener('click', shareSelectedItems);
 
-  // buttons for player view.
-  dom.thumbnailsSingleDeleteButton.addEventListener('click', function() {
-    // If we're deleting the file shown in the player we've got to
-    // return to the thumbnail list. We pass false to hidePlayer() to tell it
-    // not to record new metadata for the file we're about to delete.
-    if (deleteSingleFile(currentVideo.name))
-      hidePlayer(false);
-  });
-  dom.thumbnailsSingleShareButton.addEventListener('click', function() {
-    videodb.getFile(currentVideo.name, function(blob) {
-      share([blob]);
-    });
-  });
   // info buttons
-  dom.thumbnailsSingleInfoButton.addEventListener('click', showInfoView);
   dom.infoCloseButton.addEventListener('click', hideInfoView);
+  // option button cancel
+  dom.optionsCancelButton.addEventListener('click', hideOptionsView);
+  // fullscreen player
+  dom.fullscreenButton.addEventListener('click', toggleFullscreenPlayer);
+  // fullscreen toolbar
+  addEventListeners('.single-delete-button', 'click', deleteCurrentVideo);
+  addEventListeners('.single-share-button', 'click', shareCurrentVideo);
+  addEventListeners('.single-info-button', 'click', showInfoView);
 }
 
-function handleResize(e) {
-  if (dom.player.readyState !== HAVE_NOTHING) {
-    setPlayerSize();
+function addEventListeners(selector, type, listener) {
+  var elements = document.body.querySelectorAll(selector);
+  for (var i = 0; i < elements.length; i++) {
+    elements[i].addEventListener(type, listener);
   }
-  forceRepaintTitles();
+}
+
+function toggleFullscreenPlayer(e) {
+  if (currentLayoutMode === LAYOUT_MODE.list) {
+    switchLayout(LAYOUT_MODE.fullscreenPlayer);
+    scheduleVideoControlsAutoHiding();
+  } else {
+    switchLayout(LAYOUT_MODE.list);
+  }
+
+  VideoUtils.fitContainer(dom.videoContainer, dom.player,
+                          currentVideo.metadata.rotation || 0);
+}
+
+function toggleVideoControls(e) {
+  // When we change the visibility state of video controls, we need to check the
+  // timeout of auto hiding.
+  if (controlFadeTimeout) {
+    clearTimeout(controlFadeTimeout);
+    controlFadeTimeout = null;
+  }
+  // We cannot change the visibility state of video contorls when we are in
+  // picking mode.
+  if (!pendingPick) {
+    if (!controlShowing) {
+      // If control not shown, tap any place to show it.
+      setControlsVisibility(true);
+      e.cancelBubble = true;
+    } else if (e.originalTarget === dom.videoControls) {
+      // If control is shown, only tap the empty area should show it.
+      setControlsVisibility(false);
+    }
+  }
+}
+
+function handleScreenLayoutChange() {
+  // When resizing, we need to check the orientation change.
+  isPortrait = ScreenLayout.getCurrentLayout('portrait');
+
+  if (!isPhone) {
+    // In tablet, the landscape mode will show player and list at the same time.
+    // To keep only one hardware codec be used, we shows loading icon at the
+    // player view before first batch of files scanned and all their metadata
+    // are parsed.
+    if (!isPortrait && (!firstScanEnded || processingQueue)) {
+      // landscape mode and everything is waiting.
+      dom.spinnerOverlay.classList.remove('hidden');
+      dom.playerView.classList.add('disabled');
+    } else {
+      dom.spinnerOverlay.classList.add('hidden');
+      dom.playerView.classList.remove('disabled');
+    }
+    // We need to hide player when rotating to portrait which release video
+    // element and load the video into player when rotating to landscape.
+    if (currentLayoutMode === LAYOUT_MODE.list) {
+      if (isPortrait) {
+        hidePlayer(true);
+      } else {
+        showPlayer(currentVideo, false, /* autoPlay */
+                                 false, /* enterFullscreen */
+                                 true); /* keepControls */
+      }
+    }
+    // the maximum lines of title field is different in portrait or landscape
+    // mode.
+    ThumbnailItem.titleMaxLines = isPortrait ? 4 : 2;
+  }
+
+  // When layout mode is list or selection mode, we need to update all title
+  // text to have correct ellipsis position. Otherwise, we update them when
+  // leaving fullscreen mode.
+  if (currentLayoutMode !== LAYOUT_MODE.fullscreenPlayer) {
+    // XXX: to workaround bug 961636 which fires two resize event at the app
+    // start-up,we need to check the existence of thumbnailList before using
+    // it.
+    if (!thumbnailList) {
+      return;
+    }
+    thumbnailList.updateAllThumbnailTitle();
+  } else {
+    pendingUpdateTitleText = true;
+  }
+
+  // Rescale when window size changes. This should get called when
+  // screen orientation changes
+  if (dom.player.readyState !== HAVE_NOTHING) {
+    VideoUtils.fitContainer(dom.videoContainer, dom.player,
+                            currentVideo.metadata.rotation || 0);
+  }
+}
+
+function switchLayout(mode) {
+  var oldMode = currentLayoutMode;
+  if (oldMode) {
+    document.body.classList.remove(currentLayoutMode);
+  }
+  currentLayoutMode = mode;
+  document.body.classList.add(currentLayoutMode);
+
+  // Update title text when leaving fullscreen mode with pending task.
+  if (oldMode === LAYOUT_MODE.fullscreenPlayer && pendingUpdateTitleText) {
+    pendingUpdateTitleText = false;
+    thumbnailList.updateAllThumbnailTitle();
+  }
 }
 
 function handleActivityEvents(a) {
@@ -209,6 +386,7 @@ function handleActivityEvents(a) {
 }
 
 function showInfoView() {
+  hideOptionsView();
   //Get the length of the playing video
   var length = isFinite(currentVideo.metadata.duration) ?
       MediaUtils.formatDuration(currentVideo.metadata.duration) : '';
@@ -238,42 +416,55 @@ function showInfoView() {
 
   //Populate info overlay view
   MediaUtils.populateMediaInfo(data);
+  // We need to disable NFC sharing when showing info view
+  setNFCSharing(false);
   //Show the video info view
   dom.infoView.classList.remove('hidden');
 }
 
 function hideInfoView() {
+  // Enable NFC sharing when user hides info and returns to fullscreen mode
+  setNFCSharing(true);
   dom.infoView.classList.add('hidden');
 }
 
 function showSelectView() {
-  dom.thumbnailListView.classList.add('hidden');
-  dom.fullscreenView.classList.add('hidden');
-  dom.thumbnailSelectView.classList.remove('hidden');
-  currentView = dom.thumbnailSelectView;
+  // In tablet landscape mode, the video player may be playing. When entering
+  // selection mode, we need to hide player.
+  hidePlayer(true, function() {
+    switchLayout(LAYOUT_MODE.selection);
 
-  // styling for select view
-  thumbnailList.setSelectMode(true);
+    // styling for select view
+    thumbnailList.setSelectMode(true);
 
-  clearSelection();
+    clearSelection();
+  });
 }
 
 function hideSelectView() {
   clearSelection();
-
-  dom.fullscreenView.classList.add('hidden');
-  dom.thumbnailSelectView.classList.add('hidden');
-  dom.thumbnailListView.classList.remove('hidden');
-
   thumbnailList.setSelectMode(false);
+  switchLayout(LAYOUT_MODE.list);
+  if (!isPhone && !isPortrait && currentVideo) {
+    // We need to load the video while restoring to list mode
+    showPlayer(currentVideo, false, /* autoPlay */
+                             false, /* enterFullscreen */
+                             true); /* keepControls */
+  }
+}
 
-  currentView = dom.thumbnailListView;
+function showOptionsView() {
+  dom.optionsView.classList.remove('hidden');
+}
+
+function hideOptionsView() {
+  dom.optionsView.classList.add('hidden');
 }
 
 function clearSelection() {
   // Clear the selection, if there is one
   Array.forEach(selectedFileNames, function(name) {
-    thumbnailList.thumbnailMap[name].setSelected(false);
+    thumbnailList.thumbnailMap[name].htmlNode.classList.remove('selected');
   });
   selectedFileNames = [];
   selectedFileNamesToBlobs = {};
@@ -289,9 +480,15 @@ function clearSelection() {
 function updateSelection(videodata) {
   var thumbnail = thumbnailList.thumbnailMap[videodata.name];
 
-  var selected = !thumbnail.isSelected();
+  var selected;
   // First, update the visual appearance of the element
-  thumbnail.setSelected(selected);
+  if (thumbnail.htmlNode.classList.contains('selected')) {
+    thumbnail.htmlNode.classList.remove('selected');
+    selected = false;
+  } else {
+    thumbnail.htmlNode.classList.add('selected');
+    selected = true;
+  }
 
   // Now update the list of selected filenames and filename->blob map
   // based on whether we selected or deselected the thumbnail
@@ -324,16 +521,6 @@ function updateSelection(videodata) {
   }
 }
 
-function launchSettingsApp() {
-  var activity = new MozActivity({
-    name: 'configure',
-    data: {
-      target: 'device',
-      section: 'mediaStorage'
-    }
-  });
-}
-
 function launchCameraApp() {
   var a = new MozActivity({
     name: 'record',
@@ -343,22 +530,50 @@ function launchCameraApp() {
   });
 }
 
+// We need to call resetCurrentVideo before deleting a video. The variable
+// currentVideo is used as the last or current playing video. We need to change
+// the current video to preview one, next one or null.
+function resetCurrentVideo() {
+  // no currentVideo means there is no video in the list, we don't need to focus
+  // any one.
+  if (!currentVideo) {
+    return;
+  }
+  var currentThumbnail = thumbnailList.thumbnailMap[currentVideo.name];
+  currentThumbnail.htmlNode.classList.remove('focused');
+  var nextThumbnail = thumbnailList.findNextThumbnail(currentVideo.name);
+
+  if (nextThumbnail) {
+    // set focused to current thumbnail and update current video
+    currentVideo = nextThumbnail.data;
+    nextThumbnail.htmlNode.classList.add('focused');
+  } else {
+    // no more videos and a dialog will be shown when we delete the video.
+    currentVideo = null;
+  }
+}
+
 function deleteSelectedItems() {
   if (selectedFileNames.length === 0)
     return;
+  LazyLoader.load('shared/style/confirm.css', function() {
 
-  var msg = navigator.mozL10n.get('delete-n-items?',
-                                  {n: selectedFileNames.length});
-  if (confirm(msg)) {
-    // XXX
-    // deleteFile is O(n), so this loop is O(n*n). If used with really large
-    // selections, it might have noticably bad performance.  If so, we
-    // can write a more efficient deleteFiles() function.
-    for (var i = 0; i < selectedFileNames.length; i++) {
-      deleteFile(selectedFileNames[i]);
-    }
-    clearSelection();
-  }
+    Dialogs.confirm({
+      messageId: 'delete-n-items?',
+      messageArgs: {n: selectedFileNames.length},
+      cancelId: 'cancel',
+      confirmId: 'delete',
+      danger: true
+    }, function() { // onSuccess
+      // deleteFile is O(n), so this loop is O(n*n). If used with really large
+      // selections, it might have noticably bad performance.  If so, we
+      // can write a more efficient deleteFiles() function.
+      for (var i = 0; i < selectedFileNames.length; i++) {
+        deleteFile(selectedFileNames[i]);
+      }
+      clearSelection();
+    });
+  });
 }
 
 function deleteFile(filename) {
@@ -373,31 +588,11 @@ function deleteFile(filename) {
       var postername = filename.replace('.3gp', '.jpg');
       navigator.getDeviceStorage('pictures'). delete(postername);
   }
+
   // Whether or not there was a poster file to delete, delete the
   // actual video file. This will cause the MediaDB to send a 'deleted'
   // event, and the handler for that event will call videoDeleted() below.
   videodb.deleteFile(filename);
-}
-
-function deleteSingleFile(file) {
-  var msg = navigator.mozL10n.get('confirm-delete');
-  if (confirm(msg + ' ' + file)) {
-    if (FROMCAMERA.test(file)) {
-      // If we're deleting a video file recorded by our camera,
-      // we also need to delete the poster image associated with
-      // that video.
-      var postername = file.replace('.3gp', '.jpg');
-      navigator.getDeviceStorage('pictures'). delete(postername); // gjslint
-    }
-
-    // Whether or not there was a poster file to delete, delete the
-    // actual video file. This will cause the MediaDB to send a 'deleted'
-    // event, and the handler for that event will call videoDeleted() below.
-    videodb.deleteFile(file);
-    return true;
-  }
-
-  return false;
 }
 
 // Clicking on the share button in select mode shares all selected images
@@ -413,7 +608,7 @@ function share(blobs) {
   if (blobs.length === 0)
     return;
 
-  var names = [], types = [], fullpaths = [];
+  var names = [], fullpaths = [];
 
   // Get the file name (minus path) and type of each blob
   blobs.forEach(function(blob) {
@@ -426,28 +621,12 @@ function share(blobs) {
     fullpaths.push(name);
     name = name.substring(name.lastIndexOf('/') + 1);
     names.push(name);
-
-    // And we just want the first component of the type "image" or "video"
-    var type = blob.type;
-    if (type)
-      type = type.substring(0, type.indexOf('/'));
-    types.push(type);
   });
-
-  // If there is just one type, or if all types are the same, then use
-  // that type plus '/*'. Otherwise, use 'multipart/mixed'
-  // If all the blobs are image we use 'image/*'. If all are videos
-  // we use 'video/*'. Otherwise, 'multipart/mixed'.
-  var type;
-  if (types.length === 1 || types.every(function(t) { return t === types[0]; }))
-    type = types[0] + '/*';
-  else
-    type = 'multipart/mixed';
 
   var a = new MozActivity({
     name: 'share',
     data: {
-      type: type,
+      type: 'video/*', // Video app only supports video types (bug 1069885)
       number: blobs.length,
       blobs: blobs,
       filenames: names,
@@ -481,16 +660,56 @@ function updateDialog() {
   }
 }
 
+function updateLoadingSpinner() {
+  // We show a loading spinner in tablet and landscape mode while first
+  // scanning of mediadb. When mediadb scanned and metadata parser parsed, we
+  // hide the loading spinner.
+  if (processingQueue) {
+    noMoreWorkCallback = updateLoadingSpinner;
+  } else {
+    PerformanceTestingHelper.dispatch('scan-finished');
+    dom.spinnerOverlay.classList.add('hidden');
+    dom.playerView.classList.remove('disabled');
+    if (thumbnailList.count) {
+      // Initialize currentVideo to first video item if it doesn't have a value.
+      currentVideo = currentVideo ||
+                     thumbnailList.itemGroups[0].thumbnails[0].data;
+      // Load current video to player when we are in tablet and landscape.
+      if (!isPhone && !isPortrait) {
+        showPlayer(currentVideo, false, /* autoPlay */
+                                 false, /* enterFullscreen */
+                                 true); /* keepControls */
+      }
+    }
+  }
+}
+
 function thumbnailClickHandler(videodata) {
-  if (currentView === dom.thumbnailListView ||
-      currentView === dom.fullscreenView) {
-    // Be certain that metadata parsing has stopped before we show the
-    // video player. Otherwise, we'll have contention for the video hardware
-    stopParsingMetadata(function() {
-      showPlayer(videodata, !pendingPick);
+  if (!isPhone && !isPortrait) {
+    // if the screen is large and landscape, we need to lock the operations
+    // while scanning and metadata parsing.
+    if (!firstScanEnded || processingQueue) {
+      return;
+    }
+  }
+
+  if (currentLayoutMode === LAYOUT_MODE.list) {
+
+    // The player is shown at landscape mode of tablet. We need to save the
+    // playing state before change to another video. Calling hidePlayer(true)
+    // can stop the video and save the state and hide everything.
+    // Calling hidePlayer(true) also releases hardware codec. And metadata
+    // parser can parse at least one video file.
+    hidePlayer(true, function() {
+      // Be certain that metadata parsing has stopped before we show the
+      // video player. Otherwise, we'll have contention for the video hardware
+      stopParsingMetadata(function() {
+        var fullscreen = pendingPick || isPhone || isPortrait;
+        showPlayer(videodata, !pendingPick, fullscreen, pendingPick);
+      });
     });
   }
-  else if (currentView === dom.thumbnailSelectView) {
+  else if (currentLayoutMode === LAYOUT_MODE.selection) {
     updateSelection(videodata);
   }
 }
@@ -504,40 +723,71 @@ function setPosterImage(dom, poster) {
 }
 
 function showOverlay(id) {
-  currentOverlay = id;
+  LazyLoader.load('shared/style/confirm.css', function() {
+    currentOverlay = id;
 
-  if (id === null) {
-    dom.overlay.classList.add('hidden');
-    return;
-  }
+    if (id === null) {
+      dom.overlay.classList.add('hidden');
+      return;
+    }
 
-  if (id === 'nocard') {
-    dom.overlayMenu.classList.remove('hidden');
-  } else {
-    dom.overlayMenu.classList.add('hidden');
-  }
+    var _ = navigator.mozL10n.get;
+    var text, title;
 
-  if (id === 'nocard') {
-    dom.overlayTitle.textContent = navigator.mozL10n.get('nocard2-title');
-    dom.overlayText.textContent = navigator.mozL10n.get('nocard2-text');
-  } else {
-    dom.overlayTitle.textContent = navigator.mozL10n.get(id + '-title');
-    dom.overlayText.textContent = navigator.mozL10n.get(id + '-text');
-  }
-  dom.overlay.classList.remove('hidden');
+    if (pendingPick || id === 'empty') {
+      dom.overlayMenu.classList.remove('hidden');
+      dom.overlayActionButton.classList.remove('hidden');
+      dom.overlayActionButton.setAttribute('data-l10n-id',
+                                           pendingPick ?
+                                             'overlay-cancel-button' :
+                                             'overlay-camera-button');
+    } else {
+      dom.overlayMenu.classList.add('hidden');
+      dom.overlayActionButton.classList.add('hidden');
+    }
+
+    if (id === 'nocard') {
+      title = 'nocard2-title';
+      text = 'nocard3-text';
+    } else {
+      title = id + '-title';
+      text = id + '-text';
+    }
+
+    dom.overlayTitle.setAttribute('data-l10n-id', title);
+    dom.overlayText.setAttribute('data-l10n-id', text);
+    dom.overlay.classList.remove('hidden');
+  });
 }
 
-function showVideoControls(visible) {
-  dom.videoControls.classList[visible ? 'remove' : 'add']('hidden');
-  controlShowing = visible;
+function setControlsVisibility(visible) {
+  // in tablet landscape mode, we always shows controls in list layout. We
+  // don't need to hide it.
+  if (isPhone || isPortrait ||
+      currentLayoutMode !== LAYOUT_MODE.list) {
+
+    dom.videoControls.classList[visible ? 'remove' : 'add']('hidden');
+    controlShowing = visible;
+  } else {
+    // always set it as shown.
+    controlShowing = true;
+  }
   // to sync the slider under the case of auto-pause(unplugging headset), we
   // need to update the slider when controls is visible.
-  if (visible) {
+  if (controlShowing) {
     updateVideoControlSlider();
   }
 }
 
 function updateVideoControlSlider() {
+  // We update the slider when we get a 'seeked' event.
+  // Don't do updates while we're seeking because the position we fastSeek()
+  // to probably isn't exactly where we requested and we don't want jerky
+  // updates
+  if (dom.player.seeking) {
+    return;
+  }
+
   var percent = (dom.player.currentTime / dom.player.duration) * 100;
   if (isNaN(percent)) {
     return;
@@ -562,110 +812,90 @@ function setVideoPlaying(playing) {
   }
 }
 
-function handlePlayerTouchStart(event) {
+function deleteCurrentVideo() {
+  hideOptionsView();
+  // We need to disable NFC sharing when showing delete confirmation dialog
+  setNFCSharing(false);
+
+  LazyLoader.load('shared/style/confirm.css', function() {
+    // If we're deleting the file shown in the player we've got to
+    // return to the thumbnail list. We pass false to hidePlayer() to tell it
+    // not to record new metadata for the file we're about to delete.
+    Dialogs.confirm({
+      messageId: 'delete-video?',
+      cancelId: 'cancel',
+      confirmId: 'delete',
+      danger: true
+    }, function _onSuccess() { // onSuccess
+      deleteFile(currentVideo.name);
+      if (!isPhone && !isPortrait) {
+        // If the file is deleted, we need to load another video file. This is
+        // only required at tablet and landscape mode. When there is no video in
+        // video app, the currentVideo is null and the overlay is shown.
+        if (currentVideo) {
+          showPlayer(currentVideo, false, true, true);
+        }
+      } else {
+        hidePlayer(false);
+      }
+    }, function _onError() {
+       // Enable NFC sharing when cancels delete and returns to fullscreen mode
+       setNFCSharing(true);
+    });
+  });
+}
+
+function handlePlayButtonClick() {
+  setVideoPlaying(dom.player.paused);
+}
+
+function handleCloseButtonClick() {
+  if (isPhone || isPortrait) {
+    hidePlayer(true);
+  } else {
+    // In tablet and landscape mode, close is view as a button to go back to
+    // player mode. And close button is only shown at fullscreen mode when it
+    // is tablet and landscape.
+    toggleFullscreenPlayer();
+  }
+}
+
+function postPickResult() {
+  pendingPick.postResult({
+    type: currentVideoBlob.type,
+    blob: currentVideoBlob
+  });
+  cleanupPick();
+}
+
+function shareCurrentVideo() {
+  hideOptionsView();
+  videodb.getFile(currentVideo.name, function(blob) {
+    share([blob]);
+  });
+}
+
+function handleSliderTouchStart(event) {
   // If we have a touch start event, we don't need others.
   if (null != touchStartID) {
     return;
   }
   touchStartID = event.changedTouches[0].identifier;
 
-  // If we interact with the controls before they fade away,
-  // cancel the fade
-  if (controlFadeTimeout) {
-    clearTimeout(controlFadeTimeout);
-    controlFadeTimeout = null;
-  }
-  if (!controlShowing) {
-    showVideoControls(true);
-    // preventDefault can prevent to dispatch click event to delete and share if
-    // user touch at the place they are.
-    event.preventDefault();
-    return;
-  }
-  if (event.target == dom.play) {
-    setVideoPlaying(dom.player.paused);
-  } else if (event.target == dom.close) {
-    hidePlayer(true);
-    // call preventDefault to prevent the click for underlying thumbnail items.
-    event.preventDefault();
-  } else if (event.target == dom.sliderWrapper) {
-    dragSlider(event);
-  } else if (event.target == dom.pickerDone && pendingPick) {
-    pendingPick.postResult({
-      type: currentVideoBlob.type,
-      blob: currentVideoBlob
-    });
-    cleanupPick();
-  } else if (pendingPick) {
-    showVideoControls(true);
-  } else {
-    showVideoControls(false);
-  }
-}
+  isPausedWhileDragging = dom.player.paused;
+  dragging = true;
+  // calculate the slider wrapper size for slider dragging.
+  sliderRect = dom.sliderWrapper.getBoundingClientRect();
 
-// Align vertically fullscreen view
-function setPlayerSize() {
-  var containerWidth = window.innerWidth;
-  var containerHeight = window.innerHeight;
-
-  // Don't do anything if we don't know our size.
-  // This could happen if we get a resize event before our metadata loads
-  if (!dom.player.videoWidth || !dom.player.videoHeight)
+  // We can't do anything if we don't know our duration
+  if (dom.player.duration === Infinity)
     return;
 
-  var width, height; // The size the video will appear, after rotation
-  var rotation = 'metadata' in currentVideo ?
-    currentVideo.metadata.rotation : 0;
-
-  switch (rotation) {
-  case 0:
-  case 180:
-    width = dom.player.videoWidth;
-    height = dom.player.videoHeight;
-    break;
-  case 90:
-  case 270:
-    width = dom.player.videoHeight;
-    height = dom.player.videoWidth;
+  if (!isPausedWhileDragging) {
+    dom.player.pause();
   }
 
-  var xscale = containerWidth / width;
-  var yscale = containerHeight / height;
-  var scale = Math.min(xscale, yscale);
-
-  // scale large videos down and scale small videos up
-  // this might result in lower image quality for small videos
-  width *= scale;
-  height *= scale;
-
-  var left = ((containerWidth - width) / 2);
-  var top = ((containerHeight - height) / 2);
-
-  var transform;
-  switch (rotation) {
-  case 0:
-    transform = 'translate(' + left + 'px,' + top + 'px)';
-    break;
-  case 90:
-    transform =
-      'translate(' + (left + width) + 'px,' + top + 'px) ' +
-      'rotate(90deg)';
-    break;
-  case 180:
-    transform =
-      'translate(' + (left + width) + 'px,' + (top + height) + 'px) ' +
-      'rotate(180deg)';
-    break;
-  case 270:
-    transform =
-      'translate(' + left + 'px,' + (top + height) + 'px) ' +
-      'rotate(270deg)';
-    break;
-  }
-
-  transform += ' scale(' + scale + ')';
-
-  dom.player.style.transform = transform;
+  handleSliderTouchMove(event);
 }
 
 function setVideoUrl(player, video, callback) {
@@ -684,15 +914,41 @@ function setVideoUrl(player, video, callback) {
   }
 }
 
-// show video player
-function showPlayer(video, autoPlay) {
-  currentVideo = video;
+function scheduleVideoControlsAutoHiding() {
+  controlFadeTimeout = setTimeout(function() {
+    setControlsVisibility(false);
+  }, 250);
+}
 
-  dom.thumbnails.hidden = true;
-  dom.thumbnailListView.classList.add('hidden');
-  dom.thumbnailSelectView.classList.add('hidden');
-  dom.fullscreenView.classList.remove('hidden');
-  currentView = dom.fullscreenView;
+function setNFCSharing(enable) {
+  if (!window.navigator.mozNfc) {
+    return;
+  }
+
+  if (enable) {
+    // If we have NFC, we need to put the callback to have shrinking UI.
+    window.navigator.mozNfc.onpeerready = function(event) {
+      // The callback function is called when user confirm to share the
+      // content, send it with NFC Peer.
+      videodb.getFile(currentVideo.name, function(file) {
+        event.peer.sendFile(file);
+      });
+    };
+  } else {
+    // We need to remove onpeerready while out of fullscreen view.
+    window.navigator.mozNfc.onpeerready = null;
+  }
+}
+
+// show video player
+function showPlayer(video, autoPlay, enterFullscreen, keepControls) {
+  if (currentVideo) {
+    var old = thumbnailList.thumbnailMap[currentVideo.name];
+    old.htmlNode.classList.remove('focused');
+  }
+  currentVideo = video;
+  var thumbnail = thumbnailList.thumbnailMap[currentVideo.name];
+  thumbnail.htmlNode.classList.add('focused');
 
   // switch to the video player view
   updateDialog();
@@ -700,13 +956,11 @@ function showPlayer(video, autoPlay) {
 
   function doneSeeking() {
     dom.player.onseeked = null;
-    showVideoControls(true);
+    setControlsVisibility(true);
 
-    // We don't auto hide the video controls in picker mode
-    if (!pendingPick) {
-      controlFadeTimeout = setTimeout(function() {
-        showVideoControls(false);
-      }, 250);
+    // to schedule auto hiding when caller don't need to keep controls always.
+    if (!keepControls) {
+      scheduleVideoControlsAutoHiding();
     }
 
     if (autoPlay) {
@@ -714,9 +968,18 @@ function showPlayer(video, autoPlay) {
     } else {
       pause();
     }
+
+    //show video player after seeking is done
+    dom.player.hidden = false;
   }
 
+  //hide video player before setVideoUrl
+  dom.player.hidden = true;
   setVideoUrl(dom.player, currentVideo, function() {
+
+    if (enterFullscreen) {
+      switchLayout(LAYOUT_MODE.fullscreenPlayer);
+    }
 
     dom.durationText.textContent = MediaUtils.formatDuration(
       dom.player.duration);
@@ -724,42 +987,51 @@ function showPlayer(video, autoPlay) {
 
     dom.play.classList.remove('paused');
     playerShowing = true;
-    setPlayerSize();
 
+    var rotation;
     if ('metadata' in currentVideo) {
       if (currentVideo.metadata.currentTime === dom.player.duration) {
         currentVideo.metadata.currentTime = 0;
       }
       dom.videoTitle.textContent = currentVideo.metadata.title;
       dom.player.currentTime = currentVideo.metadata.currentTime || 0;
+      rotation = currentVideo.metadata.rotation;
     } else {
       dom.videoTitle.textContent = currentVideo.title || '';
       dom.player.currentTime = 0;
+      rotation = 0;
     }
+
+    VideoUtils.fitContainer(dom.videoContainer, dom.player,
+                            rotation || 0);
 
     if (dom.player.seeking) {
       dom.player.onseeked = doneSeeking;
     } else {
       doneSeeking();
     }
+    // Enable NFC sharing in fullscreen player mode
+    setNFCSharing(true);
   });
 }
 
-function hidePlayer(updateVideoMetadata) {
-  if (!playerShowing)
+function hidePlayer(updateVideoMetadata, callback) {
+  if (!playerShowing) {
+    if (callback) {
+      callback();
+    }
     return;
+  }
 
   dom.player.pause();
+  // Disable NFC sharing when leaving player mode
+  setNFCSharing(false);
 
   function completeHidingPlayer() {
     // switch to the video gallery view
-    dom.fullscreenView.classList.add('hidden');
-    dom.thumbnailSelectView.classList.add('hidden');
-    dom.thumbnailListView.classList.remove('hidden');
-    currentView === dom.thumbnailListView;
+    switchLayout(LAYOUT_MODE.list);
 
     dom.play.classList.remove('paused');
-    dom.thumbnails.hidden = false;
     playerShowing = false;
     updateDialog();
 
@@ -774,6 +1046,9 @@ function hidePlayer(updateVideoMetadata) {
     // Now that we're done using the video hardware to play a video, we
     // can start using it to parse metadata again, if we need to.
     startParsingMetadata();
+    if (callback) {
+      callback();
+    }
   }
 
   if (!('metadata' in currentVideo) || !updateVideoMetadata || pendingPick) {
@@ -804,10 +1079,7 @@ function hidePlayer(updateVideoMetadata) {
 
   function updateMetadata() {
     // Update the thumbnail image for this video
-    var imageblob = video.metadata.bookmark || video.metadata.poster;
-    if (imageblob) {
-      thumbnail.updatePoster(imageblob);
-    }
+    thumbnail.updatePoster(video.metadata.bookmark || video.metadata.poster);
 
     // If this is the first time the video was watched, record that it has
     // been watched now and update the corresponding document element.
@@ -828,22 +1100,38 @@ function hidePlayer(updateVideoMetadata) {
 }
 
 function playerEnded() {
+  // Ignore ended events that occur while the user is dragging the slider
   if (dragging) {
     return;
   }
+
   if (endedTimer) {
     clearTimeout(endedTimer);
     endedTimer = null;
   }
 
-  dom.player.currentTime = 0;
-
-  pause();
+  // If we are still playing when this 'ended' event arrives, then the
+  // user played the video all the way to the end, and we skip to the
+  // beginning and pause so it is easy for the user to restart. If we
+  // reach the end because the user fast forwarded or dragged the slider
+  // to the end, then we will have paused the video before we get this
+  // event and in that case we will remain paused at the end of the video.
+  if (playing) {
+    dom.player.currentTime = 0;
+    pause();
+  }
 }
 
 function play() {
   // Switch the button icon
   dom.play.classList.remove('paused');
+
+  // Start recording statistics
+  //
+  // This requires getVideoPlaybackQuality() to be enabled
+  // on the video element which can be achieved
+  // by setting the media.mediasource.enabled pref to true.
+  VideoStats.start(dom.player);
 
   // Start playing
   dom.player.play();
@@ -854,9 +1142,19 @@ function pause() {
   // Switch the button icon
   dom.play.classList.add('paused');
 
+  // Check the dragging is true or not before pausing
+  if (dragging) {
+    dragging = false;
+    dom.playHead.classList.remove('active');
+  }
+
   // Stop playing the video
   dom.player.pause();
   playing = false;
+
+  //stop recording statistics and print them
+  VideoStats.stop();
+  VideoStats.dump();
 }
 
 // Update the progress bar and play head as the video plays
@@ -889,25 +1187,7 @@ function timeUpdated() {
   }
 }
 
-// handle drags on the time slider
-function dragSlider(e) {
-  isPausedWhileDragging = dom.player.paused;
-  dragging = true;
-  // calculate the slider wrapper size for slider dragging.
-  sliderRect = dom.sliderWrapper.getBoundingClientRect();
-
-  // We can't do anything if we don't know our duration
-  if (dom.player.duration === Infinity)
-    return;
-
-  if (!isPausedWhileDragging) {
-    dom.player.pause();
-  }
-
-  handlePlayerTouchMove(e);
-}
-
-function handlePlayerTouchEnd(event) {
+function handleSliderTouchEnd(event) {
   // We don't care the event not related to touchStartID
   if (!event.changedTouches.identifiedTouch(touchStartID)) {
     return;
@@ -930,7 +1210,7 @@ function handlePlayerTouchEnd(event) {
   }
 }
 
-function handlePlayerTouchMove(event) {
+function handleSliderTouchMove(event) {
   if (!dragging) {
     return;
   }
@@ -945,22 +1225,14 @@ function handlePlayerTouchMove(event) {
   pos = Math.max(pos, 0);
   pos = Math.min(pos, 1);
 
+  // Update the slider to match the position of the user's finger.
+  // Note, however, that we don't update the displayed time until
+  // we actually get a 'seeked' event.
   var percent = pos * 100 + '%';
   dom.playHead.classList.add('active');
   dom.playHead.style.left = percent;
   dom.elapsedTime.style.width = percent;
-  dom.player.currentTime = dom.player.duration * pos;
-  dom.elapsedText.textContent = MediaUtils.formatDuration(
-    dom.player.currentTime);
-}
-
-// XXX if we don't have metadata about the video name
-// do the best we can with the file name
-function fileNameToVideoName(filename) {
-  filename = filename.split('/').pop()
-    .replace(/\.(webm|ogv|mp4)$/, '')
-    .replace(/[_\.]/g, ' ');
-  return filename.charAt(0).toUpperCase() + filename.slice(1);
+  dom.player.fastSeek(dom.player.duration * pos);
 }
 
 function toCamelCase(str) {
@@ -982,23 +1254,39 @@ function releaseVideo() {
 
 // Call this when the app becomes visible again
 function restoreVideo() {
-  if (!restoreTime) {
-    return;
-  }
-  setVideoUrl(dom.player, currentVideo, function() {
-    setPlayerSize();
-    dom.player.currentTime = restoreTime;
-  });
-}
+  // When restoreVideo is called, we assume we have currentVideo because the
+  // playerShowing is true.
 
-// Force repainting of titles for enable overflow event
-function forceRepaintTitles() {
-  var texts = document.querySelectorAll('.details');
-  for (var i = 0; i < texts.length; i++) {
-    texts[i].style.overflow = 'visible';
-    texts[i].firstElementChild.textContent = texts[i].dataset.title;
-    texts[i].style.overflow = 'hidden';
+  function doneRestoreSeeking() {
+    dom.player.onseeked = null;
+    dom.player.hidden = false;
   }
+
+  //hide video player before setVideoUrl
+  dom.player.hidden = true;
+  setVideoUrl(dom.player, currentVideo, function() {
+    VideoUtils.fitContainer(dom.videoContainer, dom.player,
+                            currentVideo.metadata.rotation || 0);
+
+    // Everything is ready, start to restore last playing time.
+    if (restoreTime !== null) {
+      // restore to the last time when we have a valid restoreTime.
+      dom.player.currentTime = restoreTime;
+    } else {
+      // When we don't have valid restoreTime, we need to restore to the last
+      // viewing position from metadata. When user taps on a unwatched video and
+      // presses home quickly, the dom.player may not finish the loading of
+      // video and the restoreTime is null. At the same case, the currentTime of
+      // metadata is still undefined because we haven't updateMetadata.
+      dom.player.currentTime = currentVideo.metadata.currentTime || 0;
+    }
+
+    if (dom.player.seeking) {
+      dom.player.onseeked = doneRestoreSeeking;
+    } else {
+      doneRestoreSeeking();
+    }
+  });
 }
 
 //
@@ -1006,14 +1294,21 @@ function forceRepaintTitles() {
 //
 function showPickView() {
   thumbnailList.setPickMode(true);
-  dom.pickerHeader.classList.remove('hidden');
-  dom.pickerDone.classList.remove('hidden');
-  dom.thumbnailsBottom.classList.add('hidden');
-  dom.videoActionBar.parentNode.removeChild(dom.videoActionBar);
+  document.body.classList.add('pick-activity');
 
-  dom.pickerClose.addEventListener('click', function() {
-    pendingPick.postError('pick cancelled');
-  });
+  dom.pickerHeader.addEventListener('action', cancelPick);
+
+  // In tablet, landscape mode, the pick view will have different UI from normal
+  // view.
+  if (!isPhone && !isPortrait) {
+    // update all title text when rotating.
+    thumbnailList.updateAllThumbnailTitle();
+  }
+}
+
+function cancelPick() {
+  pendingPick.postError('pick cancelled');
+  cleanupPick();
 }
 
 function cleanupPick() {

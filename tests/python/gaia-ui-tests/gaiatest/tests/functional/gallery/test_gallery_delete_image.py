@@ -12,7 +12,7 @@ class TestGalleryDelete(GaiaTestCase):
         GaiaTestCase.setUp(self)
 
         # add photo to storage
-        self.push_resource('IMG_0001.jpg', destination='DCIM/100MZLLA')
+        self.push_resource('IMG_0001.jpg')
 
     def test_gallery_delete_image(self):
         gallery = Gallery(self.marionette)
@@ -27,9 +27,7 @@ class TestGalleryDelete(GaiaTestCase):
 
         # Tap the confirm delete button.
         image.tap_confirm_deletion_button()
+        self.wait_for_condition(lambda m: gallery.empty_gallery_text == 'Use the Camera app to get started.')
 
         # Verify empty gallery title.
         self.assertEqual(gallery.empty_gallery_title, 'No photos or videos')
-
-        # Verify empty gallery text.
-        self.assertEqual(gallery.empty_gallery_text, 'Use the Camera app to get started.')

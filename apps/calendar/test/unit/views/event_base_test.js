@@ -1,5 +1,12 @@
-suiteGroup('Views.EventBase', function() {
+define(function(require) {
+'use strict';
 
+var EventBase = require('views/event_base');
+var EventModel = require('models/event');
+var View = require('view');
+var providerFactory = require('provider/provider_factory');
+
+suite('Views.EventBase', function() {
   var subject;
   var app;
   var triggerEvent;
@@ -15,7 +22,7 @@ suiteGroup('Views.EventBase', function() {
   teardown(function() {
     var el = document.getElementById('test');
     el.parentNode.removeChild(el);
-    delete app._providers.Test;
+    delete providerFactory.providers.Test;
   });
 
   setup(function(done) {
@@ -23,19 +30,20 @@ suiteGroup('Views.EventBase', function() {
     div.id = 'test';
     div.innerHTML = [
       '<div id="event-test">',
-        '<button class="primary">primary</button>',
-        '<button class="cancel">cancel</button>',
+        '<gaia-header id="event-test-header" action="cancel">',
+          '<button class="primary">primary</button>',
+        '</gaia-header>',
       '</div>'
     ].join('');
 
     document.body.appendChild(div);
     app = testSupport.calendar.app();
 
-    subject = new Calendar.Views.EventBase({
+    subject = new EventBase({
       app: app,
       selectors: {
         element: '#event-test',
-        cancelButton: '#event-test .cancel',
+        header: '#event-test-header',
         primaryButton: '#event-test .primary'
       }
     });
@@ -61,8 +69,8 @@ suiteGroup('Views.EventBase', function() {
   });
 
   test('initialization', function() {
-    assert.instanceOf(subject, Calendar.View);
-    assert.instanceOf(subject, Calendar.Views.EventBase);
+    assert.instanceOf(subject, View);
+    assert.instanceOf(subject, EventBase);
 
     assert.ok(subject._els, 'has elements');
   });
@@ -71,8 +79,8 @@ suiteGroup('Views.EventBase', function() {
     assert.ok(subject.primaryButton);
   });
 
-  test('.cancelButton', function() {
-    assert.ok(subject.cancelButton);
+  test('.header', function() {
+    assert.ok(subject.header);
   });
 
   test('.fieldRoot', function() {
@@ -104,7 +112,7 @@ suiteGroup('Views.EventBase', function() {
     });
 
     test('readonly', function(done) {
-      var provider = app.provider('Mock');
+      var provider = providerFactory.get('Mock');
 
       provider.stageEventCapabilities(this.event._id, null, {
         canUpdate: false
@@ -178,7 +186,7 @@ suiteGroup('Views.EventBase', function() {
         // model
         assert.instanceOf(
           subject.event,
-          Calendar.Models.Event
+          EventModel
         );
 
         // expected model time
@@ -220,9 +228,6 @@ suiteGroup('Views.EventBase', function() {
     });
 
    suite('update', function() {
-      var busytime;
-      var event;
-
       setup(function(done) {
         subject.ondispatch = done;
         subject.dispatch({
@@ -278,7 +283,7 @@ suiteGroup('Views.EventBase', function() {
     };
     subject.dispatch({params: {}});
 
-    var fetchReturnTop = subject.returnTop();
+    subject.returnTop();
     subject._returnTo = '/bar';
     subject._updateUI = function() {
       assert.equal(subject._returnTo, '/bar');
@@ -289,7 +294,6 @@ suiteGroup('Views.EventBase', function() {
   });
 
   suite('#_createModel', function() {
-    var controller;
     var date = new Date(2012, 0, 1);
 
     test('time is less then now', function() {
@@ -332,5 +336,6 @@ suiteGroup('Views.EventBase', function() {
       );
     });
   });
+});
 
 });

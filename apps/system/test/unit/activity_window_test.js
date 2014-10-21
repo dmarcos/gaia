@@ -1,49 +1,22 @@
+/* global AppWindow, ActivityWindow, MocksHelper */
 'use strict';
 
-mocha.globals(['SettingsListener', 'removeEventListener', 'addEventListener',
-      'dispatchEvent', 'WindowManager', 'Applications', 'ManifestHelper',
-      'ActivityWindow', 'KeyboardManager', 'StatusBar',
-      'SoftwareButtonManager', 'AttentionScreen', 'AppWindow',
-      'OrientationManager', 'SettingsListener', 'BrowserFrame',
-      'BrowserConfigHelper']);
-
 requireApp('system/test/unit/mock_orientation_manager.js');
-requireApp('system/test/unit/mock_statusbar.js');
-requireApp('system/test/unit/mock_software_button_manager.js');
-requireApp('system/test/unit/mock_keyboard_manager.js');
 requireApp('system/shared/test/unit/mocks/mock_manifest_helper.js');
 requireApp('system/shared/test/unit/mocks/mock_settings_listener.js');
-requireApp('system/test/unit/mock_window_manager.js');
 requireApp('system/test/unit/mock_applications.js');
-requireApp('system/test/unit/mock_attention_screen.js');
 
-function switchProperty(originObject, prop, stub, reals, useDefineProperty) {
-  if (!useDefineProperty) {
-    reals[prop] = originObject[prop];
-    originObject[prop] = stub;
-  } else {
-    Object.defineProperty(originObject, prop, {
-      configurable: true,
-      get: function() { return stub; }
-    });
-  }
-}
+requireApp('system/shared/test/unit/mocks/mock_screen_layout.js');
 
-function restoreProperty(originObject, prop, reals, useDefineProperty) {
-  if (!useDefineProperty) {
-    originObject[prop] = reals[prop];
-  } else {
-    Object.defineProperty(originObject, prop, {
-      configurable: true,
-      get: function() { return reals[prop]; }
-    });
-  }
-}
+var mocksForActivityWindow = new MocksHelper([
+  'OrientationManager', 'Applications', 'SettingsListener',
+  'ManifestHelper'
+]).init();
 
 suite('system/ActivityWindow', function() {
-  var reals = {};
+  mocksForActivityWindow.attachTestHelpers();
   var activityWindow;
-  var clock, stubById;
+  var stubById;
   var fakeConfig = {
     'url': 'app://fakeact.gaiamobile.org/pick.html',
     'oop': true,
@@ -56,49 +29,30 @@ suite('system/ActivityWindow', function() {
   };
 
   setup(function(done) {
-    switchProperty(window, 'WindowManager', MockWindowManager, reals);
-    switchProperty(window, 'SettingsListener', MockSettingsListener, reals);
-    switchProperty(window, 'OrientationManager', MockOrientationManager, reals);
-    switchProperty(window, 'Applications', MockApplications, reals);
-    switchProperty(window, 'ManifestHelper', MockManifestHelper, reals);
-    switchProperty(window, 'KeyboardManager', MockKeyboardManager, reals);
-    switchProperty(window, 'StatusBar', MockStatusBar, reals);
-    switchProperty(window, 'SoftwareButtonManager',
-        MockSoftwareButtonManager, reals);
-    switchProperty(window, 'AttentionScreen', MockAttentionScreen, reals);
-    clock = sinon.useFakeTimers();
+    stubById = this.sinon.stub(document, 'getElementById', function(id) {
+      var element = document.createElement('div');
+      if (id.indexOf('AppWindow') >= 0 || id.indexOf('activity-window') >= 0) {
+        var container = document.createElement('div');
+        container.className = 'browser-container';
+        element.appendChild(container);
+      }
 
-    stubById = this.sinon.stub(document, 'getElementById');
-    stubById.returns(document.createElement('div'));
+      return element;
+    });
+    requireApp('system/js/system.js');
     requireApp('system/js/browser_config_helper.js');
     requireApp('system/js/browser_frame.js');
-    requireApp('system/js/window.js');
+    requireApp('system/js/app_window.js');
+    requireApp('system/js/browser_mixin.js');
     requireApp('system/js/activity_window.js', done);
   });
 
   teardown(function() {
-    MockWindowManager.mTeardown();
-    MockApplications.mTeardown();
-    MockKeyboardManager.mTeardown();
-    MockStatusBar.mTeardown();
-    MockSoftwareButtonManager.mTeardown();
-    MockAttentionScreen.mTeardown();
-    clock.restore();
     stubById.restore();
-
-    restoreProperty(window, 'OrientationManager', reals);
-    restoreProperty(window, 'SettingsListener', reals);
-    restoreProperty(window, 'AttentionScreen', reals);
-    restoreProperty(window, 'SoftwareButtonManager', reals);
-    restoreProperty(window, 'StatusBar', reals);
-    restoreProperty(window, 'KeyboardManager', reals);
-    restoreProperty(window, 'WindowManager', reals);
-    restoreProperty(window, 'Applications', reals);
-    restoreProperty(window, 'ManifestHelper', reals);
   });
 
   suite('activity window instance.', function() {
-    var app;
+    var app, appF, appOrientationUndefined;
     setup(function() {
       app = new AppWindow({
         iframe: document.createElement('iframe'),
@@ -111,9 +65,51 @@ suite('system/ActivityWindow', function() {
           orientation: 'default'
         }
       });
+      appF = new AppWindow({
+        iframe: document.createElement('iframe'),
+        frame: document.createElement('div'),
+        origin: 'http://fake',
+        url: 'http://fakeurl/index.html',
+        manifestURL: 'http://fakemanifesturl',
+        name: 'fake',
+        manifest: {
+          orientation: 'default',
+          fullscreen: true
+        }
+      });
+      appOrientationUndefined = new AppWindow({
+        iframe: document.createElement('iframe'),
+        frame: document.createElement('div'),
+        origin: 'http://fake',
+        url: 'http://fakeurl/index.html',
+        manifestURL: 'http://fakemanifesturl',
+        name: 'fake',
+        manifest: {
+        }
+      });
     });
     teardown(function() {
     });
+
+    test('Render activity inside its caller', function() {
+      var activity = new ActivityWindow(fakeConfig, app);
+      assert.deepEqual(activity.containerElement, app.element);
+    });
+
+    test('requestOpen', function() {
+      var activity = new ActivityWindow(fakeConfig, app);
+      var stubRequestOpen = this.sinon.stub(app, 'requestOpen');
+
+      activity.requestOpen();
+
+      assert.isTrue(stubRequestOpen.calledOnce);
+    });
+
+    test('copy fullscreen from caller', function() {
+      var activity = new ActivityWindow(fakeConfig, appF);
+      assert.isTrue(activity.element.classList.contains('fullscreen-app'));
+    });
+
     test('Activity created', function() {
       var created = false;
       window.addEventListener('activitycreated', function oncreated() {
@@ -127,22 +123,15 @@ suite('system/ActivityWindow', function() {
       assert.isTrue(created);
     });
 
-    test('Activity resize chain', function() {
-      var activity = new ActivityWindow(fakeConfig, app);
-      var activity2 = new ActivityWindow(fakeConfig, activity);
-      var stubResize2 = this.sinon.stub(activity2, 'resize');
-      app.resize();
-      assert.isTrue(stubResize2.called);
-      stubResize2.restore();
-    });
-
-    test('Activity orientate chain', function() {
-      var activity = new ActivityWindow(fakeConfig, app);
-      var activity2 = new ActivityWindow(fakeConfig, activity);
-      var stubSetOrientation2 = this.sinon.stub(activity2, 'setOrientation');
-      app.setOrientation();
-      assert.isTrue(stubSetOrientation2.called);
-      stubSetOrientation2.restore();
+    test('Activity should stop event propagation', function() {
+      var activity = new ActivityWindow(fakeConfig, appOrientationUndefined);
+      var spy = this.sinon.spy();
+      activity.handleEvent({
+        type: 'mozbrowserloadend',
+        stopPropagation: spy,
+        detail: {}
+      });
+      assert.isTrue(spy.called);
     });
   });
 });

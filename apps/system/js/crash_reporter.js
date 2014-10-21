@@ -26,9 +26,13 @@ var CrashReporter = (function() {
 
   // This function should only ever be called once.
   function showDialog(crashID, isChrome) {
-    var title = isChrome ? _('crash-dialog-os2') :
-      _('crash-dialog-app', { name: crashedAppName });
-    document.getElementById('crash-dialog-title').textContent = title;
+    var elem = document.getElementById('crash-dialog-title');
+    if (isChrome) {
+      navigator.mozL10n.setAttributes(elem, 'crash-dialog-os2');
+    } else {
+      navigator.mozL10n.setAttributes(elem,
+        'crash-dialog-app', { name: crashedAppName });
+    }
 
     // "Don't Send Report" button in dialog
     var noButton = document.getElementById('dont-send-report');
@@ -58,9 +62,9 @@ var CrashReporter = (function() {
     var crashInfoLink = document.getElementById('crash-info-link');
     crashInfoLink.addEventListener('click', function onLearnMoreClick() {
       var dialog = document.getElementById('crash-dialog');
-      document.getElementById('crash-reports-done').
-               addEventListener('click', function onDoneClick() {
-        this.removeEventListener('click', onDoneClick);
+      document.getElementById('crash-reports-header').
+               addEventListener('action', function onAction() {
+        this.removeEventListener('click', onAction);
         dialog.classList.remove('learn-more');
       });
       dialog.classList.add('learn-more');
@@ -93,7 +97,8 @@ var CrashReporter = (function() {
       };
     }
 
-    SystemBanner.show(message, button);
+    var systemBanner = new SystemBanner();
+    systemBanner.show(message, button);
   }
 
   function deleteCrash(crashID) {
@@ -144,6 +149,19 @@ var CrashReporter = (function() {
       handleCrash(e.detail.crashID, e.detail.chrome);
     }
   });
+
+  function handleAppCrash(e) {
+    var app = e.detail;
+    // Only show crash reporter when the crashed app is active.
+    if (app.isActive()) {
+      setAppName(app.name);
+    }
+  }
+
+  window.addEventListener('appcrashed', handleAppCrash);
+  window.addEventListener('activitycrashed', handleAppCrash);
+  window.addEventListener('homescreencrashed', handleAppCrash);
+  window.addEventListener('searchcrashed', handleAppCrash);
 
   return {
     setAppName: setAppName

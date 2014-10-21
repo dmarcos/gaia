@@ -1,4 +1,7 @@
 'use strict';
+/* exported MockImageLoader */
+/* exported MockURL */
+/* exported MockUtils */
 
 var MockURL = {
   createObjectURL: function(url) {
@@ -16,4 +19,19 @@ var MockImageLoader = function() {
   this.reload = function() {};
   this.setResolver = function() {};
   this.releaseImage = function() {};
+  this.unload = function() {};
+};
+
+var MockUtils = {
+  'misc' : {
+    'toMozContact': function(c) {
+      return c;
+    }
+  },
+  listeners: {
+    add: function() {}
+  },
+  cookie: {
+
+  }
 };

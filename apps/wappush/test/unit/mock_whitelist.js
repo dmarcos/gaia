@@ -1,10 +1,18 @@
 /* -*- Mode: js; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- /
 /* vim: set shiftwidth=2 tabstop=2 autoindent cindent expandtab: */
 
+/* exported MockWhiteList */
+
 'use strict';
 
 var MockWhiteList = {
   _whiteList: [],
+
+  init: function mwl_init() {
+    return new Promise(function mwl_init_promise(resolve) {
+      resolve();
+    });
+  },
 
   has: function mwl_has(value) {
     if (this._whiteList.length === 0) {

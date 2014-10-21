@@ -1,4 +1,9 @@
 'use strict';
+/* globals Evme, EvmeManager, Promise */
+
+// Mute jshint errors about the weird syntax used in this file
+/* jshint -W057 */// Weird construction. Is 'new' necessary?
+/* jshint -W058 */// Missing '()' invoking a constructor.
 
 /**
  * Collection.js
@@ -66,16 +71,20 @@ void function() {
           return;
         }
 
-        var currentTitle = elTitle.querySelector('span').textContent,
+        var currentTitle = title,
             elInput, elDone;
 
         el.classList.add(CLASS_WHEN_EDITING_NAME);
+        // Make the collection container invisible to the screen reader when
+        // renaming.
+        elAppsContainer.setAttribute('aria-hidden', true);
 
+        elTitle.setAttribute('role', 'presentation');
         elTitle.innerHTML = '<input type="text" ' +
                                     'autocorrect="off" ' +
-                                    'autocapitalize="off" ' +
                                     'x-inputmode="verbatim" />' +
-                            '<b class="done"></b>';
+                            '<button class="done" data-l10n-id="evme-done">' +
+                            '</button>';
 
         elInput = elTitle.querySelector('input');
         elDone = elTitle.querySelector('.done');
@@ -83,11 +92,17 @@ void function() {
         elInput.focus();
         elInput.value = currentTitle;
 
-        elInput.addEventListener('blur', self.Rename.cancel);
+        elTitle.addEventListener('blur', self.Rename.cancel, true);
         elInput.addEventListener('keyup', self.Rename.onKeyUp);
-        elDone.addEventListener('touchstart', self.Rename.save);
+        elDone.addEventListener('click', self.Rename.save);
+        // If the click comes from within the collection container - cancel
+        // renaming.
+        elAppsContainer.addEventListener('click', self.Rename.cancel);
 
         elTitle.removeEventListener('click', self.Rename.start);
+        // When renaming close button is used to cancel renaming.
+        elClose.removeEventListener('click', self.onCloseClick);
+        elClose.addEventListener('click', self.Rename.cancel);
 
         self.isRenaming = true;
       },
@@ -103,25 +118,33 @@ void function() {
         self.Rename.done(true);
       },
 
-      cancel: function renameCancel() {
+      cancel: function renameCancel(e) {
+        if (e.explicitOriginalTarget.parentNode === elTitle) {
+          return;
+        }
         self.Rename.done(false);
       },
 
       done: function renameDone(shouldSave) {
-        if (!self.isRenaming) {
+        var elInput = elTitle.querySelector('input'),
+            elDone = elTitle.querySelector('.done');
+
+        // weird UI state. see bug 975917
+        if (!(self.isRenaming && currentSettings && elInput && elDone)) {
+          elInput && elInput.blur();
+          exitDoneState();
           return;
         }
 
-        var elInput = elTitle.querySelector('input'),
-            elDone = elTitle.querySelector('.done'),
-            id = currentSettings.id,
+        var id = currentSettings.id,
             oldName = EvmeManager.getIconName(id) || currentSettings.query,
             newName = elInput.value,
             nameChanged = newName && newName !== oldName;
 
-        elInput.removeEventListener('blur', self.Rename.cancel);
+        elTitle.removeEventListener('blur', self.Rename.cancel, true);
         elInput.removeEventListener('keyup', self.Rename.onKeyUp);
-        elDone.removeEventListener('touchstart', self.Rename.save);
+        elDone.removeEventListener('click', self.Rename.save);
+        elAppsContainer.removeEventListener('click', self.Rename.cancel);
 
         elInput.blur();
 
@@ -143,16 +166,23 @@ void function() {
           self.setTitle(oldName);
         }
 
-        el.classList.remove(CLASS_WHEN_EDITING_NAME);
+        exitDoneState();
 
-        self.isRenaming = false;
+        function exitDoneState() {
+          el.classList.remove(CLASS_WHEN_EDITING_NAME);
+          elAppsContainer.setAttribute('aria-hidden', false);
 
-        // timeout(0) because this done function can be called from input blur
-        // if we add the event back immediately it still fires, thus keeping
-        // the user in the rename mode
-        window.setTimeout(function() {
-          elTitle.addEventListener('click', self.Rename.start);
-        }, 0);
+          self.isRenaming = false;
+
+          // timeout(0) because this done function can be called from input blur
+          // if we add the event back immediately it still fires, thus keeping
+          // the user in the rename mode
+          window.setTimeout(function() {
+            elTitle.addEventListener('click', self.Rename.start);
+            elClose.removeEventListener('click', self.Rename.cancel);
+            elClose.addEventListener('click', self.onCloseClick);
+          }, 0);
+        }
       }
     };
 
@@ -162,7 +192,6 @@ void function() {
 
     this.create = function create(options) {
       var query = options.query,
-          apps = options.apps,
           callback = options.callback || Evme.Utils.NOOP,
           extra = {'extraIconsData': options.extraIconsData};
 
@@ -194,9 +223,10 @@ void function() {
      * Overwrite a collection's settings with new data
      * and update the homescreen icon if needed.
      */
-    this.update =
-      function updateCollection(collectionSettings, data,
-                                                    callback=Evme.Utils.NOOP) {
+    this.update = function update(collectionSettings, data, callback, extra) {
+      callback = callback || Evme.Utils.NOOP;
+      extra = extra || {};
+
       var pluck = Evme.Utils.pluck;
       var shouldUpdateIcon = false;
       var numIcons = Evme.Config.numberOfAppInCollectionIcon;
@@ -206,40 +236,44 @@ void function() {
 
       Evme.CollectionSettings.update(collectionSettings, data,
         function onUpdate(updatedSettings) {
-          // collection is open and apps changed
-          if (currentSettings &&
-              currentSettings.id === collectionSettings.id && 'apps' in data) {
-            resultsManager.renderStaticApps(updatedSettings.apps);
+          // updating the currently open collection
+          if (currentSettings && currentSettings.id === collectionSettings.id) {
+            currentSettings = updatedSettings;
+
+            // repaint static apps if collection is open and apps changed
+            // noRepaint flags to override this behavior in case the caller
+            // already handles repaint (like 'moveApp' does)
+            if (!extra.noRepaint && 'apps' in data) {
+              resultsManager.renderStaticApps(updatedSettings.apps);
+            }
           }
 
-            callback(updatedSettings);
+          callback(updatedSettings);
 
-            // update the homescreen icon when necessary
+          // update the homescreen icon when necessary
 
-            // first 3 apps changed
-            if (!shouldUpdateIcon && 'apps' in data) {
-              shouldUpdateIcon =
-                !Evme.Utils.arraysEqual(originalAppIds,
-                  pluck(updatedSettings.apps, 'id'), numIcons);
+          // first 3 apps changed
+          if (!shouldUpdateIcon && 'apps' in data) {
+            shouldUpdateIcon = !Evme.Utils.arraysEqual(originalAppIds,
+              pluck(updatedSettings.apps, 'id'), numIcons);
+          }
+
+          // cloud results changed and needed for icon
+          // (less than 3 static apps)
+          if (!shouldUpdateIcon && 'extraIconsData' in data) {
+            var numApps =
+              ('apps' in data) ? data.apps.length : originalAppIds.length;
+
+            if (numApps < numIcons) {
+              shouldUpdateIcon = !Evme.Utils.arraysEqual(originalIcons,
+                pluck(updatedSettings.extraIconsData, 'icon'), numIcons);
             }
+          }
 
-            // cloud results changed and needed for icon
-            // (less than 3 static apps)
-            if (!shouldUpdateIcon && 'extraIconsData' in data) {
-              var numApps =
-                ('apps' in data) ? data.apps.length : originalAppIds.length;
-
-              if (numApps < numIcons) {
-                shouldUpdateIcon =
-                  !Evme.Utils.arraysEqual(originalIcons,
-                    pluck(updatedSettings.extraIconsData, 'icon'), numIcons);
-              }
-            }
-
-            if (shouldUpdateIcon) {
-              updateGridIconImage(updatedSettings);
-            }
-      });
+          if (shouldUpdateIcon) {
+            updateGridIconImage(updatedSettings);
+          }
+        });
     };
 
     // cloud app is always added to the currently open collection
@@ -278,7 +312,7 @@ void function() {
         }
       };
 
-    // remove app from the open collection via settings menu
+    // remove app from the open collection
     this.removeApp = function removeApp(id) {
       var apps = currentSettings.apps.filter(function keepIt(app) {
         return app.id !== id;
@@ -286,6 +320,20 @@ void function() {
 
       if (apps.length < currentSettings.apps.length) {
         self.update(currentSettings, {'apps': apps});
+      }
+    };
+
+    // organize static apps in current open collection
+    // move app to new index
+    this.moveApp = function moveApp(appId, newIdx) {
+      var oldIdx = Evme.Utils.pluck(currentSettings.apps, 'id').indexOf(appId);
+      if (oldIdx > -1) {
+        var orderedApps = currentSettings.apps.slice();
+        orderedApps.splice(oldIdx, 1);
+        orderedApps.splice(newIdx, 0, currentSettings.apps[oldIdx]);
+        self.update(currentSettings, {'apps': orderedApps}, undefined, {
+          'noRepaint': true
+        });
       }
     };
 
@@ -326,8 +374,6 @@ void function() {
 
           self.editMode = false;
 
-          resultsManager.renderStaticApps(collectionSettings.apps);
-
           showUI();
         });
     };
@@ -364,18 +410,33 @@ void function() {
     function showUI() {
       el.style.display = 'block';
       window.setTimeout(function() {
-        el.addEventListener('transitionend', function end(e) {
-          e.target.removeEventListener('transitionend', end);
+        Evme.EventHandler.trigger(NAME, 'beforeShow');
+
+        if (el.classList.contains('visible')) {
+          onCollectionVisible();
+        } else {
+          el.addEventListener('transitionend', onCollectionVisible);
+          el.clientLeft; // force reflow
+          el.classList.add('visible');
+        }
+
+        function onCollectionVisible(e) {
+          el.removeEventListener('transitionend', onCollectionVisible);
+
+          if (currentSettings) {
+            resultsManager.renderStaticApps(currentSettings.apps);
+          }
+
           document.dispatchEvent(new CustomEvent('collectionopened'));
-        });
-        el.classList.add('visible');
-        Evme.EventHandler.trigger(NAME, 'show');
+          Evme.EventHandler.trigger(NAME, 'show');
+        }
       }, 0);
     }
 
     function hideUI() {
+      Evme.EventHandler.trigger(NAME, 'beforeHide');
       elHeader.addEventListener('transitionend', function end(e) {
-        e.target.removeEventListener('transitionend', end);
+        elHeader.removeEventListener('transitionend', end);
 
         el.style.display = 'none';
         Evme.EventHandler.trigger(NAME, 'hide');
@@ -390,9 +451,8 @@ void function() {
 
     this.setTitle = function setTitle(newTitle) {
       title = newTitle;
-
+      elTitle.setAttribute('role', 'button');
       elTitle.innerHTML =
-              '<em></em>' +
               '<span>' + title + '</span>';
     };
 
@@ -474,15 +534,7 @@ void function() {
     };
 
     this.getQuery = function getQuery() {
-      var query = currentSettings.query || '';
-
-      if (!query && currentSettings.experienceId) {
-        var l10nkey = 'id-' +
-          Evme.Utils.shortcutIdToKey(currentSettings.experienceId);
-        query = Evme.Utils.l10n('shortcut', l10nkey);
-      }
-
-      return query;
+      return currentSettings ? currentSettings.getQuery() : undefined;
     };
 
     this.userSetBg = function userSetBg() {
@@ -503,8 +555,12 @@ void function() {
         document.removeEventListener('mozvisibilitychange', onVisibilityChange);
       }
 
+      // disable bg scroll feature when in edit mode
+      resultsManager.changeFadeOnScroll(!bool);
       return true;
     };
+
+    this.createCollectionIcon = createCollectionIcon;
 
     function onVisibilityChange() {
       if (document.mozHidden) {
@@ -516,29 +572,27 @@ void function() {
         var options = e.detail;
 
         if (options.descriptor && options.collection) {
-            EvmeManager.getAppByDescriptor(function addApp(appInfo) {
-                self.addInstalledApp(appInfo, options.collection.id);
-            }, options.descriptor);
+            var appInfo = EvmeManager.getAppByDescriptor(options.descriptor);
+            self.addInstalledApp(appInfo, options.collection.id);
         }
     }
 
     // executed when a new installed app is added to query index
     function onAppIndexed(e) {
-      EvmeManager.getAppByOrigin(e.detail.app.origin,
-        function onAppInfo(appInfo) {
-          var queries = Evme.InstalledAppsService.getMatchingQueries(appInfo);
-          var gridCollections = EvmeManager.getCollections();
+      var appInfo = e.detail.appInfo;
+      var queries = Evme.InstalledAppsService.getMatchingQueries(appInfo);
+      var gridCollections = EvmeManager.getCollections();
 
-          for (var i = 0, gridCollection;
-                                  gridCollection = gridCollections[i++];) {
-            nominateApp(gridCollection, appInfo, queries);
-          }
-        });
+      /* jshint -W084 */
+      for (var i = 0, gridCollection; gridCollection = gridCollections[i++];) {
+        nominateApp(gridCollection, appInfo, queries);
+      }
     }
 
     function onAppUninstall(e) {
       var gridCollections = EvmeManager.getCollections();
 
+      /* jshint -W084, -W083 */
       for (var i = 0, gridCollection; gridCollection = gridCollections[i++];) {
         Evme.CollectionStorage.get(gridCollection.id,
           function removeApp(settings) {
@@ -561,15 +615,7 @@ void function() {
       } else {
         // get the collection's settings from storage
         Evme.CollectionStorage.get(gridCollection.id, function onGet(settings) {
-          // for user-created collections
-          // match against the query
-          var collectionQuery = settings.query;
-
-          // for pre-installed collections
-          // translate the experienceId to query
-          if (!collectionQuery && settings.experienceId) {
-            collectionQuery = Evme.Utils.shortcutIdToKey(settings.experienceId);
-          }
+          var collectionQuery = settings.getQuery();
 
           if (collectionQuery &&
               queries.indexOf(collectionQuery.toLowerCase()) > -1) {
@@ -588,6 +634,12 @@ void function() {
   Evme.CollectionSettings = function Evme_CollectionSettings(args) {
     this.id = args.id;
 
+    // default icon defined in manifest.collection
+    // only avaiable on init of pre-installed collections
+    if (args.defaultIcon) {
+      this.defaultIcon = args.defaultIcon;
+    }
+
     // object containing backgound information (image, query, source, setByUser)
     this.bg = args.bg || null;
 
@@ -600,8 +652,30 @@ void function() {
     // TODO save only reference, get data from IconManager
     // get static apps' icons from InstalledAppsService
     // list of {"id": 3, "icon": "base64icon"}
-    this.extraIconsData = args.extraIconsData || [];
+    this.extraIconsData = [];
+    if (args.extraIconsData) {
+      /* jshint -W084 */
+      for (var i = 0, iconData; iconData = args.extraIconsData[i++]; ) {
+        if (iconData.id && iconData.icon) {
+          this.extraIconsData.push(iconData);
+        }
+      }
+    }
+  };
+  Evme.CollectionSettings.prototype.getQuery = function getQuery() {
+    // for user-created collections
+    // match against the query
+    var query = this.query || EvmeManager.getIconName(this.id) || '';
 
+    // for pre-installed collections
+    // translate the experienceId to query
+    if (!query && this.experienceId) {
+      var l10nkey = 'id-' +
+        Evme.Utils.shortcutIdToKey(this.experienceId);
+      query = Evme.Utils.l10n('shortcut', l10nkey);
+    }
+
+    return query;
   };
 
   /**
@@ -616,8 +690,6 @@ void function() {
         'query': query
       });
 
-      var installedIcons = Evme.Utils.pluck(installedApps, 'icon');
-
       var settings = new Evme.CollectionSettings({
         id: Evme.Utils.uuid(),
         query: query,
@@ -630,7 +702,8 @@ void function() {
 
   /**
    * wrapper for update calls
-   * code should not call CollectionStorage.update directly
+   * you should probably NOT call this method directly,
+   * but use Collection.update instead
    */
   Evme.CollectionSettings.update = function update(settings, data, cb) {
     var cleanData = {};
@@ -638,6 +711,14 @@ void function() {
     // remove app duplicates
     if ('apps' in data) {
       cleanData.apps = Evme.Utils.unique(data.apps, 'id');
+
+      // cloudapps: convert ids to strings
+      /* jshint -W084 */
+      for (var k = 0, app; app = cleanData.apps[k++]; ) {
+        if (typeof app.id === 'number') {
+          app.id = '' + app.id;
+        }
+      }
     }
 
     // check validity of extra icons
@@ -684,8 +765,7 @@ void function() {
     var existingIds = Evme.Utils.pluck(settings.apps, 'id');
 
     var newApps = Evme.InstalledAppsService.getMatchingApps({
-      'query': settings.query,              // for user-created collections
-      'experienceId': settings.experienceId // for pre-installed collections
+      'query': settings.getQuery()
     });
 
     newApps = newApps.filter(function isNew(app) {
@@ -702,6 +782,7 @@ void function() {
    */
   function populateAllCollections() {
     var gridCollections = EvmeManager.getCollections();
+    /* jshint -W084 */
     for (var i = 0, gridCollection; gridCollection = gridCollections[i++];) {
       Evme.CollectionStorage.get(gridCollection.id, populateCollection);
     }
@@ -729,6 +810,7 @@ void function() {
 
   function depopulateAllCollections() {
     var gridCollections = EvmeManager.getCollections();
+    /* jshint -W084, -W083 */
     for (var i = 0, gridCollection; gridCollection = gridCollections[i++];) {
       Evme.CollectionStorage.get(gridCollection.id,
         function depopulate(settings) {
@@ -769,13 +851,12 @@ void function() {
    * Add a collection to the homescreen.
    */
   function addToGrid(settings, gridPageOffset, extra) {
-    createCollectionIcon(settings, function onIconCreated(canvas) {
-      EvmeManager.addGridItem({
+    createCollectionIcon(settings, function onIconCreated(icon) {
+      EvmeManager.addCollection({
         'id': settings.id,
         'originUrl': settings.id,
         'name': settings.query,
-        'icon': canvas.toDataURL(),
-        'isCollection': true,
+        'icon': icon,
         'gridPageOffset': gridPageOffset
       }, extra);
     });
@@ -785,23 +866,59 @@ void function() {
    * Update a collection's icon on the homescreen
    */
   function updateGridIconImage(settings) {
-    createCollectionIcon(settings, function iconCreated(iconCanvas) {
-      EvmeManager.setIconImage(iconCanvas.toDataURL(), settings.id);
+    createCollectionIcon(settings, function iconCreated(icon) {
+      EvmeManager.setIconImage(icon, settings.id);
     });
   }
 
   function createCollectionIcon(settings, callback) {
-    var icons = Evme.Utils.pluck(settings.apps, 'icon');
+    var
+    iconsNeeded = Evme.Config.numberOfAppInCollectionIcon,
+    iconPromises =
+      settings.apps.slice(0, iconsNeeded).map(function getIcon(app) {
+        return new Promise(function done(resolve) {
+          if (app.staticType === Evme.STATIC_APP_TYPE.CLOUD) {
+            resolve(app.icon);
+          } else {
+            // try to use the un-manipulated app icon so we can apply
+            // the shadow and sizing needed for the collection icon
+            EvmeManager.retrieveAppIcon(app, function success(blob) {
+              resolve(blob);
+            }, function error() {
+              // fallback to homescreen manipulated icon
+              resolve(app.icon);
+            });
+          }
+        });
+      });
 
-    if (icons.length < Evme.Config.numberOfAppInCollectionIcon) {
-      var extraIcons = Evme.Utils.pluck(settings.extraIconsData, 'icon');
-      icons = icons.concat(extraIcons).slice(0,
-                                      Evme.Config.numberOfAppInCollectionIcon);
+    Promise.all(iconPromises).then(function iconsReady(icons) {
+      if (icons.length < iconsNeeded) {
+        var extraIcons = Evme.Utils.pluck(settings.extraIconsData, 'icon');
+        icons = icons.concat(extraIcons).slice(0, iconsNeeded);
+      }
+
+      if (icons.length) {
+        Evme.IconGroup.get(icons, function onIconCreated(iconCanvas) {
+          callback(iconCanvas.toDataURL());
+        });
+      } else {
+        useDefault();
+      }
+    }, useDefault).catch(useDefault);
+
+    function useDefault() {
+      // revert to default icon (if exists) instead of rendering an empty icon
+      // see bug 968918
+      if (settings.defaultIcon) {
+        callback(settings.defaultIcon);
+      } else {
+        // empty icon
+        Evme.IconGroup.get([], function onIconCreated(iconCanvas) {
+          callback(iconCanvas.toDataURL());
+        });
+      }
     }
-
-    Evme.IconGroup.get(icons, function onIconCreated(iconCanvas) {
-      callback(iconCanvas);
-    });
   }
 
   /**
@@ -810,8 +927,7 @@ void function() {
    *
    */
   Evme.CollectionStorage = new function Evme_CollectionStorage() {
-    var NAME = 'CollectionStorage',
-        PREFIX = 'collectionsettings_',
+    var PREFIX = 'collectionsettings_',
         self = this;
 
     this.init = function init() {

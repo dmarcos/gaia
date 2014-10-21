@@ -51,6 +51,31 @@ Evme.IconManager = new function Evme_IconManager() {
     Evme.Storage.get(_prefix + id, callback);
   };
 
+  this.getBatch = function getBatch(ids, callback) {
+    if (!ids || !ids.length) {
+      callback();
+      return;
+    }
+
+    var iconsMap = {};
+    var numIcons = 0;
+
+    for (var i = 0, id; id = ids[i++];) {
+      getIcon(id);
+    }
+
+    function getIcon(id) {
+      self.get(id, function onGet(icon) {
+        if (icon) {
+          iconsMap[id] = icon;
+        }
+        if (++numIcons === ids.length) {
+          callback(iconsMap);
+        }
+      });
+    }
+  };
+
   this.getKeys = function getKeys() {
     return savedIconsKeys;
   };
@@ -81,13 +106,22 @@ Evme.IconGroup = new function Evme_IconGroup() {
   };
 
   this.get = function get(icons, callback) {
-    var el;
+    var el,
+      validIcons = [];
 
     callback = callback || Evme.Utils.NOOP;
 
-    if (icons && icons.length) {
+    // only include valid icons (not nulls or undefineds)
+    for (var i = 0; i < icons.length; i++) {
+      if (icons[i]) {
+        validIcons.push(icons[i]);
+      }
+    }
+
+
+    if (validIcons.length) {
       el = renderCanvas({
-        'icons': icons,
+        'icons': validIcons,
         'onReady': callback
       });
     }
@@ -124,32 +158,24 @@ Evme.IconGroup = new function Evme_IconGroup() {
 
   function renderCanvas(options) {
     var icons = options.icons,
-        validIcons = [],
         numberOfIcons = 0,
         settings = null,
         onReady = options.onReady,
         elCanvas = getCanvas(),
         context = elCanvas.getContext('2d');
 
-    // only include valid icons (not nulls or undefineds)
-    for (var i = 0; i < icons.length; i++) {
-      if (icons[i]) {
-        validIcons.push(icons[i]);
-      }
-    }
-
-    settings = Evme.Utils.getIconGroup(validIcons.length);
+    settings = Evme.Utils.getIconGroup(icons.length);
 
     // can't render more icons than we have settings for
-    validIcons = validIcons.slice(0, settings.length);
-    numberOfIcons = validIcons.length;
+    icons = icons.slice(0, settings.length);
+    numberOfIcons = icons.length;
 
     context.imagesToLoad = numberOfIcons;
     context.imagesLoaded = [];
 
     for (var i = 0; i < numberOfIcons; i++) {
       // render the icons from bottom to top
-      var icon = validIcons[numberOfIcons - 1 - i];
+      var icon = icons[numberOfIcons - 1 - i];
 
       if (icon) {
         var iconSettings = settings[(settings.length - numberOfIcons) + i];

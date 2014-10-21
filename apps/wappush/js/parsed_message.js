@@ -1,5 +1,8 @@
 /* -*- Mode: js; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- /
 /* vim: set shiftwidth=2 tabstop=2 autoindent cindent expandtab: */
+
+/* global Promise, Provisioning, MessageDB */
+
 (function(exports) {
   'use strict';
 
@@ -32,6 +35,7 @@
       var obj = {
         type: this.type,
         sender: this.sender,
+        serviceId: this.serviceId,
         timestamp: this.timestamp
       };
 
@@ -55,23 +59,37 @@
         obj.text = this.text;
       }
 
+      if (this.action) {
+        obj.action = this.action;
+      }
+
       if (this.provisioning) {
         obj.provisioning = this.provisioning;
       }
+
       return obj;
     },
 
     /**
-     * Saves the message in the database. Once the transaction is completed
-     * invokes the success callback. If an error occurs the error callback will
-     * be invoked with the corresponding error as its sole parameter.
+     * Saves the message in the database.  Returns a promise that resolves
+     * to a string describing the status of the message: 'new' if the message
+     * was new, 'updated' if the message updated an existing message or
+     * 'discarded' if the message was discarded.
      *
-     * @param {Function} success A callback invoked when the transaction
-     *        completes successfully.
-     * @param {Function} error A callback invoked if an operation fails.
+     * @return {Object} A promise for this operation.
      */
-    save: function pm_save(success, error) {
-      MessageDB.put(this.toJSON(), success, error);
+    save: function pm_save() {
+      var self = this;
+      var json_message = this.toJSON();
+
+      return MessageDB.put(json_message).then(function(status) {
+        if (status === 'updated') {
+          // In case the message was updated we must update the original too.
+          self.timestamp = json_message.timestamp;
+        }
+
+        return Promise.resolve(status);
+      });
     },
 
     /**
@@ -93,6 +111,7 @@
    * - id: optional for SI messages, a pseudo-unique ID for the message
    * - created: optional for SI messages, creation time of this message
    * - expires: optional for SI messages, expiration time of this message
+   * - action: optional for SI/SL message, action to be executed
    * - provisioning: only for CP messages, CP related object
    * - text: optional, text to be displayed
    *
@@ -111,6 +130,7 @@
 
     obj.type = message.contentType;
     obj.sender = message.sender;
+    obj.serviceId = message.serviceId;
     obj.timestamp = timestamp.toString();
 
     if (message.contentType === 'text/vnd.wap.si') {
@@ -146,12 +166,34 @@
 
         obj.expires = expiresDate.getTime();
       }
+
+      /* 'action' attribute, optional, string, defaults to 'signal-medium' when
+       * not present in the incoming message, see WAP-167 7.2 */
+      if (indicationNode.hasAttribute('action')) {
+        obj.action = indicationNode.getAttribute('action');
+      } else {
+        obj.action = 'signal-medium';
+      }
+
+      /* If the message has a 'delete' action but no 'si-id' field than it's
+       * malformed and should be immediately discarded, see WAP-167 6.2 */
+      if (obj.action === 'delete' && !obj.id) {
+        return null;
+      }
     } else if (message.contentType === 'text/vnd.wap.sl') {
       // SL message
       var slNode = doc.querySelector('sl');
 
       // 'href' attribute, always present
       obj.href = slNode.getAttribute('href');
+
+      /* 'action' attribute, optional, string, defaults to 'execute-low' when
+       * not present in the incoming message, see WAP-168 5.2 */
+      if (slNode.hasAttribute('action')) {
+        obj.action = slNode.getAttribute('action');
+      } else {
+        obj.action = 'execute-low';
+      }
     } else if (message.contentType === 'text/vnd.wap.connectivity-xml') {
       // Client provisioning (CP) message
       obj.provisioning = Provisioning.fromMessage(message);
@@ -160,6 +202,7 @@
       if (!obj.provisioning.authInfo) {
         return null;
       }
+
       obj.text = 'cp-message-received';
     } else {
       return null;
@@ -170,28 +213,18 @@
 
   /**
    * Loads the message corresponding to the specified timestamp from the
-   * database. The message is passed to the success callback once the
-   * function succeeds. If the message is not present the success callback
-   * will be with a null parameter. If an error occurs the error callback
-   * will be invoked with the corresponding error as its sole parameter.
+   * database. Returns a promise that resolves to the message. If the message
+   * is not present the promise will be resolved with null.
    *
    * @param {Number} timestamp The timestamp of the message we want to
    *        retrieve.
-   * @param {Function} success A callback invoked when the transaction
-   *        completes successfully.
-   * @param {Function} error A callback invoked if an operation fails.
+   *
+   * @param {Object} A promise for this operation.
    */
-  ParsedMessage.load = function pm_load(timestamp, success, error) {
-    MessageDB.retrieve(timestamp,
-      function pm_loadSuccess(message) {
-        if (message) {
-          success(new ParsedMessage(message));
-        } else {
-          success(null);
-        }
-      },
-      error
-    );
+  ParsedMessage.load = function pm_load(timestamp) {
+    return MessageDB.retrieve(timestamp).then(function(message) {
+      return message ? new ParsedMessage(message) : null;
+    });
   };
 
   exports.ParsedMessage = ParsedMessage;

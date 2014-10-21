@@ -1,5 +1,5 @@
 /*global define, console */
-
+'use strict';
 define(function(require) {
   var evt = require('evt');
 
@@ -61,8 +61,18 @@ define(function(require) {
     **/
     folder: null,
 
+    /**
+     * emits an event based on a property value. Since the
+     * event is based on a property value that is on this
+     * object, *do not* use emitWhenListener, since, due to
+     * the possibility of queuing old values with that
+     * method, it could cause bad results (bug 971617), and
+     * it is not needed since the latest* methods will get
+     * the latest value on this object.
+     * @param  {String} id event ID/property name
+     */
     _callEmit: function(id) {
-      this.emitWhenListener(id, this[id]);
+      this.emit(id, this[id]);
     },
 
     inited: false,
@@ -122,31 +132,40 @@ define(function(require) {
      */
     init: function(showLatest, callback) {
       // Set inited to false to indicate initialization is in progress.
-      this.inited = false;
-      require(['api'], function(MailAPI) {
+      require(['api'], function(api) {
         if (!this.api) {
-          this.api = MailAPI;
+          this.api = api;
           this._callEmit('api', this.api);
         }
 
         // If already initialized before, clear out previous state.
         this.die();
 
-        var acctsSlice = this.acctsSlice = MailAPI.viewAccounts(false);
+        var acctsSlice = api.viewAccounts(false);
         acctsSlice.oncomplete = (function() {
+          // To prevent a race between Model.init() and
+          // acctsSlice.oncomplete, only assign model.acctsSlice when
+          // the slice has actually loaded (i.e. after
+          // acctsSlice.oncomplete fires).
+          model.acctsSlice = acctsSlice;
           if (acctsSlice.items.length) {
             // For now, just use the first one; we do attempt to put unified
             // first so this should generally do the right thing.
             // XXX: Because we don't have unified account now, we should
             //      switch to the latest account which user just added.
             var account = showLatest ? acctsSlice.items.slice(-1)[0] :
-                                       acctsSlice.defaultAccount;
+                  acctsSlice.defaultAccount;
 
             this.changeAccount(account, callback);
           }
 
           this.inited = true;
           this._callEmit('acctsSlice');
+
+          // Once the API/worker has started up and we have received account
+          // data, consider the app fully loaded: we have verified full flow
+          // of data from front to back.
+          evt.emit('metrics:apiDone');
         }).bind(this);
       }.bind(this));
     },
@@ -174,6 +193,7 @@ define(function(require) {
       var foldersSlice = this.api.viewFolders('account', account);
       foldersSlice.oncomplete = (function() {
         this.foldersSlice = foldersSlice;
+        this.foldersSlice.onchange = this.notifyFoldersSliceOnChange.bind(this);
         this.selectInbox(callback);
         this._callEmit('foldersSlice');
       }).bind(this);
@@ -199,12 +219,16 @@ define(function(require) {
     /**
      * Just changes the folder property tracked by the model.
      * Assumes the folder still belongs to the currently tracked
-     * account.
+     * account. It also does not result in any state changes or
+     * event emitting if the new folder is the same as the
+     * currently tracked folder.
      * @param  {Object} folder the folder object to use.
      */
     changeFolder: function(folder) {
-      this.folder = folder;
-      this._callEmit('folder');
+      if (folder && (!this.folder || folder.id !== this.folder.id)) {
+        this.folder = folder;
+        this._callEmit('folder');
+      }
     },
 
     /**
@@ -214,22 +238,34 @@ define(function(require) {
      * has been selected.
      */
     selectInbox: function(callback) {
-      if (!this.foldersSlice)
+      this.selectFirstFolderWithType('inbox', callback);
+    },
+
+    /**
+     * For the already loaded account and associated foldersSlice, set
+     * the given folder as the tracked folder. The account MUST have a
+     * folder with the given type, or a fatal error will occur.
+     */
+    selectFirstFolderWithType: function(folderType, callback) {
+      if (!this.foldersSlice) {
         throw new Error('No foldersSlice available');
+      }
 
-      var inboxFolder = this.foldersSlice.getFirstFolderWithType('inbox');
-      if (!inboxFolder)
-        dieOnFatalError('We have an account without an inbox!',
-                        this.foldersSlice.items);
+      var folder = this.foldersSlice.getFirstFolderWithType(folderType);
+      if (!folder) {
+        dieOnFatalError('We have an account without a folderType ' +
+                        folderType + '!', this.foldersSlice.items);
+      }
 
-      if (this.folder && this.folder.id === inboxFolder.id) {
-        if (callback)
+      if (this.folder && this.folder.id === folder.id) {
+        if (callback) {
           callback();
+        }
       } else {
-        if (callback)
+        if (callback) {
           this.once('folder', callback);
-
-        this.changeFolder(inboxFolder);
+        }
+        this.changeFolder(folder);
       }
     },
 
@@ -244,6 +280,20 @@ define(function(require) {
       if (accountUpdate.id === this.account.id)
         model.emit('newInboxMessages', accountUpdate.count);
     },
+
+    /**
+     * Triggered by the foldersSlice onchange event
+     * @param  {Object} folder the folder that changed.
+     */
+    notifyFoldersSliceOnChange: function(folder) {
+      model.emit('foldersSliceOnChange', folder);
+    },
+
+    notifyBackgroundSendStatus: function(data) {
+      model.emit('backgroundSendStatus', data);
+    },
+
+    // Lifecycle
 
     _dieFolders: function() {
       if (this.foldersSlice)

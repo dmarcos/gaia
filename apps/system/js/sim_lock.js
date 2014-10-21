@@ -1,4 +1,3 @@
-/* -*- Mode: Java; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- /
 /* vim: set shiftwidth=2 tabstop=2 autoindent cindent expandtab: */
 
 'use strict';
@@ -6,36 +5,102 @@
 var SimLock = {
   _duringCall: false,
   _showPrevented: false,
+  _alreadyShown: false,
 
   init: function sl_init() {
-    // Do not do anything if we can't have access to IccHelper API
-    if (!IccHelper.enabled)
+    // Do not do anything if there's no SIMSlot instance.
+    if (!SIMSlotManager.length)
       return;
 
     this.onClose = this.onClose.bind(this);
 
+    // for bootup special case
+    this.showIfLocked();
+
+    window.addEventListener('ftuopen', this);
+
     // Watch for apps that need a mobile connection
-    window.addEventListener('appwillopen', this);
+    window.addEventListener('appopened', this);
 
     // Display the dialog only after lockscreen is unlocked
+    // before the transition.
     // To prevent keyboard being displayed behind it.
-    window.addEventListener('unlock', this);
+    //
+    // And we can't listen to 'lockscreen-appclosing' event because
+    // we need to detect if the next app is Camera.
+    window.addEventListener('lockscreen-request-unlock', this);
 
     // always monitor card state change
-    IccHelper.addEventListener('cardstatechange', this.showIfLocked.bind(this));
+    var self = this;
+    window.addEventListener('simslot-cardstatechange', function(evt) {
+      self.showIfLocked(evt.detail.index);
+    });
 
-    // Listen to callscreenwillopen and callscreenwillclose event
+    // In some case, we can have 'iccdetected' and then 'iccinfochange'
+    // happening after 'cardstatechange'. We add a listener on
+    // 'simslot-iccinfochange' and if the SIM is locked, we will display the SIM
+    // PIN UI.
+    window.addEventListener('simslot-iccinfochange', function(evt) {
+      self.showIfLocked(evt.detail.index);
+    });
+
+    // Listen to callscreen window's opening and terminated events
     // to discard the cardstatechange event.
-    window.addEventListener('callscreenwillopen', this);
-    window.addEventListener('callscreenwillclose', this);
+    window.addEventListener('attentionopening', this);
+    window.addEventListener('attentionterminated', this);
+
+    // Listen to events fired from SIMPINDialog
+    window.addEventListener('simpinskip', this);
+    window.addEventListener('simpinback', this);
+    window.addEventListener('simpinrequestclose', this);
+
+    this._alreadyShown = false;
   },
 
   handleEvent: function sl_handleEvent(evt) {
     switch (evt.type) {
-      case 'callscreenwillopen':
+      case 'ftuopen':
+        VersionHelper.getVersionInfo().then(function(info) {
+          if (!info.isUpgrade()) {
+            SimPinDialog.close();
+          }
+        });
+        break;
+      case 'simpinback':
+        var index = evt.detail._currentSlot.index;
+        this.showIfLocked(index - 1);
+        break;
+      // Test if there's still any card is locking.
+      case 'simpinskip':
+        var index = evt.detail._currentSlot.index;
+        if (index + 1 >= this.length - 1) {
+          evt.detail.close('skip');
+        } else {
+          if (!this.showIfLocked(index + 1, true)) {
+            evt.detail.close('skip');
+          }
+        }
+        break;
+      case 'simpinrequestclose':
+        var index = evt.detail.dialog._currentSlot.index;
+        if (index + 1 >= this.length - 1) {
+          evt.detail.dialog.close(evt.detail.reason);
+        } else {
+          if (!this.showIfLocked(index + 1, true)) {
+            evt.detail.dialog.close(evt.detail.reason);
+          }
+        }
+        break;
+      case 'attentionopening':
+        if (evt.detail.CLASS_NAME !== 'CallscreenWindow') {
+          return;
+        }
         this._duringCall = true;
         break;
-      case 'callscreenwillclose':
+      case 'attentionterminated':
+        if (evt.detail.CLASS_NAME !== 'CallscreenWindow') {
+          return;
+        }
         this._duringCall = false;
         if (this._showPrevented) {
           this._showPrevented = false;
@@ -45,29 +110,40 @@ var SimLock = {
           this.showIfLocked();
         }
         break;
-      case 'unlock':
+      case 'lockscreen-request-unlock':
         // Check whether the lock screen was unlocked from the camera or not.
         // If the former is true, the SIM PIN dialog should not displayed after
         // unlock, because the camera will be opened (Bug 849718)
-        if (evt.detail && evt.detail.areaCamera)
+        if (evt.detail && evt.detail.activity &&
+            'record' === evt.detail.activity.name) {
+          if (SimPinDialog.visible) {
+            SimPinDialog.close();
+          }
           return;
-
-        this.showIfLocked();
+        }
+        var self = this;
+        // We should wait for lockscreen-appclosed event sent before checking
+        // the value of System.locked in showIfLocked method.
+        window.addEventListener('lockscreen-appclosed',
+          function lockscreenOnClosed() {
+            window.removeEventListener('lockscreen-appclosed',
+              lockscreenOnClosed);
+            self.showIfLocked();
+          });
         break;
-      case 'appwillopen':
+      case 'appopened':
         // If an app needs 'telephony' or 'sms' permissions (i.e. mobile
         // connection) and the SIM card is locked, the SIM PIN unlock screen
         // should be launched
 
-        var app = Applications.getByManifestURL(
-          evt.target.getAttribute('mozapp'));
+        var app = evt.detail;
 
-        if (!app || !app.manifest.permissions)
+        if (!app || !app.manifest || !app.manifest.permissions)
           return;
 
         // Ignore first time usage (FTU) app which already asks for the PIN code
         // XXX: We should have a better way to detect this app is FTU or not.
-        if (evt.target.dataset.frameOrigin == FtuLauncher.getFtuOrigin())
+        if (app.origin == FtuLauncher.getFtuOrigin())
           return;
 
         // Ignore apps that don't require a mobile connection
@@ -82,67 +158,92 @@ var SimLock = {
         if (app.manifestURL == settingsManifestURL)
           return;
 
-        // Ignore second 'appwillopen' event when showIfLocked eventually opens
-        // the app on valid PIN code
-        var origin = evt.target.dataset.frameOrigin;
-        if (origin == this._lastOrigin) {
-          delete this._lastOrigin;
-          return;
-        }
-        this._lastOrigin = origin;
-
         // If SIM is locked, cancel app opening in order to display
         // it after the SIM PIN dialog is shown
-        if (this.showIfLocked())
-          evt.preventDefault();
+        this.showIfLocked();
+        // XXX: We don't block the app from launching if it requires SIM
+        // but only put the SIM PIN dialog upon the opening/opened app.
+        // Will revisit this in
+        // https://bugzilla.mozilla.org/show_bug.cgi?id=SIMPIN-Dialog
 
         break;
     }
   },
 
-  showIfLocked: function sl_showIfLocked() {
-    if (!IccHelper.enabled)
-      return false;
-
-    if (LockScreen.locked)
+  showIfLocked: function sl_showIfLocked(currentSlotIndex, skipped) {
+    if (System.locked)
       return false;
 
     // FTU has its specific SIM PIN UI
-    if (FtuLauncher.isFtuRunning())
+    if (FtuLauncher.isFtuRunning() && !FtuLauncher.isFtuUpgrading()) {
+      SimPinDialog.close();
       return false;
+    }
 
     if (this._duringCall) {
       this._showPrevented = true;
       return false;
     }
+    var locked = false;
 
-    switch (IccHelper.cardState) {
-      // do nothing in either absent, unknown or null card states
-      case null:
-      case 'absent':
-      case 'unknown':
-        break;
-      case 'pukRequired':
-      case 'pinRequired':
-        SimPinDialog.show('unlock', this.onClose);
-        return true;
-      case 'networkLocked':
-      case 'corporateLocked':
-      case 'serviceProviderLocked':
-        SimPinDialog.show('unlock', SimLock.onClose);
-        return true;
-    }
-    return false;
+    return SIMSlotManager.getSlots().some(function iterator(slot, index) {
+      if (currentSlotIndex && index !== currentSlotIndex) {
+        return false;
+      }
+
+      if (!slot.simCard) {
+        return false;
+      }
+
+      // Only render if not already displaying, or
+      // displaying and skipping
+      if (SimPinDialog.visible ? !skipped : skipped) {
+        return false;
+      }
+
+      // Always showing the first slot first.
+      if (!this._alreadyShown && index > 1) {
+        return false;
+      }
+
+      switch (slot.simCard.cardState) {
+        // do nothing in either unknown or null card states
+        case null:
+        case 'unknown':
+          break;
+        case 'pukRequired':
+        case 'pinRequired':
+        case 'networkLocked':
+        case 'corporateLocked':
+        case 'serviceProviderLocked':
+        case 'network1Locked':
+        case 'network2Locked':
+        case 'hrpdNetworkLocked':
+        case 'ruimCorporateLocked':
+        case 'ruimServiceProviderLocked':
+          this._alreadyShown = true;
+          SimPinDialog.show(slot, this.onClose.bind(this), skipped);
+          return true;
+      }
+    }, this);
   },
 
   onClose: function sl_onClose(reason) {
-    // Display the app only when PIN code is valid and when we click
-    // on `X` button
-    if (this._lastOrigin && (reason == 'success' || reason == 'skip'))
-      WindowManager.setDisplayedApp(this._lastOrigin);
-    delete this._lastOrigin;
+    // XXX: We are not blocking app to be opened since bug 907013
+    // so we don't need to re-display the app here.
   }
-
 };
 
-SimLock.init();
+function preInit() {
+  if (SIMSlotManager.ready) {
+    SimLock.init();
+  } else {
+    window.addEventListener('simslotready', function ready() {
+      window.removeEventListener('simslotready', ready);
+      SimLock.init();
+    });
+  }
+}
+
+// SIMLock will optionally load SIMLock dialog which is blocked by l10n
+navigator.mozL10n.once(preInit);

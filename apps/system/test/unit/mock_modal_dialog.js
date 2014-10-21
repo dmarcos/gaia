@@ -1,7 +1,9 @@
+'use strict';
+
 var MockModalDialog = {
 
   mMethods: [
-    'alert'
+    'alert', 'confirm'
   ],
 
   mPopulate: function mmd_mPopulate() {
@@ -20,6 +22,9 @@ var MockModalDialog = {
   },
 
   showWithPseudoEvent: function mmd_showWIthPseudoEvent(param) {
+    if (typeof param.text === 'object' && param.text.raw) {
+      param.text = param.text.raw;
+    }
     if (this.mCallback) {
       this.mCallback(param);
     }
@@ -31,7 +36,11 @@ var MockModalDialog = {
   },
 
   mTeardown: function mmd_mTeardown() {
+    delete this.mCallback;
     this.init();
+  },
+
+  selectOne: function mmd_selectOne() {
   }
 };
 

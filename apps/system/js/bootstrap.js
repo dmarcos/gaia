@@ -1,38 +1,208 @@
 /* -*- Mode: js; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- /
 /* vim: set shiftwidth=2 tabstop=2 autoindent cindent expandtab: */
 
+/*global ActivityWindowManager, SecureWindowFactory,
+         SecureWindowManager, HomescreenLauncher, HomescreenWindowManager,
+         FtuLauncher, SourceView, ScreenManager, Places, Activities,
+         DeveloperHUD, DialerAgent, RemoteDebugger, HomeGesture,
+         VisibilityManager, UsbStorage, InternetSharing, TaskManager,
+         TelephonySettings, SuspendingAppPriorityManager, TTLView,
+         MediaRecording, AppWindowFactory, SystemDialogManager,
+         applications, Rocketbar, LayoutManager, PermissionManager,
+         SoftwareButtonManager, Accessibility, NfcUtils, ShrinkingUI,
+         TextSelectionDialog, InternetSharing, SleepMenu, AppUsageMetrics,
+         LockScreenPasscodeValidator, NfcManager,
+         ExternalStorageMonitor,
+         BrowserSettings, AppMigrator, SettingsMigrator, EuRoamingManager,
+         CpuManager, CellBroadcastSystem, EdgeSwipeDetector, QuickSettings,
+         BatteryOverlay, BaseModule, AppWindowManager */
 'use strict';
 
+
+/* === Shortcuts === */
+/* For hardware key handling that doesn't belong to anywhere */
+var Shortcuts = {
+  init: function rm_init() {
+    window.addEventListener('keyup', this);
+  },
+
+  handleEvent: function rm_handleEvent(evt) {
+    if (!ScreenManager.screenEnabled || evt.keyCode !== evt.DOM_VK_F6) {
+      return;
+    }
+
+    document.location.reload();
+  }
+};
+
 window.addEventListener('load', function startup() {
+  /**
+   * Register global instances and constructors here.
+   */
+  function registerGlobalEntries() {
+    /** @global */
+    window.appWindowManager = new AppWindowManager();
+
+    /** @global */
+    window.activityWindowManager = new ActivityWindowManager();
+    window.activityWindowManager.start();
+
+    /** @global */
+    window.secureWindowManager = window.secureWindowManager ||
+      new SecureWindowManager();
+    /** @global */
+    window.secureWindowFactory = new SecureWindowFactory();
+    /** @global */
+    if (window.SuspendingAppPriorityManager) {
+      window.suspendingAppPriorityManager = new SuspendingAppPriorityManager();
+    }
+    /** @global */
+    window.systemDialogManager = window.systemDialogManager ||
+      new SystemDialogManager();
+
+    /** @global */
+    window.lockScreenWindowManager = new window.LockScreenWindowManager();
+    window.lockScreenWindowManager.start();
+
+    // Let systemDialogManager handle inputmethod-contextchange event before
+    // starting appWindowManager. See bug 1082741.
+    window.appWindowManager.start();
+
+    /** @global */
+    window.textSelectionDialog = new TextSelectionDialog();
+  }
+
   function safelyLaunchFTU() {
     window.addEventListener('homescreen-ready', function onHomescreenReady() {
       window.removeEventListener('homescreen-ready', onHomescreenReady);
       FtuLauncher.retrieve();
     });
-    HomescreenLauncher.init();
+    /** @global */
+    if (!window.homescreenLauncher) {
+      // We may have application.ready = true while reloading at firefox nightly
+      // browser. In this case, the window.homescreenLauncher haven't been
+      // created. We should create it and start it in this case.
+      window.homescreenLauncher = new HomescreenLauncher();
+    }
+    window.homescreenLauncher.start();
   }
 
-  if (Applications.ready) {
+  if (applications.ready) {
+    registerGlobalEntries();
     safelyLaunchFTU();
   } else {
     window.addEventListener('applicationready', function appListReady(event) {
       window.removeEventListener('applicationready', appListReady);
+      registerGlobalEntries();
       safelyLaunchFTU();
     });
   }
 
-  window.addEventListener('ftudone', function doneWithFTU() {
+  /**
+   * Enable checkForUpdate after FTU is either done or skipped.
+   */
+  function doneWithFTU() {
     window.removeEventListener('ftudone', doneWithFTU);
-
+    window.removeEventListener('ftuskip', doneWithFTU);
     var lock = window.navigator.mozSettings.createLock();
     lock.set({
       'gaia.system.checkForUpdates': true
     });
-  });
+    // make sure new key is available in system
+    window.settingsMigrator = new SettingsMigrator();
+    window.settingsMigrator.start();
+  }
 
-  SourceView.init();
+  window.addEventListener('ftudone', doneWithFTU);
+  // Enable checkForUpdate as well if booted without FTU
+  window.addEventListener('ftuskip', doneWithFTU);
+
   Shortcuts.init();
   ScreenManager.turnScreenOn();
+
+  // To make sure homescreen window manager can intercept webapps-launch event,
+  // we need to move the code here.
+  window.homescreenWindowManager = new HomescreenWindowManager();
+  window.homescreenWindowManager.start();
+
+  // Please sort it alphabetically
+  window.activities = new Activities();
+  window.accessibility = new Accessibility();
+  window.accessibility.start();
+  window.appMigrator = new AppMigrator();
+  window.appMigrator.start();
+  window.appUsageMetrics = new AppUsageMetrics();
+  window.appUsageMetrics.start();
+  window.appWindowFactory = new AppWindowFactory();
+  window.appWindowFactory.start();
+  window.batteryOverlay = new BatteryOverlay();
+  window.batteryOverlay.start();
+  window.cellBroadcastSystem = new CellBroadcastSystem();
+  window.cellBroadcastSystem.start();
+  window.cpuManager = new CpuManager();
+  window.cpuManager.start();
+  window.developerHUD = new DeveloperHUD();
+  window.developerHUD.start();
+  /** @global */
+  window.attentionWindowManager = new window.AttentionWindowManager();
+  window.attentionWindowManager.start();
+  window.dialerAgent = new DialerAgent();
+  window.dialerAgent.start();
+  window.edgeSwipeDetector = new EdgeSwipeDetector();
+  window.edgeSwipeDetector.start();
+  window.euRoamingManager = new EuRoamingManager();
+  window.euRoamingManager.start();
+  window.externalStorageMonitor = new ExternalStorageMonitor();
+  window.externalStorageMonitor.start();
+  window.homeGesture = new HomeGesture();
+  window.homeGesture.start();
+  if (!window.homescreenLauncher) {
+    // If application.ready is true, we already create homescreenLauncher in
+    // safelyLaunchFTU(). We should use it. If it is false, we should create it
+    // here.
+    window.homescreenLauncher = new HomescreenLauncher();
+  }
+  window.internetSharing = new InternetSharing();
+  window.internetSharing.start();
+  window.lockScreenPasscodeValidator = new LockScreenPasscodeValidator();
+  window.lockScreenPasscodeValidator.start();
+  window.layoutManager = new LayoutManager();
+  window.layoutManager.start();
+  window.nfcUtils = new NfcUtils();
+  window.nfcManager = new NfcManager();
+  window.nfcManager.start();
+  window.permissionManager = new PermissionManager();
+  window.permissionManager.start();
+  window.places = new Places();
+  window.places.start();
+  window.remoteDebugger = new RemoteDebugger();
+  window.rocketbar = new Rocketbar();
+  window.shrinkingUI = new ShrinkingUI();
+  window.shrinkingUI.start();
+  window.sleepMenu = new SleepMenu();
+  window.sleepMenu.start();
+  window.softwareButtonManager = new SoftwareButtonManager();
+  window.softwareButtonManager.start();
+  window.sourceView = new SourceView();
+  window.taskManager = new TaskManager();
+  window.taskManager.start();
+  window.telephonySettings = new TelephonySettings();
+  window.telephonySettings.start();
+  window.ttlView = new TTLView();
+  window.visibilityManager = new VisibilityManager();
+  window.visibilityManager.start();
+  window.wallpaperManager = new window.WallpaperManager();
+  window.wallpaperManager.start();
+
+  // unit tests call start() manually
+  if (navigator.mozL10n) {
+    navigator.mozL10n.once(function l10n_ready() {
+      window.mediaRecording = new MediaRecording();
+      window.mediaRecording.start();
+      window.quickSettings = new QuickSettings();
+      window.quickSettings.start();
+    });
+  }
 
   // We need to be sure to get the focus in order to wake up the screen
   // if the phone goes to sleep before any user interaction.
@@ -48,68 +218,25 @@ window.addEventListener('load', function startup() {
       { bubbles: true, cancelable: false,
         detail: { type: 'system-message-listener-ready' } });
   window.dispatchEvent(evt);
+
+  window.core = BaseModule.instantiate('Core');
+  window.core && window.core.start();
+
+  window.mozPerformance.timing.mozSystemLoadEnd = Date.now();
 });
 
-/* === Shortcuts === */
-/* For hardware key handling that doesn't belong to anywhere */
-var Shortcuts = {
-  init: function rm_init() {
-    window.addEventListener('keyup', this);
-  },
-
-  handleEvent: function rm_handleEvent(evt) {
-    if (!ScreenManager.screenEnabled || evt.keyCode !== evt.DOM_VK_F6)
-      return;
-
-    document.location.reload();
-  }
-};
-
-/* === Localization === */
-/* set the 'lang' and 'dir' attributes to <html> when the page is translated */
-window.addEventListener('localized', function onlocalized() {
-  document.documentElement.lang = navigator.mozL10n.language.code;
-  document.documentElement.dir = navigator.mozL10n.language.direction;
-});
-
-var wallpaperURL = new SettingsURL();
+window.usbStorage = new UsbStorage();
 
 // Define the default background to use for all homescreens
-SettingsListener.observe(
-  'wallpaper.image',
-  'resources/images/backgrounds/default.png',
-  function setWallpaper(value) {
-    document.getElementById('screen').style.backgroundImage =
-      'url(' + wallpaperURL.set(value) + ')';
-  }
-);
+window.addEventListener('wallpaperchange', function(evt) {
+  document.getElementById('screen').style.backgroundImage =
+    'linear-gradient(rgba(0, 0, 0, 0.1), rgba(0, 0, 0, 0.1)),' +
+    'url(' + evt.detail.url + ')';
+});
 
-// Use a setting in order to be "called" by settings app
-navigator.mozSettings.addObserver(
-  'clear.remote-windows.data',
-  function clearRemoteWindowsData(setting) {
-    var shouldClear = setting.settingValue;
-    if (!shouldClear)
-      return;
+window.browserSettings = new BrowserSettings();
+window.browserSettings.start();
 
-    // Delete all storage and cookies from our content processes
-    var request = navigator.mozApps.getSelf();
-    request.onsuccess = function() {
-      request.result.clearBrowserData();
-    };
-
-    // Reset the setting value to false
-    var lock = navigator.mozSettings.createLock();
-    lock.set({'clear.remote-windows.data': false});
-  });
-
-// Cancel dragstart event to workaround
-// https://bugzilla.mozilla.org/show_bug.cgi?id=783076
-// which stops OOP home screen pannable with left mouse button on
-// B2G/Desktop.
-windows.addEventListener('dragstart', function(evt) {
-  evt.preventDefault();
-}, true);
 
 /* === XXX Bug 900512 === */
 // On some devices touching the hardware home button triggers
@@ -117,15 +244,26 @@ windows.addEventListener('dragstart', function(evt) {
 // not trigger unexpected behaviors those are captured here.
 function cancelHomeTouchstart(e) {
   if (e.touches[0].pageX === 0 && e.touches[0].pageY === 0) {
+    e.preventDefault();
     e.stopImmediatePropagation();
   }
 }
 
 function cancelHomeTouchend(e) {
-  if (e.touches[0].pageX === 0 && e.touches[0].pageY === 0) {
+  if (e.changedTouches[0].pageX === 0 && e.changedTouches[0].pageY === 0) {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  }
+}
+
+function cancelHomeClick(e) {
+  if (e.pageX === 0 && e.pageY === 0) {
+    e.preventDefault();
     e.stopImmediatePropagation();
   }
 }
 
 window.addEventListener('touchstart', cancelHomeTouchstart, true);
-window.addEventListener('touchstart', cancelHomeTouchend, true);
+window.addEventListener('touchend', cancelHomeTouchend, true);
+window.addEventListener('mousedown', cancelHomeClick, true);
+window.addEventListener('mouseup', cancelHomeClick, true);

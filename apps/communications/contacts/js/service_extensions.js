@@ -1,4 +1,7 @@
 'use strict';
+/* global ConfirmDialog */
+/* global contacts */
+/* global fb */
 
 var Contacts = window.Contacts || {};
 
@@ -9,7 +12,7 @@ if (typeof Contacts.extServices === 'undefined') {
 
     var extensionFrame = document.querySelector('#fb-extensions');
     var oauthFrame = document.querySelector('#fb-oauth');
-    oauthFrame.src = '/facebook/fb_oauth.html';
+    oauthFrame.src = '/shared/pages/import/oauth.html';
     var currentURI, access_token;
     var canClose = true, canCloseLogout = true;
     var closeRequested = false;
@@ -53,7 +56,8 @@ if (typeof Contacts.extServices === 'undefined') {
       closeRequested = false;
       canClose = false;
       canCloseLogout = false;
-      load('import.html?service=' + serviceName, 'friends', serviceName);
+      load('/shared/pages/import/import.html?service=' + serviceName,
+           'friends', serviceName);
     }
 
     function load(uri, from, serviceName) {
@@ -68,12 +72,15 @@ if (typeof Contacts.extServices === 'undefined') {
     }
 
     function unload() {
+      // Attaching again scrolling handlers on the contact list's image loader
+      window.dispatchEvent(new CustomEvent('image-loader-resume'));
       extensionFrame.src = currentURI = null;
     }
 
-    function close(message) {
+    function close(messageId, additionalMessageId) {
       extensionFrame.addEventListener('transitionend', function tclose() {
         extensionFrame.removeEventListener('transitionend', tclose);
+        extensionFrame.classList.add('hidden');
         if (canClose === true && canCloseLogout === true) {
           unload();
         }
@@ -81,16 +88,16 @@ if (typeof Contacts.extServices === 'undefined') {
           closeRequested = true;
         }
 
-        if (message && message.trim().length > 0) {
-          Contacts.showStatus(message);
+        if (messageId) {
+          Contacts.showStatus(messageId, additionalMessageId);
         }
       // Otherwise we do nothing as the sync process will finish sooner or later
       });
-      extensionFrame.className = 'closing';
+      extensionFrame.classList.remove('opening');
     }
 
     function openURL(url) {
-      window.open(url);
+      window.open(url, '', 'dialog');
     }
 
     extServices.showProfile = function(cid) {
@@ -142,8 +149,9 @@ if (typeof Contacts.extServices === 'undefined') {
 
       // Add extra info too
       var extras = {};
-      extras['fb_is_linked'] = linked;
+      extras.fb_is_linked = linked;
 
+      /* jshint loopfunc:true */
       for (var nodeName in elements) {
         var node = socialNode.querySelector(nodeName);
         var variables = elements[nodeName].elems;
@@ -156,7 +164,7 @@ if (typeof Contacts.extServices === 'undefined') {
     };
 
     function onClickWithId(evt, callback) {
-      var contactId = evt.target.dataset['id'];
+      var contactId = evt.target.dataset.id;
       callback(contactId);
     }
 
@@ -179,8 +187,8 @@ if (typeof Contacts.extServices === 'undefined') {
 
     // Note this is slightly different
     function onLinkClick(evt) {
-      var contactId = evt.target.dataset['id'];
-      var linked = evt.target.dataset['fb_is_linked'];
+      var contactId = evt.target.dataset.id;
+      var linked = evt.target.dataset.fb_is_linked;
 
       linked = (linked === 'true');
       extServices.startLink(contactId, linked);
@@ -225,9 +233,9 @@ if (typeof Contacts.extServices === 'undefined') {
     }
 
     function unlink(cid) {
-      var msg = _('social-unlink-confirm-title');
+      var msg = 'social-unlink-confirm-title';
       var yesObject = {
-        title: _('social-unlink-confirm-accept'),
+        title: 'social-unlink-confirm-accept',
         isDanger: true,
         callback: function onAccept() {
           ConfirmDialog.hide();
@@ -236,7 +244,7 @@ if (typeof Contacts.extServices === 'undefined') {
       };
 
       var noObject = {
-        title: _('cancel'),
+        title: 'cancel',
         callback: function onCancel() {
           ConfirmDialog.hide();
         }
@@ -263,7 +271,7 @@ if (typeof Contacts.extServices === 'undefined') {
     }
 
     function notifySettings(evtype) {
-       // Notify observers that a change from FB could have happened
+      // Notify observers that a change from FB could have happened
       var eventType = evtype || 'fb_changed';
 
       var event = new CustomEvent(eventType, {
@@ -284,14 +292,20 @@ if (typeof Contacts.extServices === 'undefined') {
 
       switch (data.type) {
         case 'ready':
-          extensionFrame.className = 'opening';
-          extensionFrame.addEventListener('transitionend', function topen() {
-            extensionFrame.removeEventListener('transitionend', topen);
-            extensionFrame.contentWindow.postMessage({
-              type: 'dom_transition_end',
-              data: ''
-            }, fb.CONTACTS_APP_ORIGIN);
-          });
+          extensionFrame.classList.remove('hidden');
+          window.setTimeout(function displaying() {
+            extensionFrame.classList.add('opening');
+            extensionFrame.addEventListener('transitionend', function topen() {
+              extensionFrame.removeEventListener('transitionend', topen);
+              extensionFrame.contentWindow.postMessage({
+                type: 'dom_transition_end',
+                data: ''
+              }, fb.CONTACTS_APP_ORIGIN);
+              // Stop scrolling listeners on the contact list's image loader to
+              // prevent images cancelled while friends are being imported
+              window.dispatchEvent(new CustomEvent('image-loader-pause'));
+            });
+          }, 0);
         break;
 
         case 'authenticated':
@@ -312,7 +326,7 @@ if (typeof Contacts.extServices === 'undefined') {
         break;
 
         case 'window_close':
-          close(data.message);
+          close(data.messageId, data.additionalMessageId);
           notifySettings();
         break;
 
@@ -355,10 +369,12 @@ if (typeof Contacts.extServices === 'undefined') {
             type: 'token',
             data: access_token
           }, fb.CONTACTS_APP_ORIGIN);
+          break;
 
         case 'show_duplicate_contacts':
           extensionFrame.contentWindow.postMessage(data,
                                                     fb.CONTACTS_APP_ORIGIN);
+          break;
 
         case 'duplicate_contacts_merged':
           extensionFrame.contentWindow.postMessage(data,

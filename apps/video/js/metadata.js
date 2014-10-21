@@ -32,6 +32,8 @@
 var metadataQueue = [];
 var processingQueue = false;
 var stopParsingMetadataCallback = null;
+// noMoreWorkCallback is fired when the queue is processed or empty.
+var noMoreWorkCallback = null;
 
 // This function queues a fileinfo object with no metadata. When the app is
 // able it will obtain metadata for the video and pass the updated fileinfo
@@ -43,9 +45,19 @@ function addToMetadataQueue(fileinfo) {
 
 // Start or resume metadata parsing, if conditions are right
 function startParsingMetadata() {
-  // If there is no work queued, or if we're already working, return right away
-  if (processingQueue || metadataQueue.length === 0)
+  // If we're already working, return right away
+  if (processingQueue)
     return;
+
+  // If there is no work queued, fire noMoreWorkCallback event and return right
+  // away.
+  if (metadataQueue.length === 0) {
+    if (noMoreWorkCallback) {
+      noMoreWorkCallback();
+      noMoreWorkCallback = null;
+    }
+    return;
+  }
 
   // Don't parse metadata if we are not the foreground app. When we're
   // in the background we need to allow the foreground app to use the
@@ -105,6 +117,11 @@ function processFirstQueuedItem() {
     processingQueue = false;
     hideThrobber();
     updateDialog();
+
+    // Check explicitly for noMoreWorkCallBack as function, see bug 972651
+    if (typeof(noMoreWorkCallback) === 'function') {
+      noMoreWorkCallback();
+    }
     return;
   }
 
@@ -114,17 +131,21 @@ function processFirstQueuedItem() {
   // processFirstQueuedItem() again to re-check the stop flag and process
   // the next item on the queue.
   var fileinfo = metadataQueue.shift();
+
   videodb.getFile(fileinfo.name, function(file) {
     getMetadata(file, function(metadata) {
       // Associate the metadata with this fileinfo object
       fileinfo.metadata = metadata;
 
       // Save it to the database
-      videodb.updateMetadata(fileinfo.name, metadata);
-
-      // Create and insert a thumbnail for the video
-      if (metadata.isVideo)
-        addVideo(fileinfo);
+      videodb.updateMetadata(fileinfo.name, metadata, function() {
+        // Create and insert a thumbnail for the video
+        if (metadata.isVideo) {
+          videodb.getFileInfo(fileinfo.name, function(dbfileinfo) {
+            addVideo(dbfileinfo);
+          });
+        }
+      });
 
       // And process the next video in the queue
       setTimeout(processFirstQueuedItem);
@@ -232,7 +253,8 @@ function getMetadata(videofile, callback) {
     // and may not fire an error event, so if we aren't able to seek
     // after a certain amount of time, we'll abort and assume that the
     // video is invalid.
-    offscreenVideo.currentTime = Math.min(5, offscreenVideo.duration / 10);
+    var t = Math.min(5, offscreenVideo.duration / 10);
+    offscreenVideo.fastSeek(t);
 
     var failed = false;                      // Did seeking fail?
     var timeout = setTimeout(fail, 10000);   // Fail after 10 seconds
@@ -252,18 +274,9 @@ function getMetadata(videofile, callback) {
         return;
       clearTimeout(timeout);
       captureFrame(offscreenVideo, metadata, function(poster) {
-        if (poster === null) {
-          // If something goes wrong in captureFrame, it probably means that
-          // this is not a valid video. In any case, if we don't have a
-          // thumbnail image we shouldn't try to display it to the user.
-          // XXX: See bug 869289: maybe we should not fail here.
-          fail();
-        }
-        else {
-          metadata.poster = poster;
-          unload();
-          callback(metadata); // We've got all the metadata we need now.
-        }
+        metadata.poster = poster;
+        unload();
+        callback(metadata); // We've got all the metadata we need now.
       });
     };
   }
@@ -286,10 +299,16 @@ function getMetadata(videofile, callback) {
 
 function captureFrame(player, metadata, callback) {
   try {
+    // Create a new canvas, and set its size
     var canvas = document.createElement('canvas');
-    var ctx = canvas.getContext('2d');
     canvas.width = THUMBNAIL_WIDTH;
     canvas.height = THUMBNAIL_HEIGHT;
+
+    // Now create the context for the canvas after the size is set.
+    // The flag is a hint that we're going to be calling toBlob() on
+    // this canvas and that it is more efficient to use a software canvas
+    // than it is to do this on the GPU.
+    var ctx = canvas.getContext('2d', { willReadFrequently: true });
 
     var vw = player.videoWidth, vh = player.videoHeight;
     var tw, th;
@@ -320,19 +339,34 @@ function captureFrame(player, metadata, callback) {
       break;
     }
 
-    // Figure out what portion of the video we want to draw into the thumbnail
-    var scale = Math.min(vw / tw, vh / th);
-    var w = tw * scale, h = th * scale;
-    var x = (vw - w) / 2, y = (vh - h) / 2;
+    // Need to find the minimum ratio between heights and widths,
+    // so the image (especailly the square thumbnails) would fit
+    // in the container with right ratio and no extra stretch.
+    // x and y are right/left and top/bottom margins and where we
+    // start drawing the image. Since we scale the image, x and y
+    // will be scaled too. Below gives us x and y actual pixels
+    // without scaling.
+    var scale = Math.min(tw / vw, th / vh),
+        w = scale * vw, h = scale * vh,
+        x = (tw - w) / 2 / scale, y = (th - h) / 2 / scale;
+
+    // Scale the image
+    ctx.scale(scale, scale);
 
     // Draw the current video frame into the image
-    ctx.drawImage(player, x, y, w, h, 0, 0, tw, th);
+    ctx.drawImage(player, x, y);
 
     // Convert it to an image file and pass to the callback.
-    canvas.toBlob(callback, 'image/jpeg');
+    canvas.toBlob(done, 'image/jpeg');
   }
   catch (e) {
     console.error('Exception in captureFrame:', e, e.stack);
-    callback(null);
+    done(null);
+  }
+
+  function done(blob) {
+    canvas.width = 0;    // Free canvas memory
+    ctx = canvas = null; // Prevent leaks, just to be safe
+    callback(blob);      // Return the frame thumbnail to the caller
   }
 }

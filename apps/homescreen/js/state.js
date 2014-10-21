@@ -5,7 +5,7 @@ const HomeState = (function() {
   var DB_NAME = 'homescreen';
   var GRID_STORE_NAME = 'grid';
   var SV_APP_STORE_NAME = 'svAppsInstalled';
-  var DB_VERSION = 1;
+  var DB_VERSION = 2;
 
   var database = null;
   var initQueue = [];
@@ -28,15 +28,7 @@ const HomeState = (function() {
   }
 
   function openDB(success, error) {
-    try {
-      var indexedDB = window.indexedDB || window.webkitIndexedDB ||
-                      window.mozIndexedDB || window.msIndexedDB;
-    } catch (e) {
-      error(e);
-      return;
-    }
-
-    if (!indexedDB) {
+    if (!window.indexedDB) {
       error('Indexed DB is not available!!!');
       return;
     }
@@ -45,7 +37,7 @@ const HomeState = (function() {
     var emptyDB = false;
 
     try {
-      request = indexedDB.open(DB_NAME, DB_VERSION);
+      request = window.indexedDB.open(DB_NAME, DB_VERSION);
     } catch (ex) {
       error(ex.message);
       return;
@@ -62,10 +54,19 @@ const HomeState = (function() {
 
     request.onupgradeneeded = function(event) {
       var db = event.target.result;
-      if (event.oldVersion == 0) {
-        emptyDB = true;
-        db.createObjectStore(GRID_STORE_NAME, { keyPath: 'index' });
-        db.createObjectStore(SV_APP_STORE_NAME, { keyPath: 'manifest' });
+      var oldVersion = event.oldVersion || 0;
+      switch (oldVersion) {
+        case 0:
+          emptyDB = true;
+          db.createObjectStore(GRID_STORE_NAME, { keyPath: 'index' });
+          /* falls through */
+        case 1:
+          // This works as we're just adding a new object store.
+          // Please take into accout that in case we were altering the schema
+          // this wouldn't be enough
+          if (!db.objectStoreNames.contains(SV_APP_STORE_NAME)) {
+            db.createObjectStore(SV_APP_STORE_NAME, { keyPath: 'manifest' });
+          }
       }
     };
   }
@@ -152,6 +153,8 @@ const HomeState = (function() {
         HomeState.getSVApps(iteratorSVApps);
       }, error);
     },
+
+    openDB: openDB,
 
     saveGrid: function st_saveGrid(pages, success, error) {
       saveTable(GRID_STORE_NAME, pages, success, error);

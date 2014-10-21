@@ -1,185 +1,116 @@
-navigator.mozSetMessageHandler('activity', function handler(activity) {
-  var selectedSoundName, selectedSoundURL;
-  var baseURL, listURL, settingKey;
-  var toneType = activity.source.data.type;
+/* global NullRingtone, Promise, ToneList, TonePlayer */
+'use strict';
 
-  // Handle the case where toneType is an array. Note that we can't
-  // display both types of tones at once. But a client might ask for
-  // a ringtone or 'audio/mpeg' and we have to handle that.
-  if (typeof toneType === 'object') {
-    if (toneType.indexOf('ringtone') !== -1)
-      toneType = 'ringtone';
-    else if (toneType.indexOf('alerttone') !== -1)
-      toneType = 'alerttone';
+navigator.mozSetMessageHandler('activity', function(activity) {
+  var tonePlayer = new TonePlayer();
+
+  var toneTypes = activity.source.data.type;
+  var allowNone = activity.source.data.allowNone;
+  var currentToneID = activity.source.data.currentToneID;
+
+  var allToneTypes = window.builtInRingtones.toneTypes;
+  if (!Array.isArray(toneTypes)) {
+    toneTypes = [toneTypes];
   }
+  toneTypes = toneTypes.filter(function(x) {
+    return allToneTypes.indexOf(x) !== -1;
+  });
 
-  switch (toneType) {
-  case 'ringtone':
-    baseURL = '/shared/resources/media/ringtones/';
-    listURL = '/shared/resources/media/ringtones/list.json';
-    settingKey = 'dialer.ringtone.name';
-    break;
+  // Put any unasked-for types in another array so we can list them at the end.
+  var otherToneTypes = allToneTypes.filter(function(x) {
+    return toneTypes.indexOf(x) === -1;
+  });
 
-  case 'alerttone':
-    baseURL = '/shared/resources/media/notifications/';
-    listURL = '/shared/resources/media/notifications/list.json';
-    settingKey = 'notification.ringtone.name';
-    break;
-
-  default:
-    activity.postError('pick type not supported');
-    break;
-  }
-
-  // UI elements
-  var title = document.getElementById('title');
-  var done = document.getElementById('done');
-  var cancel = document.getElementById('cancel');
-  var player = document.createElement('audio'); // for previewing sounds
-
-  // Localize the titlebar text based on the tone type
-  navigator.mozL10n.localize(title, toneType + '-title');
-
-  cancel.onclick = function() {
+  document.getElementById('header').addEventListener('action', function() {
+    tonePlayer.stop();
     activity.postError('cancelled');
-  };
+  });
 
-  done.onclick = function() {
-    var xhr = new XMLHttpRequest();
-    xhr.open('GET', selectedSoundURL);
-    // XXX
-    // This assumes that all system tones are ogg files
-    // Maybe map based on the extension instead?
-    xhr.overrideMimeType('audio/ogg');
-    xhr.responseType = 'blob';
-    xhr.send();
-    xhr.onload = function() {
-      activity.postResult({
-        name: selectedSoundName,
-        blob: xhr.response
-      });
-    };
-  };
+  document.getElementById('set').addEventListener('click', function() {
+    tonePlayer.stop();
+    tonePlayer.isValid(function(valid) {
+      if (!valid) {
+        // The tone couldn't be played. Just act like the user canceled.
+        activity.postError('cancelled');
+      }
 
-  // When we start up, we first need to get the list of all sounds.
-  // We also need the name of the currently selected sound.
-  // Then we need to get localized names for the sounds.
-  // Then we can build our UI.
-  getSoundFilenames(function(filenames) {
-    getCurrentSoundName(function(currentSoundName) {
-      getSoundNames(filenames, function(sounds) {
-        buildUI(sounds, currentSoundName);
+      var selectedTone = tonePlayer.currentTone;
+      selectedTone.getBlob().then(function(blob) {
+        activity.postResult({
+          name: selectedTone.name,
+          l10nID: selectedTone.l10nID,
+          id: selectedTone.id,
+          blob: blob
+        });
       });
     });
   });
 
-  // Read the list.json file to get the names of all sounds we know about
-  // and pass an array of filenames to the callback function. These filenames
-  // are relative to baseURL.
-  function getSoundFilenames(callback) {
-    var xhr = new XMLHttpRequest();
-    xhr.open('GET', listURL);
-    xhr.responseType = 'json';
-    xhr.send(null);
-
-    xhr.onload = function() {
-      // The list.json file organizes the sound urls as an object instead of
-      // an array for some reason
-      var filenames = [];
-      for (var name in xhr.response) {
-        filenames.push(name);
-      }
-      callback(filenames);
-    };
-
-    xhr.onerror = function() {
-      console.error('Could not read sounds list', listURL, xhr.status);
-    };
+  function PickerToneList(...args) {
+    ToneList.apply(this, args);
   }
+  PickerToneList.prototype = Object.create(ToneList.prototype);
+  PickerToneList.prototype.constructor = PickerToneList;
+  PickerToneList.prototype.makeItem = function(tone) {
+    var item = ToneList.prototype.makeItem.call(this, tone);
 
-  function getCurrentSoundName(callback) {
-    navigator.mozSettings.createLock().get(settingKey).onsuccess = function(e) {
-      callback(e.target.result[settingKey]);
-    };
-  }
-
-  // Wait until localization is done, then obtain localized names for each
-  // each of the sound filenames, and invoke the callback with an object
-  // that maps human-readable sound names to sound URLs
-  function getSoundNames(filenames, callback) {
-    navigator.mozL10n.ready(function() {
-      var sounds = {};
-      filenames.forEach(function(filename) {
-        var key = filename.replace('.', '_');
-        var name = navigator.mozL10n.get(key);
-        if (!name) {
-          var prefix = toneType === 'alerttone' ? 'notifier_' : 'ringer_';
-          name = filename
-            .replace(prefix, '')      // strip prefix
-            .replace(/\..+$/, '')     // strip suffix
-            .replace('_', ' ');       // convert underscores to spaces
-        }
-        var url = baseURL + filename;
-        sounds[name] = url;
-      });
-
-      callback(sounds);
+    var input = item.querySelector('input');
+    input.checked = (tone.id === currentToneID);
+    input.addEventListener('click', function() {
+      tonePlayer.setTone(tone);
+      document.getElementById('set').disabled = false;
     });
-  }
 
-  function buildUI(sounds, currentSoundName) {
-    var list = document.getElementById('sounds');
-    // Add 'None' option which should be at the top.
-    if (toneType === 'alerttone') {
-     list.appendChild(buildListItem(navigator.mozL10n.get('none'), ''));
-    }
+    return item;
+  };
 
-    for (var name in sounds) {
-      var url = sounds[name];
-      list.appendChild(buildListItem(name, url));
-    }
+  navigator.mozL10n.once(function() {
+    var promises = [];
+    var listParent = document.getElementById('list-parent');
 
-    function buildListItem(name, url) {
-      var input = document.createElement('input');
-      input.type = 'radio';
-      input.name = 'sounds';
+    function addToneLists(toneType, includeNone) {
+      var builtInList = new PickerToneList(
+        'section-title-builtin-' + toneType, listParent
+      );
+      promises.push(window.builtInRingtones.list(toneType)
+                          .then(function(tones) {
+        builtInList.add(tones);
 
-      if (name === currentSoundName) {
-        //when user doesn't change the selected sound
-        //populate below variables to handle done click
-        selectedSoundName = name;
-        selectedSoundURL = url;
-        input.checked = true;
-      }
-      input.onchange = function(e) {
-        if (input.checked) {
-          selectedSoundName = name;
-          selectedSoundURL = url;
-          preview(url);
+        // Add the empty ringtone to the first list if it's allowed. This is a
+        // bit strange, since the empty ringtone doesn't *really* belong in any
+        // of our categories, so as a compromise, we just put it first. In
+        // practice, this works out ok, since consumers generally set allowNone
+        // to true when they want an alert tone, and the empty ringtone is
+        // sort of an alert tone.
+        if (includeNone) {
+          builtInList.add(new NullRingtone());
         }
-      };
+      }));
 
-      var span = document.createElement('span');
-
-      var label = document.createElement('label');
-      label.classList.add('pack-radio');
-      label.appendChild(input);
-      label.appendChild(span);
-
-      var sound = document.createElement('anchor');
-      sound.classList.add('sound-name');
-      sound.textContent = name;
-
-      var listItem = document.createElement('li');
-      listItem.appendChild(label);
-      listItem.appendChild(sound);
-
-      return listItem;
+      var customList = new PickerToneList(
+        'section-title-custom-' + toneType, listParent
+      );
+      promises.push(window.customRingtones.list(toneType).then(function(tones) {
+        customList.add(tones);
+      }));
+      promises.push(window.sdCardRingtones.list(toneType).then(function(tones) {
+        customList.add(tones);
+      }));
     }
-  }
 
-  function preview(url) {
-    player.src = url;
-    player.play();
-  }
+    // Add the asked-for built-in tones.
+    toneTypes.forEach(function(toneType, i) {
+      addToneLists(toneType, i === 0 && allowNone);
+    });
+
+    // Add the unasked-for built-in tones.
+    otherToneTypes.forEach(function(toneType) {
+      addToneLists(toneType);
+    });
+
+    Promise.all(promises).then(function(listsData) {
+      // This just notifies the tests that we're finished building our lists.
+      document.querySelector('body').dataset.ready = true;
+    });
+  });
 });

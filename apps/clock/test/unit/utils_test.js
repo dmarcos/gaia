@@ -1,12 +1,14 @@
-requireApp('clock/test/unit/mocks/mock_request_wake_lock.js');
+'use strict';
 
 suite('Time functions', function() {
   var Utils;
+  var MockRequestWakeLock;
 
   suiteSetup(function(done) {
-    testRequire(['utils'],
-      function(utils) {
+    require(['utils', 'mocks/mock_request_wake_lock'],
+      function(utils, _MockRequestWakeLock) {
         Utils = utils;
+        MockRequestWakeLock = _MockRequestWakeLock;
         done();
     });
   });
@@ -36,49 +38,10 @@ suite('Time functions', function() {
 
   });
 
-  suite('#parseTime', function() {
-
-    var parseTime;
-
-    suiteSetup(function() {
-      parseTime = Utils.parseTime;
-    });
-
-    test('12:10am', function() {
-      var time = parseTime('12:10AM');
-      assert.equal(time.hour, 0);
-      assert.equal(time.minute, 10);
-    });
-
-    test('12:00pm', function() {
-      var time = parseTime('12:00PM');
-      assert.equal(time.hour, 12);
-      assert.equal(time.minute, 00);
-    });
-
-    test('11:30pm', function() {
-      var time = parseTime('11:30PM');
-      assert.equal(time.hour, 23);
-      assert.equal(time.minute, 30);
-    });
-
-    test('00:15', function() {
-      var time = parseTime('12:15AM');
-      assert.equal(time.hour, 0);
-      assert.equal(time.minute, 15);
-    });
-
-    test('23:45', function() {
-      var time = parseTime('23:45');
-      assert.equal(time.hour, 23);
-      assert.equal(time.minute, 45);
-    });
-  });
-
   suite('#dateMath', function() {
     suiteSetup(function() {
       // The timestamp for "Tue Jul 16 2013 06:00:00" GMT
-      this.sixAm = 1373954400000;
+      this.sixAm = new Date(2013, 5, 16, 6).getTime();
       // Set clock so calls to new Date() and Date.now() will not vary
       // across test locales
       this.dat = new Date(this.sixAm + 15120000);
@@ -453,7 +416,7 @@ suite('Time functions', function() {
 
   });
 
-  suite('safeCpuLock tests', function() {
+  suite('safeWakeLock tests', function() {
 
     setup(function() {
       this.mocklock = new MockRequestWakeLock();
@@ -470,13 +433,13 @@ suite('Time functions', function() {
       var callback = this.sinon.spy(function(unlock) {
         assert.ok(navigator.requestWakeLock.calledOnce);
       });
-      Utils.safeCpuLock(15000, callback);
+      Utils.safeWakeLock({timeoutMs: 15000}, callback);
       this.sinon.clock.tick(16000);
       assert.ok(callback.calledOnce);
     });
 
     test('single unlock', function() {
-      Utils.safeCpuLock(15000, function(unlock) {
+      Utils.safeWakeLock({timeoutMs: 15000}, function(unlock) {
         unlock();
       });
       this.sinon.clock.tick(16000);
@@ -487,7 +450,7 @@ suite('Time functions', function() {
 
     test('no duplicate unlock', function() {
       var here = 0;
-      Utils.safeCpuLock(15000, function(unlock) {
+      Utils.safeWakeLock({timeoutMs: 15000}, function(unlock) {
         setTimeout(function() {
           here++;
           unlock();
@@ -503,7 +466,7 @@ suite('Time functions', function() {
 
     test('timeout unlock', function() {
       var here = false;
-      Utils.safeCpuLock(15000, function(unlock) {
+      Utils.safeWakeLock({timeoutMs: 15000}, function(unlock) {
         here = true;
       });
       this.sinon.clock.tick(16000);
@@ -516,7 +479,7 @@ suite('Time functions', function() {
     test('exception in callback still unlocks CPU', function() {
       var here = false;
       try {
-        Utils.safeCpuLock(15000, function(unlock) {
+        Utils.safeWakeLock({timeoutMs: 15000}, function(unlock) {
           here = true;
           throw new Error('gotcha');
         });
@@ -533,50 +496,6 @@ suite('Time functions', function() {
   });
 
   suite('format', function() {
-    suite('time(hh, mm) ', function() {
-      var is12hStub, formatTime;
-
-      setup(function() {
-        formatTime = Utils.format.time;
-        is12hStub = sinon.stub(Utils, 'is12hFormat');
-      });
-
-      teardown(function() {
-        is12hStub.restore();
-      });
-
-      test('12:00am, with 12 hour clock settings', function() {
-        is12hStub.returns(true);
-        assert.equal(formatTime(0, 0), '12:00AM');
-      });
-
-      test('12:30pm, with 12 hour clock settings', function() {
-        is12hStub.returns(true);
-        assert.equal(formatTime(12, 30), '12:30PM');
-      });
-
-      test('11:30pm, with 12 hour clock settings', function() {
-        is12hStub.returns(true);
-        assert.equal(formatTime(23, 30), '11:30PM');
-      });
-
-      test('12:30am, with 24 hour clock settings', function() {
-        is12hStub.returns(false);
-        assert.equal(formatTime(0, 30), '00:30');
-      });
-
-      test('12:30pm, with 24 hour clock settings', function() {
-        is12hStub.returns(false);
-        assert.equal(formatTime(12, 30), '12:30');
-      });
-
-      test('11:30pm, with 24 hour clock settings', function() {
-        is12hStub.returns(false);
-        assert.equal(formatTime(23, 30), '23:30');
-      });
-
-    });
-
     suite('hms()', function() {
       var hms;
 
@@ -726,4 +645,27 @@ suite('Time functions', function() {
       assert.ok(spy.calledOnce);
     });
   });
+
+  test('summarizeDaysOfWeek', function() {
+    assert.equal(Utils.summarizeDaysOfWeek({
+      sunday: true, saturday: true
+    }), 'weekends');
+
+    assert.equal(Utils.summarizeDaysOfWeek({ }), 'never');
+
+    assert.equal(Utils.summarizeDaysOfWeek({
+      monday: true, tuesday: true, wednesday: true,
+      thursday: true, friday: true
+    }), 'weekdays');
+
+    assert.equal(Utils.summarizeDaysOfWeek({
+      monday: true, tuesday: true, wednesday: true,
+      thursday: true, friday: true, saturday: true, sunday: true
+    }), 'everyday');
+
+    assert.equal(Utils.summarizeDaysOfWeek({
+      monday: true, wednesday: true, friday: true
+    }), 'weekday-1-short, weekday-3-short, weekday-5-short');
+  });
+
 });

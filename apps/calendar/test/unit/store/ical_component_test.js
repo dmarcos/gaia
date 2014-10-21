@@ -1,15 +1,15 @@
-requireLib('db.js');
-requireLib('store/abstract.js');
-requireLib('store/ical_component.js');
+define(function(require) {
+'use strict';
+
+var Abstract = require('store/abstract');
+var Factory = require('test/support/factory');
 
 suite('store/ical_component', function() {
-
   var subject;
   var db;
   var app;
 
   setup(function(done) {
-    this.timeout(5000);
     app = testSupport.calendar.app();
     db = app.db;
     subject = db.getStore('IcalComponent');
@@ -33,7 +33,7 @@ suite('store/ical_component', function() {
   });
 
   test('initialization', function() {
-    assert.instanceOf(subject, Calendar.Store.Abstract);
+    assert.instanceOf(subject, Abstract);
     assert.equal(subject.db, db);
     assert.deepEqual(subject._cached, {});
   });
@@ -85,11 +85,12 @@ suite('store/ical_component', function() {
     test('found', function(done) {
       subject.findRecurrencesBefore(max, function(err, list) {
         done(function() {
-          assert.length(list, expected.length);
+          assert.lengthOf(list, expected.length);
           assert.deepEqual(list, expected);
         });
       });
     });
   });
+});
 
 });

@@ -2,7 +2,21 @@
 /* vim: set shiftwidth=2 tabstop=2 autoindent cindent expandtab: */
 (function(exports) {
   'use strict';
+  /*global fb, Settings, Utils */
+  var unknownNumbers = [];
 
+  var filterFns = {
+    contains: function(a, b) {
+      a = a.toLowerCase();
+      b = b.toLowerCase();
+      return a.contains(b);
+    },
+    equality: function(a, b) {
+      a = a.toLowerCase();
+      b = b.toLowerCase();
+      return a === b;
+    }
+  };
   /**
    * isMatch
    *
@@ -13,8 +27,11 @@
    * @param {Object} criteria fields and terms to validate a contact.
    *        - fields (fields of a contact record).
    *        - terms (terms to validate against contact record field values).
+   * @param {Function} filterFn function accepts 2 arguments for
+   *                             comparison.
+   *
    */
-  function isMatch(contact, criteria) {
+  function isMatch(contact, criteria, filterFn) {
     /**
      * Validation Strategy
      *
@@ -22,9 +39,9 @@
      * 2. Let _contact_ be a contact record.
      * 3. For each _term_ [...input list], with the label _outer_
      *   - For each _field_ of [givenName, familyName]
-     *     - For each _value_ in _contact_[ _field_ ]
+     *     - For each _value_ of _contact_[ _field_ ]
      *       - Let _found_[ _term_ ] be the result of calling
-     *           _value_.startsWith( _term_ )
+     *         _filterFn_( _value_, _term_).
      *         - If _found_[ _term_ ] is **true**, continue to
      *           loop labelled _outer_
      * 4. If every value of _key_ in _found_ is **true** return **true**,
@@ -39,9 +56,18 @@
       var term = criteria.terms[i];
       for (var j = 0, jlen = criteria.fields.length; j < jlen; j++) {
         var field = criteria.fields[j];
+
+        if (!contact[field]) {
+          continue;
+        }
+
         for (var k = 0, klen = contact[field].length; k < klen; k++) {
           var value = contact[field][k];
-          if ((found[term] = value.toLowerCase().startsWith(term))) {
+          if (typeof value.value !== 'undefined') {
+            value = value.value;
+          }
+
+          if ((found[term] = filterFn(value.trim(), term))) {
             continue outer;
           }
         }
@@ -55,7 +81,7 @@
     // for (var term of criteria.terms) {
     //   for (var field of criteria.fields) {
     //     for (var value of contact[field]) {
-    //       if (found[term] = value.toLowerCase().startsWith(term)) {
+    //       if (found[term] = value.toLowerCase().contains(term)) {
     //         continue outer;
     //       }
     //     }
@@ -91,7 +117,7 @@
              *    result a no-op.
              *
              */
-            typeof filter.filterValue === 'undefined' ? null : []
+            typeof filter.filterValue === 'undefined' ? null : [], {}
           );
         });
         return;
@@ -117,10 +143,13 @@
        *
        * 5. Remove the length predominate term from the list of validation terms
        *
-       * 6. Make a mozContact.find request with the length predominate term
+       * 6. Add back the original search value, this is needed for matching
+       *     multi-word queries
+       *
+       * 7. Make a mozContact.find request with the length predominate term
        *     as the filter.filterValue.
        *
-       * 7. In the mozContacts.find request success handler, filter the
+       * 8. In the mozContacts.find request success handler, filter the
        *     results by evaluating each contact record against
        *     the list of validation terms.
        */
@@ -150,25 +179,36 @@
       lower.splice(lower.indexOf(filter.filterValue.toLowerCase()), 1);
 
       // Step 6
+      // This would be much nicer using spread operator
+      lower.push.apply(lower, terms);
+
+      // Step 7
       request = navigator.mozContacts.find(filter);
 
       request.onsuccess = function onsuccess() {
         var contacts = this.result.slice();
-        var fields = ['givenName', 'familyName'];
+        var fields = ['tel', 'givenName', 'familyName'];
+        if (Settings.supportEmailRecipient) {
+          fields.push('email');
+        }
+        var criteria = { fields: fields, terms: lower };
         var results = [];
         var contact;
 
-        // Step 7
+        // Step 8
         if (terms.length > 1) {
           while ((contact = contacts.pop())) {
-            if (isMatch(contact, { fields: fields, terms: lower })) {
+            if (isMatch(contact, criteria, filterFns.contains)) {
               results.push(contact);
             }
           }
         } else {
           results = contacts;
         }
-        callback(results);
+
+        callback(results, {
+          terms: terms
+        });
       };
 
       request.onerror = function onerror() {
@@ -180,18 +220,121 @@
       };
     },
     findByString: function contacts_findBy(filterValue, callback) {
+      var unknownCallback = function(contacts) {
+        contacts = contacts || [];
+        this.findByUnknown(filterValue, function(unknown) {
+          unknown = unknown || [];
+          callback(contacts.concat(unknown));
+        });
+      }.bind(this);
+      this.findContactByString(filterValue, unknownCallback);
+    },
+
+    findContactByString: function contacts_findBy(filterValue, callback) {
+      var props = ['tel', 'givenName', 'familyName'];
+      if (Settings.supportEmailRecipient) {
+        props.push('email');
+      }
       return this.findBy({
-        filterBy: ['tel', 'givenName', 'familyName'],
+        filterBy: props,
         filterOp: 'contains',
         filterValue: filterValue
       }, callback);
     },
+    findByUnknown: function findByUnknown(filterValue, callback) {
+      var list = [];
+      for (var i = 0, length = unknownNumbers.length; i < length; i++) {
+        //We only need at max 3 unknown contacts
+        if (list.length > 2) {
+          break;
+        }
+        var num = unknownNumbers[i];
+        if (num.contains(filterValue)) {
+          var obj = {
+            name: [num],
+            tel: [{value: num}],
+            source: 'unknown'
+          };
+          list.push(obj);
+        }
+      }
+      callback(list);
+    },
+
+    findExact: function contacts_findBy(filterValue, callback) {
+      return this.findBy({
+        filterBy: ['givenName', 'familyName'],
+        filterOp: 'contains',
+        filterValue: filterValue
+      }, function(results, meta) {
+        var contact = results && results.length ? results[0] : null;
+        var criteria = {
+          fields: ['name'],
+          terms: [filterValue]
+        };
+        var isExact = false;
+
+        if (contact) {
+          isExact = isMatch(contact, criteria, filterFns.equality);
+        }
+
+        callback(isExact ? [contact] : []);
+      });
+    },
+
     findByPhoneNumber: function contacts_findByPhone(filterValue, callback) {
       return this.findBy({
         filterBy: ['tel'],
         filterOp: 'match',
         filterValue: filterValue.replace(/\s+/g, '')
+      },
+      function(results) {
+        if (results && results.length) {
+          callback(results);
+          return;
+        }
+
+        fb.getContactByNumber(filterValue, function fbByPhone(contact) {
+          callback(contact ? [contact] : []);
+        }, function error_fbByPhone(err) {
+          if (err.name !== 'DatastoreNotFound') {
+            console.error('Error while retrieving fb by phone: ', err.name);
+          }
+
+          callback(results);
+        });
+      });
+    },
+
+    findByAddress: function contacts_findByAddress(fValue, callback) {
+      if (Settings.supportEmailRecipient && Utils.isEmailAddress(fValue)) {
+        this.findExactByEmail(fValue, callback);
+      } else {
+        this.findByPhoneNumber(fValue, callback);
+      }
+    },
+
+    findExactByEmail: function contacts_findExactByEmail(fValue, callback) {
+      return this.findBy({
+        filterBy: ['email'],
+        filterOp: 'equals',
+        filterValue: fValue
       }, callback);
+    },
+
+    addUnknown: function addUnknown(number) {
+      var index = unknownNumbers.indexOf(number);
+      if (index === -1) {
+        unknownNumbers.push(number);
+      }
+    },
+
+    clearUnknown: function clearUnknown() {
+      unknownNumbers.length = 0;
+    },
+
+    getunknownLength: function getunknownLength() {
+      return unknownNumbers.length;
     }
   };
 

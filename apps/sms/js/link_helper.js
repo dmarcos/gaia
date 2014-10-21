@@ -40,6 +40,7 @@ var KNOWN_TLDS = [
 
 var ipv4part = '(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)';
 var ipv4RegExp = new RegExp('^(?:' + ipv4part + '\\.){3}' + ipv4part + '$');
+var leadingDigitsRegExp = /^[+0-9]+/;
 
 // ensure that each part of the domain is long enough
 function checkDomain(domain) {
@@ -60,6 +61,7 @@ function checkDomain(domain) {
 var safeStart = /[\s,:;\(>]/;
 
 const MINIMUM_DIGITS_IN_PHONE_NUMBER = 5;
+const LEADING_DIGIT_BREAKPOINT = 7;
 
 /**
  * For each category of links:
@@ -92,6 +94,12 @@ var LINK_TYPES = {
         phone.length !== onlyDigits.length) {
         return false;
       }
+
+      var leadingDigits = leadingDigitsRegExp.exec(phone);
+      if (leadingDigits &&
+          leadingDigits[0].length >= LEADING_DIGIT_BREAKPOINT) {
+        link.end = link.start + leadingDigits[0].length;
+      }
       return link;
     },
     transform: function phoneTransform(phone, link) {
@@ -103,8 +111,8 @@ var LINK_TYPES = {
   url: {
     regexp: new RegExp([
       // must begin at start of string, after whitespace,
-      // {1} match the protocol https?:// (optional)
-      '(https?://)?',
+      // {1} match the protocol https?:// or rtsp:// (optional)
+      '(https?://|rtsp://)?',
       // {2} match "server name": . must be followed by at least one letter
       '((?:\\.?[-\\w]){1,256})',
       // {3} match a . followed by one or more domain valid chars
@@ -133,7 +141,7 @@ var LINK_TYPES = {
 
       // For Cases where:
       //
-      //  1. There was no scheme (eg, "http", "https")
+      //  1. There was no scheme (eg, "http", "https", "rtsp")
       //  2. The matched tld is not a number
       //  3. The matched tld is not a known tld
       //
@@ -215,6 +223,7 @@ function searchForLinks(type, string) {
 
     if (linkSpec) {
       linkSpecs.push(linkSpec);
+      regexp.lastIndex = linkSpec.end;
     }
   }
 

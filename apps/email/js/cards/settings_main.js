@@ -6,7 +6,6 @@ var templateNode = require('tmpl!./settings_main.html'),
     common = require('mail_common'),
     MailAPI = require('api'),
     Cards = common.Cards;
-
 /**
  * Global settings, list of accounts.
  */
@@ -35,7 +34,7 @@ SettingsMainCard.prototype = {
   nextCards: ['setup_account_info', 'settings_account'],
 
   onClose: function() {
-    Cards.removeCardAndSuccessors(this.domNode, 'animate', 1, 1);
+    Cards.removeCardAndSuccessors(this.domNode, 'animate');
   },
 
   onAccountsSplice: function(index, howMany, addedItems,
@@ -116,7 +115,7 @@ SettingsMainCard.prototype = {
 };
 Cards.defineCardWithDefaultMode(
     'settings_main',
-    { tray: false },
+    {},
     SettingsMainCard,
     templateNode
 );

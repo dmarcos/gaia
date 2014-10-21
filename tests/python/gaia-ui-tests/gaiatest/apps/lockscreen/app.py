@@ -8,37 +8,60 @@ from gaiatest.apps.base import Base
 from gaiatest.apps.base import PageRegion
 from gaiatest.apps.homescreen.app import Homescreen
 from gaiatest.apps.camera.app import Camera
+from gaiatest.apps.lockscreen.regions.passcode_pad import PasscodePad
 
 
 class LockScreen(Base):
 
-    _lockscreen_locator = (By.ID, 'lockscreen')
-    _lockscreen_slider_locator = (By.ID, 'lockscreen-icon-container')
+    _lockscreen_window_locator = (By.CLASS_NAME, 'lockScreenWindow')
 
-    _lockscreen_handle_locator = (By.ID, 'lockscreen-slide-handle')
-    _passcode_pad_locator = (By.ID, 'lockscreen-passcode-pad')
+    _lockscreen_locator = (By.ID, 'lockscreen')
+    _lockscreen_handle_locator = (By.ID, 'lockscreen-area-slide')
+    _lockscreen_passcode_panel_locator = (By.ID, 'lockscreen-panel-passcode')
+
+    _unlock_button_locator = (By.ID, 'lockscreen-area-unlock')
+    _camera_button_locator = (By.ID, 'lockscreen-area-camera')
+
     _notification_locator = (By.CSS_SELECTOR, '#notifications-lockscreen-container > div.notification')
 
-    def unlock(self):
+    def switch_to_frame(self):
+      # XXX: Because we're not in frame yet. LockScreen team now is
+      # trying hard to do decoupling & as-iframe at the same time,
+      # but iframe now stuck at weird test failures, so the team decide
+      # to land decoupling part first, with some dummy functions that
+      # can be modified later to fit the implementation.
+      #
+      # If we finished to make it as an iframe, to this to switch
+      # to the real frame:
+      #
+      #   self.marionette.switch_to_frame(
+      #    self.marionette.find_element(*self._lockscreen_frame_locator));
+      #
+      # But now we're not ready to do that yet.
+      self.marionette.switch_to_frame();
 
+    def unlock(self):
         self._slide_to_unlock('homescreen')
         return Homescreen(self.marionette)
 
     def unlock_to_camera(self):
-
+        self.wait_for_element_displayed(*self._lockscreen_handle_locator)
         self._slide_to_unlock('camera')
         return Camera(self.marionette)
 
-    def _slide_to_unlock(self, destination):
-
+    def unlock_to_passcode_pad(self):
         self.wait_for_element_displayed(*self._lockscreen_handle_locator)
+        self._slide_to_unlock('homescreen')
+        self.wait_for_element_displayed(*self._lockscreen_passcode_panel_locator)
+        return PasscodePad(self.marionette)
+
+    def _slide_to_unlock(self, destination):
 
         lockscreen_handle = self.marionette.find_element(*self._lockscreen_handle_locator)
         lockscreen_handle_x_centre = int(lockscreen_handle.size['width'] / 2)
         lockscreen_handle_y_centre = int(lockscreen_handle.size['height'] / 2)
 
-        lockscreen_slider = self.marionette.find_element(*self._lockscreen_slider_locator)
-        handle_destination = lockscreen_slider.size['width']
+        handle_destination = lockscreen_handle.size['width']
         if destination == 'camera':
             handle_destination *= -1
 
@@ -48,14 +71,18 @@ class LockScreen(Base):
         ).perform()
 
     def wait_for_lockscreen_not_visible(self):
-        self.wait_for_condition(lambda m: not self.marionette.find_element(*self._lockscreen_locator).location['x'] == 0, message="Lockscreen still visible after unlock")
+        self.wait_for_element_not_displayed(*self._lockscreen_locator)
 
-    @property
-    def passcode_pad(self):
-        self.wait_for_element_displayed(*self._passcode_pad_locator)
-        passcode_pad = self.marionette.find_element(*self._passcode_pad_locator)
-        from gaiatest.apps.lockscreen.regions.passcode_pad import PasscodePad
-        return PasscodePad(self.marionette, passcode_pad)
+    def wait_for_notification(self):
+        self.wait_for_element_displayed(*self._notification_locator)
+
+    def a11y_click_unlock_button(self):
+        self.accessibility.click(self.marionette.find_element(*self._unlock_button_locator))
+        return Homescreen(self.marionette)
+
+    def a11y_click_camera_button(self):
+        self.accessibility.click(self.marionette.find_element(*self._camera_button_locator))
+        return Camera(self.marionette)
 
     @property
     def notifications(self):
@@ -65,7 +92,7 @@ class LockScreen(Base):
 
 class Notification(PageRegion):
     _body_locator = (By.CSS_SELECTOR, 'div.detail')
-    _title_locator = (By.CSS_SELECTOR, 'div')
+    _title_locator = (By.CSS_SELECTOR, 'div.title')
 
     @property
     def is_visible(self):

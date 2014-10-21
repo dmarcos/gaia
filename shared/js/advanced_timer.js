@@ -1,5 +1,4 @@
-/* -*- Mode: js; js-indent-level: 2; indent-tabs-mode: nil -*- */
-/* vim: set shiftwidth=2 tabstop=2 autoindent cindent expandtab: */
+/* exported advanced_timer */
 
 'use strict';
 
@@ -19,8 +18,9 @@ var advanced_timer = {
 
     var self = this;
     var _id = setTimeout(function advTimer() {
+      var realUsedTime = new Date().getTime() - self.timers[timerId].timestamp;
       delete(self.timers[timerId]);
-      callback();
+      callback(realUsedTime);
     }, timeout);
     this.timers[timerId] = {
       'timeout': timeout,

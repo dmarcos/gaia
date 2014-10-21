@@ -1,10 +1,12 @@
-requireLib('calc.js');
-requireLib('db.js');
-requireLib('store/abstract.js');
-requireLib('store/alarm.js');
+define(function(require) {
+'use strict';
+
+var Abstract = require('store/abstract');
+var Calc = require('calc');
+var Factory = require('test/support/factory');
+var Responder = require('responder');
 
 suite('store/alarm', function() {
-
   var subject;
   var db;
   var app;
@@ -12,11 +14,11 @@ suite('store/alarm', function() {
 
 
   setup(function(done) {
-    this.timeout(5000);
     app = testSupport.calendar.app();
     db = app.db;
     controller = app.alarmController;
     subject = db.getStore('Alarm');
+    subject.app = app;
 
     db.open(function(err) {
       assert.ok(!err);
@@ -146,7 +148,7 @@ suite('store/alarm', function() {
   });
 
   test('initialization', function() {
-    assert.instanceOf(subject, Calendar.Store.Abstract);
+    assert.instanceOf(subject, Abstract);
     assert.equal(subject.db, db);
     assert.deepEqual(subject._cached, {});
   });
@@ -161,22 +163,11 @@ suite('store/alarm', function() {
 
       if (floating) {
         record.startDate.offset = 0;
-        record.startDate.tzid = Calendar.Calc.FLOATING;
+        record.startDate.tzid = Calc.FLOATING;
       }
 
       subject.persist(record, done);
     });
-  }
-
-  function getAll(cb) {
-    var trans = subject.db.transaction('alarms');
-    var store = trans.objectStore('alarms');
-
-    store.mozGetAll().onsuccess = function(e) {
-      cb(e.target.result);
-    };
-
-    store.mozGetAll().onerror = cb;
   }
 
   suite('#workQueue', function() {
@@ -189,7 +180,7 @@ suite('store/alarm', function() {
     var mockApi = {
 
       getAll: function() {
-        var req = new Calendar.Responder();
+        var req = new Responder();
 
         setTimeout(function() {
           req.result = getAllResults.concat([]);
@@ -197,8 +188,9 @@ suite('store/alarm', function() {
             target: req
           };
 
-          if (req.onsuccess)
+          if (req.onsuccess) {
             req.onsuccess(event);
+          }
 
           req.emit('success', event);
 
@@ -209,13 +201,14 @@ suite('store/alarm', function() {
 
       add: function(date, tz, data) {
         added.push(Array.prototype.slice.call(arguments));
-        var req = new Calendar.Responder();
+        var req = new Responder();
 
         setTimeout(function() {
-          var id = lastId++;
+          lastId++;
 
-          if (req.onsuccess)
+          if (req.onsuccess) {
             req.onsuccess(lastId);
+          }
 
           req.emit('success', lastId);
 
@@ -288,7 +281,7 @@ suite('store/alarm', function() {
       });
 
       test('after', function() {
-        assert.length(added, 0);
+        assert.lengthOf(added, 0);
       });
     });
 
@@ -303,7 +296,7 @@ suite('store/alarm', function() {
       });
 
       test('after complete', function() {
-        assert.length(added, 1);
+        assert.lengthOf(added, 1);
 
         assert.deepEqual(
           added[0][0],
@@ -321,7 +314,7 @@ suite('store/alarm', function() {
       });
 
       test('after complete', function() {
-        assert.length(added, 1);
+        assert.lengthOf(added, 1);
 
         assert.deepEqual(
           added[0][0],
@@ -384,7 +377,7 @@ suite('store/alarm', function() {
       */
 
       test('after complete', function() {
-        assert.length(added, 2);
+        assert.lengthOf(added, 2);
 
         assert.deepEqual(added[0][0], new Date(2018, 0, 1, 5));
         assert.equal(
@@ -429,5 +422,6 @@ suite('store/alarm', function() {
     });
 
   });
+});
 
 });

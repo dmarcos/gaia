@@ -1,115 +1,145 @@
+/* global MockCommon, MockCostControl, MockNavigatorMozMobileConnections, Event,
+          CostControlApp, Common, MockConfigManager, MockSettingsListener,
+          MockMozNetworkStats, MocksHelper, SimManager, MockNavigatorSettings,
+          AirplaneModeHelper, MockNavigatorMozIccManager
+*/
+/* exported PerformanceTestingHelper */
 'use strict';
 
 // XXX: As there are two iframes in the body, Firefox adds two indexed items
 // in the window object referring to those frames. Mocha considers these
 // indices as global leaks so we need to `whitelist` them.
 mocha.setup({ globals: ['0', '1'] });
-
-requireApp('costcontrol/test/unit/mock_debug.js');
-requireApp('costcontrol/test/unit/mock_common.js');
-requireApp('costcontrol/test/unit/mock_moz_l10n.js');
-requireApp('costcontrol/test/unit/mock_moz_mobile_connection.js');
-requireApp('costcontrol/shared/test/unit/mocks/' +
-           'mock_navigator_moz_set_message_handler.js');
-requireApp('costcontrol/test/unit/mock_icc_helper.js');
-requireApp('costcontrol/test/unit/mock_cost_control.js');
-requireApp('costcontrol/test/unit/mock_config_manager.js');
-requireApp('costcontrol/js/utils/toolkit.js');
-requireApp('costcontrol/js/view_manager.js');
-requireApp('costcontrol/js/app.js');
-requireApp('costcontrol/js/common.js');
+require('/shared/test/unit/mocks/mock_lazy_loader.js');
+require('/test/unit/mock_debug.js');
+require('/test/unit/mock_common.js');
+require('/test/unit/mock_moz_l10n.js');
+require('/shared/test/unit/mocks/mock_navigator_moz_mobile_connections.js');
+require('/test/unit/mock_moz_network_stats.js');
+require('/test/unit/mock_settings_listener.js');
+require('/shared/test/unit/mocks/mock_navigator_moz_set_message_handler.js');
+require('/shared/test/unit/mocks/mock_settings_listener.js');
+require('/shared/test/unit/mocks/mock_navigator_moz_settings.js');
+require('/shared/test/unit/mocks/mock_navigator_moz_icc_manager.js');
+require('/test/unit/mock_cost_control.js');
+require('/test/unit/mock_config_manager.js');
+require('/test/unit/mock_non_ready_screen.js');
+require('/js/utils/toolkit.js');
+require('/js/view_manager.js');
+require('/js/app.js');
+require('/js/common.js');
+require('/js/sim_manager.js');
 require('/shared/test/unit/load_body_html_helper.js');
+require('/shared/test/unit/mocks/mock_accessibility_helper.js');
+require('/test/unit/mock_airplane_mode_helper.js');
 
 var realCommon,
-    realMozMobileConnection,
+    realMozSettings,
+    realMozMobileConnections,
     realMozL10n,
-    realCostControl,
-    realConfigManager,
-    realIccHelper,
-    realMozSetMessageHandler;
+    realMozSetMessageHandler,
+    realMozNetworkStats,
+    realMozIccManager;
 
-if (!this.Common) {
-  this.Common = null;
+var PerformanceTestingHelper = {
+  dispatch: function() { }
+};
+
+if (!window.navigator.mozNetworkStats) {
+  window.navigator.mozNetworkStats = null;
 }
 
-if (!this.navigator.mozMobileConnection) {
-  this.navigator.mozMobileConnection = null;
+if (!window.navigator.mozIccManager) {
+  window.navigator.mozIccManager = null;
 }
 
-if (!this.navigator.mozL10n) {
-  this.navigator.mozL10n = null;
+if (!window.Common) {
+  window.Common = null;
 }
 
-if (!this.CostControl) {
-  this.CostControl = null;
+if (!window.navigator.mozSetMessageHandler) {
+  window.navigator.mozSetMessageHandler = null;
 }
 
-if (!this.ConfigManager) {
-  this.ConfigManager = null;
+if (!window.navigator.mozMobileConnections) {
+  window.navigator.mozMobileConnections = null;
 }
 
-if (!this.IccHelper) {
-  this.IccHelper = null;
+if (!window.navigator.mozL10n) {
+  window.navigator.mozL10n = null;
 }
 
-if (!this.navigator.mozSetMessageHandler) {
-  this.navigator.mozSetMessageHandler = null;
+if (!window.navigator.mozSettings) {
+  window.navigator.mozSettings = null;
 }
+
+var MocksHelperForUnitTest = new MocksHelper([
+  'LazyLoader',
+  'AirplaneModeHelper',
+  'ConfigManager',
+  'CostControl',
+  'SettingsListener',
+  'NonReadyScreen',
+  'AccessibilityHelper'
+]).init();
 
 suite('Application Startup Modes Test Suite >', function() {
 
+  MocksHelperForUnitTest.attachTestHelpers();
   suiteSetup(function() {
     realCommon = window.Common;
 
-    realMozMobileConnection = window.navigator.mozMobileConnection;
+    realMozMobileConnections = window.navigator.mozMobileConnections;
+    window.navigator.mozMobileConnections = MockNavigatorMozMobileConnections;
 
     realMozL10n = window.navigator.mozL10n;
     window.navigator.mozL10n = window.MockMozL10n;
-
-    realCostControl = window.CostControl;
-
-    realConfigManager = window.ConfigManager;
-
-    realIccHelper = window.IccHelper;
 
     realMozSetMessageHandler = window.navigator.mozSetMessageHandler;
     window.navigator.mozSetMessageHandler =
       window.MockNavigatormozSetMessageHandler;
     window.navigator.mozSetMessageHandler.mSetup();
+
+    realMozNetworkStats = window.navigator.mozNetworkStats;
+    navigator.mozNetworkStats = MockMozNetworkStats;
+
+    realMozSettings = navigator.mozSettings;
+    window.navigator.mozSettings = MockNavigatorSettings;
+
+    realMozIccManager = window.navigator.mozIccManager;
+    navigator.mozIccManager = window.MockNavigatorMozIccManager;
   });
 
   setup(function() {
+    SimManager.reset();
+    navigator.mozIccManager = window.MockNavigatorMozIccManager;
     CostControlApp.reset();
     window.dispatchEvent(new Event('localized'));
   });
 
-  suiteTeardown(function() {
-    window.Common = realCommon;
-    window.navigator.mozMobileConnection = realMozMobileConnection;
-    window.navigator.mozL10n = realMozL10n;
-    window.CostControl = realCostControl;
-    window.ConfigManager = realConfigManager;
-    window.IccHelper = realIccHelper;
-    window.navigator.mozSetMessageHandler.mTeardown();
-    window.navigator.mozSetMessageHandler = realMozSetMessageHandler;
+  teardown(function() {
+    window.location.hash = '';
   });
 
-  function assertAlertMessageAndClose(msg, done) {
-    var expectedEvents = 2;
-    function checkDone() {
-      expectedEvents--;
-      if (expectedEvents === 0) {
-        done();
-      }
-    }
-    window.addEventListener('fakealert', function _onalert(evt) {
-      window.removeEventListener('fakealert', _onalert);
-      assert.equal(evt.detail, msg);
-      checkDone();
-    });
-    window.addEventListener('appclosed', function _onappclosed() {
-      window.removeEventListener('appclosed', _onappclosed);
-      checkDone();
+  suiteTeardown(function() {
+    window.Common = realCommon;
+    window.navigator.mozMobileConnections = realMozMobileConnections;
+    window.navigator.mozL10n = realMozL10n;
+    window.navigator.mozSetMessageHandler.mTeardown();
+    window.navigator.mozSetMessageHandler = realMozSetMessageHandler;
+    window.navigator.mozNetworkStats = realMozNetworkStats;
+    window.navigator.mozIccManager = realMozIccManager;
+    window.navigator.mozSettings = realMozSettings;
+  });
+
+  function assertNonReadyScreen(msg, done) {
+    var consoleSpy = sinon.spy(console, 'log');
+    window.addEventListener('viewchanged', function _onalert(evt) {
+      window.removeEventListener('viewchanged', _onalert);
+      assert.equal(evt.detail, 'non-ready-screen');
+      assert.ok(consoleSpy.calledWith(msg));
+      consoleSpy.restore();
+      done();
     });
   }
 
@@ -172,51 +202,98 @@ suite('Application Startup Modes Test Suite >', function() {
     assert.isFalse(dataUsageTab.classList.contains('standalone'));
   }
 
-  function setupCardState(cardState) {
-    window.Common = new MockCommon({ isValidICCID: true });
+  function failingRequestDataSIMIccId(onsuccess, onerror) {
+    setTimeout(function() {
+      (typeof onerror === 'function') && onerror();
+    }, 0);
+  }
+
+  function setupCardState(icc) {
+    window.Common = new MockCommon();
     window.CostControl = new MockCostControl();
-    window.IccHelper = new MockIccHelper(cardState);
-    window.navigator.mozMobileConnection = new MockMozMobileConnection({});
+    window.MockNavigatorMozIccManager.mTeardown();
+    window.MockNavigatorMozIccManager.addIcc('12345', icc);
+    MockNavigatorMozMobileConnections[0] = {  iccId: '12345' };
   }
 
   test('SIM is not ready', function(done) {
-    setupCardState('absent');
+    loadBodyHTML('/index.html');
+    setupCardState({cardState: null});
 
-    assertAlertMessageAndClose(
-      'widget-no-sim2-heading\nwidget-no-sim2-meta',
-      done
-    );
+    assertNonReadyScreen('NonReadyScreen in state: null', done);
+
+    CostControlApp.init();
+  });
+
+  test('Not exist a mandatory API', function(done) {
+    loadBodyHTML('/index.html');
+    assertNonReadyScreen('NonReadyScreen in state: null', done);
+    window.navigator.mozIccManager = null;
 
     CostControlApp.init();
   });
 
   test('SIM is locked by PIN', function(done) {
-    setupCardState('pinRequired');
+    loadBodyHTML('/index.html');
+    setupCardState({cardState: 'pinRequired'});
 
-    assertAlertMessageAndClose(
-      'widget-sim-locked-heading\nwidget-sim-locked-meta',
-      done
-    );
+    assertNonReadyScreen('NonReadyScreen in state: pinRequired', done);
 
     CostControlApp.init();
   });
 
   test('SIM is locked by PUK', function(done) {
-    setupCardState('pukRequired');
+    loadBodyHTML('/index.html');
+    setupCardState({cardState: 'pukRequired'});
 
-    assertAlertMessageAndClose(
-      'widget-sim-locked-heading\nwidget-sim-locked-meta',
-      done
-    );
+    assertNonReadyScreen('NonReadyScreen in state: pukRequired', done);
 
     CostControlApp.init();
+  });
+
+  test('SIM is detected after a non detected SIM on a previous start-up',
+    function(done) {
+      loadBodyHTML('/index.html');
+      this.sinon.spy(window.navigator.mozIccManager, 'addEventListener');
+
+      // Force loadDataSimIccId to fail
+      sinon.stub(SimManager, 'requestDataSimIcc', failingRequestDataSIMIccId);
+
+      // airplanemode activated for enable the iccmanager listeners
+      AirplaneModeHelper._status = 'enabled';
+
+      window.addEventListener('viewchanged', function _onalert(evt) {
+        window.removeEventListener('viewchanged', _onalert);
+        sinon.assert.calledWith(window.navigator.mozIccManager.addEventListener,
+                                'iccdetected');
+
+        // Restore the stub method and disabling the airplanemode
+        SimManager.requestDataSimIcc.restore();
+        AirplaneModeHelper._status = 'disabled';
+
+        // Config the app to start (FTE)
+        var applicationMode = 'DATA_USAGE_ONLY';
+        setupCardState({cardState: 'ready'});
+        window.ConfigManager = new MockConfigManager({
+          fakeSettings: { fte: true },
+          applicationMode: applicationMode
+        });
+
+        // Check the app start correctly
+        assertFTEStarted(applicationMode, done);
+
+        // Launch the second start-up
+        MockNavigatorMozIccManager.triggerEventListeners('iccdetected', {});
+      });
+
+      CostControlApp.init();
   });
 
   test(
     'First Time Experience Loaded when new SIM > DATA_USAGE_ONLY',
     function(done) {
       var applicationMode = 'DATA_USAGE_ONLY';
-      setupCardState('ready');
+      setupCardState({cardState: 'ready'});
       window.ConfigManager = new MockConfigManager({
         fakeSettings: { fte: true },
         applicationMode: applicationMode
@@ -232,7 +309,7 @@ suite('Application Startup Modes Test Suite >', function() {
     'First Time Experience Loaded when new SIM > PREPAID',
     function(done) {
       var applicationMode = 'PREPAID';
-      setupCardState('ready');
+      setupCardState({cardState: 'ready'});
       window.ConfigManager = new MockConfigManager({
         fakeSettings: { fte: true },
         applicationMode: applicationMode
@@ -248,7 +325,7 @@ suite('Application Startup Modes Test Suite >', function() {
     'First Time Experience Loaded when new SIM > POSTPAID',
     function(done) {
       var applicationMode = 'POSTPAID';
-      setupCardState('ready');
+      setupCardState({cardState: 'ready'});
       window.ConfigManager = new MockConfigManager({
         fakeSettings: { fte: true },
         applicationMode: applicationMode
@@ -262,14 +339,13 @@ suite('Application Startup Modes Test Suite >', function() {
 
   function setupLayoutMode(applicationMode) {
     loadBodyHTML('/index.html');
-    window.Common = new MockCommon({ isValidICCID: true });
+    window.Common = new MockCommon();
     window.CostControl = new MockCostControl();
-    window.navigator.mozMobileConnection = new MockMozMobileConnection({});
     window.ConfigManager = new MockConfigManager({
       fakeSettings: { fte: false },
       applicationMode: applicationMode
     });
-    window.IccHelper = new MockIccHelper('ready');
+    Common.dataSimIcc = {cardState: 'ready'};
   }
 
   test('Layout: Data Usage Only', function(done) {
@@ -308,4 +384,50 @@ suite('Application Startup Modes Test Suite >', function() {
     CostControlApp.init();
   });
 
+  test(
+    'DSDS Ensure the FTE will be closed when there are a data slot change',
+    function(done) {
+      var defaultDataSlotId = 0, newDataSlotId = 1,
+          dataSlot = 'ril.data.defaultServiceId';
+
+      MockNavigatorSettings.mSettings[dataSlot] = defaultDataSlotId;
+      var applicationMode = 'DATA_USAGE_ONLY';
+      setupCardState({cardState: 'ready'});
+      window.Common = new MockCommon({ activateFTEListener: true });
+      window.ConfigManager = new MockConfigManager({
+        fakeSettings: { fte: true },
+        applicationMode: applicationMode
+      });
+
+      MockNavigatorMozMobileConnections.mAddMobileConnection(
+        {  iccId: '0000000' } ,1);
+
+      SimManager.reset();
+
+      window.addEventListener('ftestarted', function _onftestarted(evt) {
+        window.removeEventListener('ftestarted', _onftestarted);
+        var iframe = document.getElementById('fte_view');
+
+        assert.ok(!iframe.classList.contains('non-ready'));
+
+        // The second SIM has FTE passed
+        window.ConfigManager = new MockConfigManager({
+          fakeSettings: { fte: false },
+          applicationMode: applicationMode
+        });
+
+        window.addEventListener('fteClosed', function checkAssertions() {
+          window.removeEventListener('fteClosed', checkAssertions);
+            iframe = document.getElementById('fte_view');
+            assert.ok(iframe.classList.contains('non-ready'));
+
+            done();
+        });
+
+        MockSettingsListener.mTriggerCallback(dataSlot, newDataSlotId);
+      });
+
+      CostControlApp.init();
+    }
+  );
 });

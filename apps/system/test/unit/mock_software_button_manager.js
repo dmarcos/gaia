@@ -1,6 +1,21 @@
-var MockSoftwareButtonManager = {
-  height: 0,
-  mTeardown: function() {
+'use strict';
+/* exported MockSoftwareButtonManager */
+
+function MockSoftwareButtonManager() {
+
+  this.height = 0;
+  this.width = 0;
+
+  this.mTeardown = function() {
     this.height = 0;
-  }
-};
+    this.width = 0;
+  };
+
+}
+
+MockSoftwareButtonManager.prototype.start = function() {};
+
+/**
+ * A pre-instantiated mock.
+ */
+window.MocksoftwareButtonManager = new MockSoftwareButtonManager();

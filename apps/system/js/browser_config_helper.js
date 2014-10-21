@@ -15,18 +15,34 @@
    * * If only URL is provided, we would treat it as a web page.
    *
    * The returned configuration object contains:
+   *
    * * Origin: the same as appURL.
    * * manifestURL: the same as manifestURL.
+   *
    * * manifest: the parsed manifest object.
+   *             If the app is not an entry point app,
+   *             the manifest would be the reference of application manifest
+   *             stored in Applications module.
+   *             But if the app is an entry point app,
+   *             we will do deep clone to generate a new object and
+   *             replace the properties of entry point to proper position.
+   *
    * * name: the name of the app, retrieved from manifest.
+   *
    * * oop: indicate it's running out of process or in process.
    *
-   * @param {String} appURL The URL of the app or the page to be opened.
-   * @param {String} [manifestURL] The manifest URL of the app.
+   * @param {Object} [config] Config for creating appWindow.
+   * @param {String} [config.appURL] The URL of the app or the page to be
+   *                                 opened.
+   * @param {String} [config.manifestURL] The manifest URL of the app.
+   * @param {String} [config.name] - optional The name of the app.
+   * @param {DOMFRAMEElement} [config.iframe] - optionalThe exisiting frame to
+   *                                            inject.
    */
-  window.BrowserConfigHelper = function(appURL, manifestURL) {
-    var app = Applications.getByManifestURL(manifestURL);
-    this.url = appURL;
+  window.BrowserConfigHelper = function(config) {
+    var app = config.manifestURL &&
+              applications.getByManifestURL(config.manifestURL);
+    this.url = config.url;
 
     if (app) {
       var manifest = app.manifest;
@@ -38,6 +54,9 @@
       // entry point.
       var entryPoints = manifest.entry_points;
       if (entryPoints && manifest.type == 'certified') {
+        // Do deep copy to avoid reference to be overwritten
+        // only when we're entry points.
+        manifest = JSON.parse(JSON.stringify(manifest));
         var givenPath = this.url.substr(origin.length);
 
         // Workaround here until the bug (to be filed) is fixed
@@ -50,13 +69,13 @@
           }
 
           //Remove the origin and / to find if if the url is the entry point
-          if (path.indexOf('/' + ep) == 0 &&
-              (currentEp.launch_path == path)) {
+          if (path.indexOf('/' + ep) === 0 &&
+              (currentEp.launch_path === path)) {
             origin = origin + currentEp.launch_path;
             name = new ManifestHelper(currentEp).name;
             for (var key in currentEp) {
               if (key !== 'locale' && key !== 'name') {
-                app.manifest[key] = currentEp[key];
+                manifest[key] = currentEp[key];
               }
             }
           }
@@ -77,18 +96,19 @@
       ];
 
       if (!isOutOfProcessDisabled &&
-          outOfProcessBlackList.indexOf(manifestURL) === -1) {
+          outOfProcessBlackList.indexOf(config.manifestURL) === -1) {
         // FIXME: content shouldn't control this directly
         this.oop = true;
       }
 
       this.name = name;
-      this.manifestURL = manifestURL;
+      this.manifestURL = config.manifestURL;
       this.origin = origin;
-      this.manifest = app.manifest;
+      this.manifest = manifest;
     } else {
-      this.name = '';
-      this.origin = appURL;
+      this.iframe = config.iframe;
+      this.name = config.name || '';
+      this.origin = config.url;
       this.manifestURL = '';
       this.manifest = null;
     }

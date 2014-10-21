@@ -1,5 +1,49 @@
 'use strict';
 
+/* globals MozActivity, LazyLoader, utils, extend,
+  IconRetriever, Homescreen, GridItemsFactory, GridManager, Icon, Bookmark,
+  Evme
+*/
+
+var EvmeApp = function createEvmeApp(params) {
+  Bookmark.call(this, params);
+};
+
+extend(EvmeApp, Bookmark);
+
+EvmeApp.prototype.launch = function evmeapp_launch(url, name, useAsyncPanZoom) {
+  var features = {
+    name: this.manifest.name,
+    icon: this.manifest.icons['60'],
+    remote: true,
+    useAsyncPanZoom: useAsyncPanZoom
+  };
+
+  if (!GridManager.getIconForBookmark(this.origin)) {
+    features.originName = features.name;
+    features.originUrl = this.origin;
+  }
+
+  if (url && url !== this.origin && !GridManager.getIconForBookmark(url)) {
+    var searchName = navigator.mozL10n.get('wrapper-search-name', {
+      topic: name,
+      name: this.manifest.name
+    });
+
+    features.name = searchName;
+    features.searchName = searchName;
+    features.searchUrl = url;
+  }
+
+  // We use `e.me` name in order to always reuse the same window
+  // so that we can only open one e.me app at a time
+  return window.open(url || this.origin, 'e.me', Object.keys(features)
+    .map(function(key) {
+      return encodeURIComponent(key) + '=' + encodeURIComponent(features[key]);
+    }).join(','));
+};
+
+/* exported EvmeManager */
 var EvmeManager = (function EvmeManager() {
   /**
    * E.me references each entry point as a different app with unique id
@@ -8,22 +52,40 @@ var EvmeManager = (function EvmeManager() {
    */
   var EME_ENTRY_POINT_KEY = 'eme-ep';
 
-  var currentWindow = null,
-      currentURL = null;
+  var currentURL = null;
 
-  function addGridItem(params, extra) {
+  function addCollection(params, extra) {
     var item = GridItemsFactory.create({
       'id': params.id || Evme.Utils.uuid(),
-      'bookmarkURL': params.originUrl,
+      'bookmarkURL': params.originUrl.trim(),
       'name': params.name,
       'icon': params.icon,
       'iconable': false,
       'useAsyncPanZoom': params.useAsyncPanZoom,
-      'type': !!params.isCollection ? GridItemsFactory.TYPE.COLLECTION :
-              GridItemsFactory.TYPE.BOOKMARK
+      'type': GridItemsFactory.TYPE.COLLECTION
     });
     GridManager.install(item, params.gridPageOffset, extra);
     GridManager.ensurePagesOverflow(Evme.Utils.NOOP);
+  }
+
+  function addBookmark(params, success) {
+    /* jshint -W031 */
+    new MozActivity({
+      name: 'save-bookmark',
+      data: {
+        type: 'url',
+        url: params.originUrl.trim(),
+        name: params.name,
+        icon: params.icon,
+        iconable: false,
+        useAsyncPanZoom: params.useAsyncPanZoom
+      },
+      onsuccess: success,
+      onerror: function(e) {
+        console.warn('Unhandled error from save-bookmark activity: ' +
+                     e.target.error.message + '\n');
+      }
+    });
   }
 
   function removeGridItem(params) {
@@ -45,6 +107,7 @@ var EvmeManager = (function EvmeManager() {
   }
 
   function openUrl(url) {
+    /* jshint -W031 */
     new MozActivity({
       name: 'view',
       data: {
@@ -91,6 +154,20 @@ var EvmeManager = (function EvmeManager() {
     return GridManager.getApps(true /* Flatten */, true /* Hide hidden */);
   }
 
+  function getAllAppsInfo() {
+    var gridApps = getGridApps();
+    var infos = [];
+
+    for (var i = 0; i < gridApps.length; i++) {
+      var info = getAppInfo(gridApps[i]);
+      if (info) {
+        infos.push(info);
+      }
+    }
+
+    return infos;
+  }
+
   /**
    * Returns only the collections on the user's phone
    */
@@ -98,23 +175,43 @@ var EvmeManager = (function EvmeManager() {
     return GridManager.getCollections();
   }
 
-  function getAppByOrigin(origin, cb) {
+  /**
+   * Returns a list of all Collections names
+   * @param {bool} lowerCase the name strings.
+   */
+  function getCollectionNames(lowerCase) {
+    var names = [];
+    var gridCollections = getCollections();
+    /* jshint -W084 */
+    for (var i = 0, collection; collection = gridCollections[i++]; ) {
+      var name = getIconName(collection.origin);
+      if (name) {
+        names.push(lowerCase ? name.toLowerCase() : name);
+      }
+    }
+
+    return names;
+  }
+
+  function getAppByOrigin(origin) {
     var gridApp = GridManager.getApp(origin);
     if (gridApp) {
-      getAppInfo(gridApp, cb);
+      return getAppInfo(gridApp);
     } else {
       console.error('E.me error: app ' + origin + ' does not exist');
+      return undefined;
     }
   }
 
-  function getAppByDescriptor(cb, descriptor) {
+  function getAppByDescriptor(descriptor) {
     var icon = getIconByDescriptor(descriptor);
 
     if (icon) {
-      getAppInfo(icon, cb);
+      return getAppInfo(icon);
     } else {
-      console.error('E.me error: app ' + origin + ' does not exist');
-      cb();
+      console.error('E.me error: app by descriptor does not exist' +
+                      JSON.stringify(descriptor));
+      return undefined;
     }
   }
 
@@ -123,20 +220,15 @@ var EvmeManager = (function EvmeManager() {
   }
 
   /**
-   * Returns E.me formatted information about an object
-   * returned by GridManager.getApps.
+   * Returns E.me formatted information about an object that was returned by
+   * GridManager.getApps.
    */
-  function getAppInfo(gridApp, cb) {
-    cb = cb || Evme.Utils.NOOP;
-
+  function getAppInfo(gridApp) {
     var nativeApp = gridApp.app,  // XPCWrappedNative
         descriptor = gridApp.descriptor,
-        id,
-        icon,
-        appInfo;
+        appInfo = {};
 
-    // TODO document
-    // TODO launch by entry_point
+    var id;
     if (nativeApp.manifestURL) {
       id = generateAppId(nativeApp.manifestURL, descriptor.entry_point);
     } else {
@@ -146,46 +238,45 @@ var EvmeManager = (function EvmeManager() {
     if (!id) {
       console.warn('E.me: no id found for ' + descriptor.name +
                                               '. Will not show up in results');
-      cb();
-      return;
+      return undefined;
     }
 
-    icon = GridManager.getIcon(descriptor);
+    var icon = GridManager.getIcon(descriptor);
+    if (icon && icon.descriptor) {
+      icon = icon.descriptor.renderedIcon;
+    }
 
     appInfo = {
       'id': id,
       'name': descriptor.name,
       'appUrl': nativeApp.origin,
-      'icon': Icon.prototype.DEFAULT_ICON_URL,
-      'isOfflineReady': icon &&
-                          'isOfflineReady' in icon && icon.isOfflineReady()
+      'icon': icon || Icon.prototype.DEFAULT_ICON_URL,
+      'isOfflineReady': gridApp && 'isOfflineReady' in gridApp &&
+                          gridApp.isOfflineReady()
     };
 
-    // appInfo is an extended descriptor
-    // when we will remove Eme's appIndex we can use plain descriptors
-    if ('bookmarkURL' in descriptor) {
+    if (descriptor.bookmarkURL) {
       appInfo.bookmarkURL = descriptor.bookmarkURL;
     }
-    if ('manifestURL' in descriptor) {
+    if (descriptor.manifestURL) {
       appInfo.manifestURL = descriptor.manifestURL;
     }
-    if ('entry_point' in descriptor) {
+    if (descriptor.entry_point) {
       appInfo.entry_point = descriptor.entry_point;
     }
 
-    if (!icon) {
-      cb(appInfo);
-    } else {
-      retrieveIcon({
-        icon: icon,
-        done: function(blob) {
-          if (blob) {
-            appInfo['icon'] = blob;
-          }
-          cb(appInfo);
-        }
-      });
-    }
+    return appInfo;
+  }
+
+  // get original icon (without manipulations done by homescreen)
+  function retrieveAppIcon(appInfo, success, error) {
+    var gridIcon = getIconByDescriptor(appInfo);
+
+    IconRetriever.get({
+      icon: gridIcon,
+      success: success,
+      error: error
+    });
   }
 
   /**
@@ -198,39 +289,6 @@ var EvmeManager = (function EvmeManager() {
     }
 
     return manifestURL;
-  }
-
-  function retrieveIcon(request) {
-    var xhr = new XMLHttpRequest({
-      mozAnon: true,
-      mozSystem: true
-    });
-
-    var icon = request.icon.descriptor.icon;
-
-    xhr.open('GET', icon, true);
-    xhr.responseType = 'blob';
-
-    try {
-      xhr.send(null);
-    } catch (evt) {
-      request.done();
-      return;
-    }
-
-    xhr.onload = function onload(evt) {
-      var status = xhr.status;
-      if (status !== 0 && status !== 200) {
-        request.done();
-      }
-      else {
-        request.done(xhr.response);
-      }
-    };
-
-    xhr.ontimeout = xhr.onerror = function onerror(evt) {
-      request.done();
-    };
   }
 
   function getIconSize() {
@@ -277,21 +335,31 @@ var EvmeManager = (function EvmeManager() {
   }
 
   function openMarketplaceApp(data) {
-    launchMarketplaceApp(data.slug);
+    var activity = new MozActivity({
+      name: 'marketplace-app',
+      data: {
+        slug: data.slug
+      }
+    });
+
+    activity.onerror = function() {
+      window.open('https://marketplace.firefox.com/app/' + data.slug,
+        'e.me', 'dialog');
+    };
   }
 
   function openMarketplaceSearch(data) {
-    launchMarketplaceSearch(data.query);
-  }
+    var activity = new MozActivity({
+      name: 'marketplace-search',
+      data: {
+        query: data.query
+      }
+    });
 
-  function launchMarketplaceApp(slug) {
-    var url = 'https://marketplace.firefox.com/app/';
-    window.open(url + encodeURIComponent(slug), 'e.memarket');
-  }
-
-  function launchMarketplaceSearch(query) {
-    var url = 'https://marketplace.firefox.com/search/?q=';
-    window.open(url + encodeURIComponent(query), 'e.memarket');
+    activity.onerror = function() {
+      window.open('https://marketplace.firefox.com/search/?q=' + data.query,
+        'e.me', 'dialog');
+    };
   }
 
   // sets an image as the device's wallpaper
@@ -327,19 +395,19 @@ var EvmeManager = (function EvmeManager() {
   }
 
   return {
-    addGridItem: addGridItem,
+    addBookmark: addBookmark,
+    addCollection: addCollection,
     removeGridItem: removeGridItem,
-
-    isAppInstalled: function isAppInstalled(origin) {
-      return GridManager.getApp(origin);
-    },
 
     getIconByDescriptor: getIconByDescriptor,
     getAppByDescriptor: getAppByDescriptor,
     getAppByOrigin: getAppByOrigin,
     getGridApps: getGridApps,
     getCollections: getCollections,
+    getCollectionNames: getCollectionNames,
     getAppInfo: getAppInfo,
+    getAllAppsInfo: getAllAppsInfo,
+    retrieveAppIcon: retrieveAppIcon,
 
     openUrl: openUrl,
     openCloudApp: openCloudApp,
@@ -367,41 +435,3 @@ var EvmeManager = (function EvmeManager() {
     }
   };
 }());
-
-var EvmeApp = function createEvmeApp(params) {
-  Bookmark.call(this, params);
-};
-
-extend(EvmeApp, Bookmark);
-
-EvmeApp.prototype.launch = function evmeapp_launch(url, name, useAsyncPanZoom) {
-  var features = {
-    name: this.manifest.name,
-    icon: this.manifest.icons['60'],
-    remote: true,
-    useAsyncPanZoom: useAsyncPanZoom
-  };
-
-  if (!GridManager.getIconForBookmark(this.origin)) {
-    features.originName = features.name;
-    features.originUrl = this.origin;
-  }
-
-  if (url && url !== this.origin && !GridManager.getIconForBookmark(url)) {
-    var searchName = navigator.mozL10n.get('wrapper-search-name', {
-      topic: name,
-      name: this.manifest.name
-    });
-
-    features.name = searchName;
-    features.searchName = searchName;
-    features.searchUrl = url;
-  }
-
-  // We use `e.me` name in order to always reuse the same window
-  // so that we can only open one e.me app at a time
-  return window.open(url || this.origin, 'e.me', Object.keys(features)
-    .map(function(key) {
-      return encodeURIComponent(key) + '=' + encodeURIComponent(features[key]);
-    }).join(','));
-};

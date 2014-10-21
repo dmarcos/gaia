@@ -41,14 +41,15 @@ var ScreenLayout = {
   _isOnRealDevice: undefined,
 
   isOnRealDevice: function sl_isOnRealDevice() {
-    if (typeof(this._isOnRealDevice) !== 'undefined')
+    if (typeof(this._isOnRealDevice) !== 'undefined') {
       return this._isOnRealDevice;
+    }
 
     // XXX: A hack to know we're using real device or not
     // is to detect screen size.
     // The screen size of b2g running on real device
     // is the same as the size of system app.
-    if (window.innerWidth === screen.width) {
+    if (window.innerWidth === screen.availWidth) {
       this._isOnRealDevice = true;
     } else {
       this._isOnRealDevice = false;
@@ -65,7 +66,7 @@ var ScreenLayout = {
   getCurrentLayout: function sl_getCurrentLayout(type) {
     if (type === undefined) {
       for (var name in this.defaultQueries) {
-        if (this.queries[name].matches) {
+        if (this.queries[name] && this.queries[name].matches) {
           return name;
         }
       }
@@ -92,12 +93,13 @@ var ScreenLayout = {
     }
     this.unwatch(name);
     this.queries[name] = window.matchMedia(mediaString);
-    this.queries[name].addListener(this);
+    this.boundHandleChange = this.handleChange.bind(this);
+    this.queries[name].addListener(this.boundHandleChange);
   },
 
   unwatch: function sl_unwatch(name) {
     if (this.queries[name]) {
-      this.queries[name].removeListener(this);
+      this.queries[name].removeListener(this.boundHandleChange);
     }
   },
 
@@ -106,8 +108,9 @@ var ScreenLayout = {
   // activate status(boolean). ex: {name: 'small', status: true}
   handleChange: function sl_handleChange(evt) {
     for (var key in this.queries) {
-      if (this.queries[key].media !== evt.media)
+      if (this.queries[key].media !== evt.media) {
         continue;
+      }
       window.dispatchEvent(new CustomEvent('screenlayoutchange', {
         detail: {
           name: key,

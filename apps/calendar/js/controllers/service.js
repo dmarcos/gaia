@@ -1,20 +1,21 @@
-Calendar.ns('Controllers').Service = (function() {
+define(function(require, exports, module) {
+'use strict';
 
-  function Service() {
-    Calendar.Worker.Manager.call(this);
-  };
+var Manager = require('worker/manager');
+var debug = require('debug')('controllers/service');
 
-  Service.prototype = {
-    __proto__: Calendar.Worker.Manager.prototype,
+function Service() {
+  Manager.call(this);
+}
+module.exports = Service;
 
-    /**
-     * Load and initializer workers.
-     */
-    start: function() {
-      this.add('caldav', '/caldav_worker.js');
-    }
+Service.prototype = {
+  __proto__: Manager.prototype,
 
-  };
+  start: function() {
+    debug('Will load and initialize worker...');
+    this.add('caldav', '/js/caldav_worker.js');
+  }
+};
 
-  return Service;
-}());
+});

@@ -16,10 +16,10 @@ class TestContacts(GaiaTestCase):
         self.data_layer.insert_contact(self.contact)
 
         # add photo to storage
-        self.push_resource('IMG_0001.jpg', destination='DCIM/100MZLLA')
+        self.push_resource('IMG_0001.jpg')
 
     def test_add_photo_from_gallery_to_contact(self):
-        # https://moztrap.mozilla.org/manage/case/5551/
+        """https://moztrap.mozilla.org/manage/case/5551/"""
 
         contacts_app = Contacts(self.marionette)
         contacts_app.launch()
@@ -35,8 +35,6 @@ class TestContacts(GaiaTestCase):
 
         edit_contact = contact_details.tap_edit()
 
-        self.assertEqual('Edit contact', edit_contact.title)
-
         saved_picture_style = edit_contact.picture_style
 
         activities_list = edit_contact.tap_picture()
@@ -49,11 +47,6 @@ class TestContacts(GaiaTestCase):
 
         image = gallery.tap_first_gallery_item()
         image.tap_crop_done()
-
-        # switch back to the contacts app
-        contacts_app.launch()
-
-        self.assertEqual('Edit contact', edit_contact.title)
 
         edit_contact.wait_for_image_to_load()
 

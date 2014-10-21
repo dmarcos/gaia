@@ -16,18 +16,14 @@ html {
 }
 
 body {
-  background: url('/shared/resources/branding/splash_screen_generic.png') 0 0 no-repeat;
-}
-
-form {
-  padding: 1.5rem;
-  background: #49525c;
+  background-color: #000;
 }
 
 iframe {
   border: none;
   width: 100%;
   height: 100%;
+  display: flex; /* Fix Bug 976665 */
 }
 
 [aria-hidden="true"] { display: none !important; }
@@ -51,7 +47,7 @@ input.error {
 
 .window {
   opacity: 1.0;
-  background: #fff;
+  background: #f4f4f4;
   transition: opacity ease 0.2s;
 }
 
@@ -68,13 +64,23 @@ input.error {
   opacity: 0.0;
 }
 
+/**
+ * 1. GaiaHeader will vertically align
+ *    display block elements
+ */
+
+gaia-header [data-icon]:before {
+  display: block; /* 1 */
+  color: var(--header-button-color, #000);
+}
+
 #fte_view.non-ready {
   pointer-events: none;
 }
 
 .view {
   top: 9.3rem;
-  background: url(images/app/ui/pattern.png) repeat left top;
+  background: #f4f4f4;
   transform: translate(0, 0);
   transition: transform 0.5s ease,
               opacity 0.2s ease;
@@ -97,10 +103,6 @@ input.error {
   top: 0;
   left: 0;
   right: 0;
-}
-
-.view[role="dialog"] {
-  bottom: 0;
 }
 
 /* VIEWPORTS */
@@ -140,32 +142,13 @@ input.error {
 }
 
 /* BB HEADER ICONS */
-body[role="application"] section[role="region"] > header .icon.config {
+[icon="config"]:before {
   background-image: url(images/app/icons/config.png);
-  background-size: 3rem;
 }
-
-body[role="application"] section[role="region"] > header button {
-  text-shadow: none;
-  font-weight: normal;
-}
-
 
 /* BB BUTTONS ICONS */
 .buttons-list {
   list-style: none;
-}
-
-li button {
-  text-align: center;
-}
-
-li button.icon {
-  text-align: left;
-}
-
-li button:after {
-  top: calc(100% + 0.1rem);
 }
 
 .fake-select select {
@@ -208,4 +191,3 @@ section.content {
 #reset-data-usage {
   margin-top: 1rem;
 }
-

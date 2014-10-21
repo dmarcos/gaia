@@ -1,8 +1,12 @@
+/* -*- Mode: js; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- /
+/* vim: set shiftwidth=2 tabstop=2 autoindent cindent expandtab: */
+
+/* global ActivityPicker, MockL10n, MocksHelper, MozActivity */
+
 'use strict';
 
+require('/shared/test/unit/mocks/mock_l10n.js');
 requireApp('wappush/js/activity_picker.js');
-
-requireApp('wappush/test/unit/mock_l10n.js');
 requireApp('wappush/test/unit/mock_moz_activity.js');
 
 var mocksHelperAP = new MocksHelper([
@@ -10,7 +14,7 @@ var mocksHelperAP = new MocksHelper([
 ]).init();
 
 suite('ActivityPicker', function() {
-  var realMozL10n, events, onsuccess, onerror;
+  var realMozL10n, onsuccess, onerror;
 
   mocksHelperAP.attachTestHelpers();
 

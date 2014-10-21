@@ -61,9 +61,9 @@ navigator.mozL10n.DateTimeFormat = function(locales, options) {
           value = d.getDate();
           break;
 
-        // like %d, without any leading zero
+        // %p: 12 hours format (AM/PM)
         case '%p':
-          value = d.getHours() < 12 ? 'AM' : 'PM';
+          value = d.getHours() < 12 ? _('time_am') : _('time_pm');
           break;
 
         // localized date/time strings
@@ -139,6 +139,13 @@ navigator.mozL10n.DateTimeFormat = function(locales, options) {
     var secDiff = (Date.now() - time) / 1000;
     if (isNaN(secDiff)) {
       return _('incorrectDate');
+    }
+
+    if (Math.abs(secDiff) > 60) {
+      // round milliseconds up if difference is over 1 minute so the result is
+      // closer to what the user would expect (1h59m59s300ms diff should return
+      // "in 2 hours" instead of "in an hour")
+      secDiff = secDiff > 0 ? Math.ceil(secDiff) : Math.floor(secDiff);
     }
 
     if (secDiff > maxDiff) {

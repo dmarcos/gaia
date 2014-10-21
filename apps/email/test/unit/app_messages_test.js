@@ -1,8 +1,7 @@
 requireApp('email/js/alameda.js');
 requireApp('email/test/config.js');
+require('/shared/test/unit/mocks/mock_l10n.js');
 
-
-mocha.globals(['htmlCacheRestoreDetectedActivity']);
 suite('appMessages', function() {
   var subject;
 
@@ -13,12 +12,18 @@ suite('appMessages', function() {
 
   suiteSetup(function(done) {
     var spy = sinon.spy(navigator, 'mozSetMessageHandler');
-    testConfig({ done: done }, ['app_messages'], function(appMessages) {
+    testConfig({
+      done: done,
+      defines: {
+        'l10n!': function() {
+          return MockL10n;
+        }
+      }
+    }, ['app_messages'], function(appMessages) {
       subject = appMessages;
       // Make sure that we register our activity request handler.
       sinon.assert.calledWith(spy, 'activity');
       navigator.mozSetMessageHandler.restore();
-      done();
     });
   });
 
@@ -27,33 +32,47 @@ suite('appMessages', function() {
   });
 
   suite('#onActivityRequest', function() {
-    var spy;
+    var oldListener = subject.emitWhenListener;
 
     setup(function() {
-      spy = sinon.spy(subject, 'emitWhenListener');
+      subject.emitWhenListener = function() {
+        var args = Array.slice(arguments);
+        oldListener.apply(subject, args);
+        if (subject.__doneTest) {
+          var done = subject.__doneTest;
+          subject.__doneTest = undefined;
+          done.apply(undefined, args);
+        }
+      };
     });
 
     teardown(function() {
-      subject.emitWhenListener.restore();
+      subject.emitWhenListener = oldListener;
     });
 
-    test('should be a function', function() {
+    test('should be a function', function(done) {
       assert.ok(typeof subject.onActivityRequest === 'function');
     });
 
-    test('should call #emitWhenListener if sharing url', function() {
+    test('should call #emitWhenListener if sharing url', function(done) {
       var req = {};
       req.source = {
         data: { type: 'url', url: 'lolcats.com' },
         name: 'share'
       };
 
+      subject.__doneTest = function(id, activityName, data, req) {
+        assert.equal(id, 'activity');
+        assert.equal(activityName, 'share');
+        assert.equal(data.body, 'lolcats.com');
+        // Clean up known global that will get set by using
+        // attachment_name inside app_messages.
+        delete window.MimeMapper;
+        done();
+      };
+
       // Pretend we got an activity request.
       subject.onActivityRequest(req);
-
-      sinon.assert.calledWith(spy, 'activity', 'share', {
-        body: 'lolcats.com'
-      }, req);
     });
   });
 });

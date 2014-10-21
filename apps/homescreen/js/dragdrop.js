@@ -11,7 +11,7 @@ var DragDropManager = (function() {
   /*
    * It defines the time (in ms) between consecutive rearranges
    */
-  var REARRANGE_DELAY = 50;
+  var REARRANGE_DELAY = Page.prototype.REARRANGE_DELAY;
 
   /*
    * It defines the time (in ms) to ensure that the dragend event is performed
@@ -217,7 +217,12 @@ var DragDropManager = (function() {
     isDisabledDrop = false;
     transitioning = false;
     var page = getPage();
-    var ensureCallbackID = null;
+
+    // We ensure that there is not an icon lost on the grid
+    var ensureCallbackID = window.setTimeout(function() {
+      ensureCallbackID = null;
+      sendDragStopToDraggableIcon(callback);
+    }, ENSURE_DRAG_END_DELAY);
 
     DragLeaveEventManager.send(page, function(done) {
       if (ensureCallbackID !== null) {
@@ -226,12 +231,6 @@ var DragDropManager = (function() {
       }
       done();
     }, true);
-
-    // We ensure that there is not an icon lost on the grid
-    ensureCallbackID = window.setTimeout(function() {
-      ensureCallbackID = null;
-      sendDragStopToDraggableIcon(callback);
-    }, ENSURE_DRAG_END_DELAY);
   }
 
   /*
@@ -402,7 +401,7 @@ var DragDropManager = (function() {
   }
 
   function move() {
-    draggableElemStyle.MozTransform =
+    draggableElemStyle.transform =
       'translate(' + (cx - sx) + 'px,' + (cy - sy) + 'px)';
   }
 

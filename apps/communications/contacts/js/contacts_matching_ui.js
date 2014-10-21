@@ -1,4 +1,9 @@
 'use strict';
+/* global ContactPhotoHelper */
+/* global ImageLoader */
+/* global LazyLoader */
+/* global utils */
+/* jshint nonew: false */
 
 var contacts = window.contacts || {};
 
@@ -7,7 +12,7 @@ if (!contacts.MatchingUI) {
 
     var _ = navigator.mozL10n.get;
 
-    var CONTACTS_APP_ORIGIN = 'app://communications.gaiamobile.org';
+    var CONTACTS_APP_ORIGIN = location.origin;
 
     // Counter for checked list items
     var checked = 0;
@@ -33,7 +38,8 @@ if (!contacts.MatchingUI) {
       contactsList = document.querySelector('#contacts-list-container > ol');
       title = document.getElementById('title');
 
-      document.getElementById('merge-close').addEventListener('click', onClose);
+      var mergeHeader = document.getElementById('merge-header');
+      mergeHeader.addEventListener('action', onClose);
       contactsList.addEventListener('click', onClick);
       mergeButton.addEventListener('click', onMerge);
 
@@ -56,19 +62,25 @@ if (!contacts.MatchingUI) {
 
       if (type === 'matching') {
         // "Suggested duplicate contacts for xxx"
-        duplicateMessage.textContent = _('suggestedDuplicateContacts', params);
+        navigator.mozL10n.setAttributes(duplicateMessage,
+                                        'suggestedDuplicateContacts',
+                                        params);
       } else {
-        title.textContent = _('duplicatesFoundTitle');
+        title.setAttribute('data-l10n-id', 'duplicatesFoundTitle');
         // "xxx duplicates information in the following contacts"
-        duplicateMessage.textContent = _('duplicatesFoundMessage', params);
+        navigator.mozL10n.setAttributes(duplicateMessage,
+                                        'duplicatesFoundMessage',
+                                        params);
       }
 
       // Rendering the duplicate contacts list
       renderList(results, cb);
     }
 
-    var listDependencies = ['/contacts/js/utilities/image_loader.js',
-                            '/contacts/js/utilities/templates.js'];
+    var listDependencies = [
+      '/shared/js/contacts/utilities/image_loader.js',
+      '/shared/js/contacts/utilities/templates.js'
+    ];
 
     function renderList(contacts, success) {
       LazyLoader.load(listDependencies, function loaded() {
@@ -113,8 +125,9 @@ if (!contacts.MatchingUI) {
 
       out.displayName = getDisplayName(contact);
       out.mainReason = selectMainReason(reasons);
-      if (Array.isArray(out.photo) && out.photo[0]) {
-        out.thumb = window.URL.createObjectURL(out.photo[0]);
+      var photo = ContactPhotoHelper.getThumbnail(out);
+      if (photo) {
+        out.thumb = window.URL.createObjectURL(photo);
       }
 
       return out;
@@ -155,14 +168,14 @@ if (!contacts.MatchingUI) {
       }
 
       return name[0];
-    };
+    }
 
     function hasName(contact) {
       return (Array.isArray(contact.givenName) && contact.givenName[0] &&
                 contact.givenName[0].trim()) ||
               (Array.isArray(contact.familyName) && contact.familyName[0] &&
                 contact.familyName[0].trim());
-    };
+    }
 
     function selectMainReason(matchings) {
       var out = '';
@@ -271,9 +284,10 @@ if (!contacts.MatchingUI) {
 
     function showMatchingDetails(uuid) {
       var theContact = matchingResults[uuid].matchingContact;
-      if (Array.isArray(theContact.photo) && theContact.photo[0]) {
+      var photo = ContactPhotoHelper.getThumbnail(theContact);
+      if (photo) {
         // If the contact has a photo, preload it before showing the overlay.
-        var url = window.URL.createObjectURL(theContact.photo[0]);
+        var url = window.URL.createObjectURL(photo);
 
         // Check to see if the image is already loaded, if so process
         // it immediately.  We won't get another 'load' event by resetting the
@@ -337,6 +351,7 @@ if (!contacts.MatchingUI) {
             return;
           }
 
+          var item;
           switch (aField) {
             case 'name':
               matchingName.textContent = fieldValue;
@@ -349,15 +364,18 @@ if (!contacts.MatchingUI) {
             break;
             case 'tel':
             case 'email':
-              var item = document.createElement('li');
+              item = document.createElement('li');
               if (isMatch(matchings, aField, fieldValue)) {
                 item.classList.add('selected');
               }
-              item.textContent = fieldValue.type + ', ' + fieldValue.value;
+              navigator.mozL10n.setAttributes(item, 'itemWithLabel', {
+                label: _(fieldValue.type),
+                item: fieldValue.value
+              });
               matchingDetailList.appendChild(item);
             break;
             case 'adr':
-              var item = document.createElement('li');
+              item = document.createElement('li');
               if (isMatch(matchings, aField, fieldValue)) {
                 item.classList.add('selected');
               }
@@ -373,7 +391,7 @@ if (!contacts.MatchingUI) {
               matchingDetailList.appendChild(item);
             break;
             default:
-              var item = document.createElement('li');
+              item = document.createElement('li');
               item.textContent = fieldValue.value || fieldValue || '';
               matchingDetailList.appendChild(item);
             break;
@@ -388,8 +406,9 @@ if (!contacts.MatchingUI) {
     }
 
     function checkMergeButton() {
-      navigator.mozL10n.localize(mergeButton, 'mergeActionButtonLabel',
-                                                                { n: checked });
+      navigator.mozL10n.setAttributes(mergeButton,
+                                      'mergeActionButtonLabel',
+                                      { n: checked });
       mergeButton.disabled = (checked === 0);
     }
 

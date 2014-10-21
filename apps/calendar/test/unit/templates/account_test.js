@@ -1,8 +1,13 @@
-suiteGroup('Templates.Account', function() {
+define(function(require) {
+'use strict';
+
+var Account = require('templates/account');
+
+suite('Templates.Account', function() {
   var subject;
 
   suiteSetup(function() {
-    subject = Calendar.Templates.Account;
+    subject = Account;
   });
 
   function renderHTML(type, options) {
@@ -10,12 +15,10 @@ suiteGroup('Templates.Account', function() {
   }
 
   test('#provider', function() {
-    var output = renderHTML('provider', {
-      name: 'yahoo'
-    });
+    var output = renderHTML('provider', { name: 'yahoo' });
 
     assert.include(output, 'yahoo');
   });
-
+});
 
 });

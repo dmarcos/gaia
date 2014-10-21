@@ -11,22 +11,20 @@ class TestEverythingMeSearch(GaiaTestCase):
 
     def setUp(self):
         GaiaTestCase.setUp(self)
-        self.apps.set_permission('Homescreen', 'geolocation', 'deny')
+        self.apps.set_permission_by_url('app://search.gaiamobile.org/manifest.webapp', 'geolocation', 'deny')
         self.connect_to_network()
 
     def test_launch_everything_me_search(self):
         # Tests a search with a common string.
         # Asserts that the title and shortcuts are listed
 
-        test_string = u'skyfall'
+        test_string = u'News'
         homescreen = Homescreen(self.marionette)
-        homescreen.switch_to_homescreen_frame()
+        self.apps.switch_to_displayed_app()
 
         search_panel = homescreen.tap_search_bar()
-        search_panel.wait_for_everything_me_loaded()
         search_panel.type_into_search_box(test_string)
 
-        search_panel.wait_for_type('Movies')
-        search_panel.wait_for_everything_me_results_to_load()
+        search_panel.wait_for_everything_me_results_to_load(4)
 
-        self.assertGreater(len(search_panel.results), 0)
+        self.assertGreater(len(search_panel.link_results), 0)

@@ -1,6 +1,7 @@
 define(function(require) {
   'use strict';
   var Spinner = require('picker/spinner');
+  var _ = require('l10n').get;
   /**
    * Picker
    *
@@ -17,15 +18,18 @@ define(function(require) {
    *   element: 'time-picker',
    *   pickers: {
    *     hours: {
-   *       range: [0, 24]
+   *       range: [0, 24],
+   *       valueText: 'nSpinnerHours'
    *     },
    *     minutes: {
    *       range: [0, 60],
-   *       isPadded: true
+   *       isPadded: true,
+   *       valueText: 'nSpinnerMinutes'
    *     },
    *     seconds: {
    *       range: [0, 60],
-   *       isPadded: true
+   *       isPadded: true,
+   *       valueText: 'nSpinnerSeconds'
    *     }
    *   }
    * });
@@ -40,36 +44,56 @@ define(function(require) {
       var values = [];
       var range = setup.pickers[picker].range;
       var isPadded = setup.pickers[picker].isPadded || false;
+      var valueText = setup.pickers[picker].valueText;
+      var textValues = [];
 
       this.nodes[picker] = setup.element.querySelector('.picker-' + picker);
 
       for (var i = range[0]; i <= range[1]; i++) {
-        values.push(isPadded && i < 10 ? '0' + i : i);
+        values.push(isPadded && i < 10 ? '0' + i : '' + i);
+        if (valueText) {
+          textValues.push(_(valueText, { n: i }));
+        }
       }
 
       this.spinners[picker] = new Spinner({
         element: this.nodes[picker],
-        values: values
+        values: values,
+        textValues: textValues.length ? textValues : values
       });
     }, this);
-
-    Object.defineProperties(this, {
-      value: {
-        get: function() {
-          var values = this.pickers.map(function(picker) {
-            return this.spinners[picker].value;
-          }, this);
-
-          return values.join(':');
-        }
-      }
-    });
   }
 
-  Picker.prototype.reset = function() {
-    this.pickers.forEach(function(picker) {
-      this.spinners[picker].reset();
-    }, this);
+  Picker.prototype = {
+    get value() {
+      // Protect against uninitialized [[Get]] access
+      if (typeof this.pickers === 'undefined') {
+        return null;
+      }
+
+      return this.pickers.map(function(picker) {
+        return this.spinners[picker].value;
+      }, this).join(':');
+    },
+
+    set value(value) {
+      // Protect against uninitialized [[Set]] access
+      if (typeof this.pickers === 'undefined') {
+        return null;
+      }
+
+      value.split(':').forEach(function(value, i) {
+        this.spinners[this.pickers[i]].value = value;
+      }, this);
+
+      return this.value;
+    },
+
+    reset: function() {
+      this.pickers.forEach(function(picker) {
+        this.spinners[picker].reset();
+      }, this);
+    }
   };
 
   return Picker;

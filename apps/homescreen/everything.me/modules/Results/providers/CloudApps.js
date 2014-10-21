@@ -5,8 +5,9 @@ Evme.CloudAppResult = function Evme_CloudAppsResult(query) {
 
   this.type = Evme.RESULT_TYPE.CLOUD;
 
-  var SHADOW_OFFSET = 2 * window.devicePixelRatio,
-      SHADOW_BLUR = 2 * window.devicePixelRatio,
+  var SHADOW_OFFSET = Icon.prototype.SHADOW_OFFSET_Y,
+      SHADOW_BLUR = Icon.prototype.SHADOW_BLUR,
+      SHADOW_COLOR = Icon.prototype.SHADOW_COLOR,
 
       self = this;
 
@@ -19,7 +20,8 @@ Evme.CloudAppResult = function Evme_CloudAppsResult(query) {
       renderIcon(this.src);
     } else {
       Evme.Utils.getRoundIcon({
-        'src': this.src
+        'src': this.src,
+        'size': this.width
       }, renderIcon);
     }
 
@@ -33,20 +35,23 @@ Evme.CloudAppResult = function Evme_CloudAppsResult(query) {
       self.cfg.icon = roundedIcon;
 
       fixedImage.onload = function onImageLoad() {
-        var width = this.width,
-            height = this.height,
-            padding = Evme.Utils.OS_ICON_PADDING,
-            canvas = self.initIcon(height + padding),
-            context = canvas.getContext('2d');
+        var osIconSize = Evme.Utils.getOSIconSize(),
+            width = osIconSize,
+            height = osIconSize,
+            padding = 0,
+            canvas = self.initIcon(height),
+            context = canvas.getContext('2d'),
+            canvasHeight = canvas.height,
+            canvasWidth = canvas.width,
+            SHADOW_SIZE = (SHADOW_OFFSET + SHADOW_BLUR);
 
         // shadow
         context.shadowOffsetX = 0;
         context.shadowOffsetY = SHADOW_OFFSET;
         context.shadowBlur = SHADOW_BLUR;
-        context.shadowColor = 'rgba(0, 0, 0, 0.6)';
+        context.shadowColor = SHADOW_COLOR;
         context.drawImage(fixedImage,
-                          (canvas.width - width + padding) / 2, padding,
-                          width - padding, height - padding);
+          (canvasWidth - width) / 2, 0, width, height);
 
         self.finalizeIcon(canvas);
       };

@@ -1,27 +1,24 @@
 <element name="call-cf-noReplySettings" extends="section">
   <template>
 
-    <header>
-      <button type="reset"><span data-l10n-id="back" class="icon icon-back">Back</span></button>
-      <menu type="toolbar">
-        <button type="submit"><span data-l10n-id="ok">OK</span></button>
-      </menu>
-      <h1 data-l10n-id="callForwarding"> Call forwarding </h1>
-    </header>
+    <gaia-header>
+      <button type="reset" data-icon="back"><span data-l10n-id="back">Back</span></button>
+      <h1 data-l10n-id="callForwarding-header"> Call forwarding </h1>
+      <button type="submit"><span data-l10n-id="ok">OK</span></button>
+    </gaia-header>
 
     <div>
       <ul id="cf-noreply-advanced">
         <li>
           <p data-l10n-id="cf-numberWhenUnanswered">Number when unanswered</p>
-          <input type="tel" id="cf-noreply-number" data-setting="ril.cf.noreply.number" disabled/>
+          <input type="tel" id="cf-noreply-number" data-setting="ril.cf.noreply.number"/>
         </li>
         <li>
           <label class="pack-switch">
-            <input type="checkbox" data-setting="ril.cf.noreply.enabled"/>
-            <span></span>
+            <input type="checkbox" data-setting="ril.cf.noreply.enabled">
+            <span data-l10n-id="callForwardingForward">Forward</span>
+            <small data-l10n-id="callForwardingNoReplyShort">When unanswered</small>
           </label>
-          <small data-l10n-id="callForwardingNoReplyShort">When unanswered</small>
-          <a data-l10n-id="callForwardingForward">Forward</a>
         </li>
       </ul>
     </div>

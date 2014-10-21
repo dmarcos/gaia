@@ -2,83 +2,104 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-import time
+from marionette import Wait
 from marionette.by import By
-from marionette.errors import TimeoutException
 from gaiatest.apps.base import Base
 from gaiatest.apps.base import PageRegion
 from gaiatest.apps.email.regions.setup import SetupEmail
 from gaiatest.apps.email.regions.setup import ManualSetupEmail
 from gaiatest.apps.email.regions.settings import Settings
+from gaiatest.apps.email.regions.google import GoogleLogin
 
 
 class Email(Base):
 
     name = 'E-Mail'
 
-    _header_area_locator = (By.CSS_SELECTOR, '#cardContainer .msg-list-header.msg-nonsearch-only')
-    _email_locator = (By.CSS_SELECTOR, '#cardContainer .msg-header-item')
+    _email_locator = (By.CSS_SELECTOR, '#cardContainer .msg-header-item:not([data-index="-1"])')
     _syncing_locator = (By.CSS_SELECTOR, '#cardContainer .msg-messages-syncing > .small')
     _manual_setup_locator = (By.CSS_SELECTOR, '#cardContainer .sup-manual-config-btn')
+    _message_list_locator = (By.CSS_SELECTOR, '.card-message-list')
+    _refresh_button_locator = (By.CLASS_NAME, 'msg-refresh-btn')
 
     def basic_setup_email(self, name, email, password):
 
         setup = SetupEmail(self.marionette)
         setup.type_name(name)
         setup.type_email(email)
-        setup.type_password(password)
+
         setup.tap_next()
+
+        google_login = GoogleLogin(self.marionette)
+
+        # check if the google autocomplete on email field works as expected
+        assert google_login.email == email
+
+        google_login.type_password(password)
+        google_login.tap_sign_in()
+
+        # approve access to your account
+        google_login.wait_for_approve_access()
+        google_login.tap_approve_access()
+
+        self.apps.switch_to_displayed_app()
 
         setup.tap_account_prefs_next()
 
         setup.wait_for_setup_complete()
 
         setup.tap_continue()
-        self.wait_for_condition(lambda m: self.is_element_displayed(*self._header_area_locator))
+        self.wait_for_message_list()
 
     def setup_IMAP_email(self, imap):
+        basic_setup = SetupEmail(self.marionette)
+        basic_setup.type_name(imap['name'])
+        basic_setup.type_email(imap['email'])
+
         setup = self.tap_manual_setup()
-        setup.type_name(imap['name'])
-        setup.type_email(imap['email'])
-        setup.type_password(imap['password'])
 
         setup.select_account_type('IMAP+SMTP')
 
         setup.type_imap_hostname(imap['imap_hostname'])
         setup.type_imap_name(imap['imap_name'])
+        setup.type_imap_password(imap['password'])
         setup.type_imap_port(imap['imap_port'])
 
         setup.type_smtp_hostname(imap['smtp_hostname'])
+        setup.type_smtp_password(imap['password'])
         setup.type_smtp_name(imap['smtp_name'])
         setup.type_smtp_port(imap['smtp_port'])
 
         setup.tap_next()
+        setup.check_for_emails_interval('20000')
 
         setup.tap_account_prefs_next()
 
         setup.wait_for_setup_complete()
         setup.tap_continue()
-        self.wait_for_header_area()
+        self.wait_for_message_list()
 
     def setup_active_sync_email(self, active_sync):
-        setup = self.tap_manual_setup()
-        setup.type_name(active_sync['name'])
+        basic_setup = SetupEmail(self.marionette)
+        basic_setup.type_name(active_sync['name'])
+        basic_setup.type_email(active_sync['email'])
 
-        setup.type_email(active_sync['email'])
-        setup.type_password(active_sync['password'])
+        setup = self.tap_manual_setup()
 
         setup.select_account_type('ActiveSync')
 
         setup.type_activesync_hostname(active_sync['active_sync_hostname'])
         setup.type_activesync_name(active_sync['active_sync_username'])
+        setup.type_password(active_sync['password'])
 
         setup.tap_next()
 
+        setup.check_for_emails_interval('20000')
         setup.tap_account_prefs_next()
 
         setup.wait_for_setup_complete()
         setup.tap_continue()
-        self.wait_for_header_area()
+        self.wait_for_message_list()
 
     def delete_email_account(self, index):
 
@@ -107,25 +128,39 @@ class Email(Base):
         return [Message(self.marionette, mail) for mail in self.marionette.find_elements(*self._email_locator)]
 
     def wait_for_emails_to_sync(self):
-        self.wait_for_element_not_displayed(*self._syncing_locator)
+        element = self.marionette.find_element(*self._refresh_button_locator)
+        self.wait_for_condition(
+            lambda m: element.get_attribute(
+                'data-state') == 'synchronized')
 
-    def wait_for_header_area(self):
-        self.wait_for_element_displayed(*self._header_area_locator)
+    def wait_for_message_list(self):
+        element = self.marionette.find_element(*self._message_list_locator)
+        self.wait_for_condition(
+            lambda m: element.is_displayed() and
+            element.location['x'] == 0)
 
-    def wait_for_email(self, subject, timeout=60):
-        timeout = float(timeout) + time.time()
-        while time.time() < timeout:
-            time.sleep(5)
-            self.toolbar.tap_refresh()
-            self.wait_for_emails_to_sync()
-            emails = self.mails
-            if subject in [mail.subject for mail in emails]:
-                break
-        else:
-            raise TimeoutException('Email %s not received before timeout' % subject)
+    def wait_for_email(self, subject, timeout=120):
+        Wait(self.marionette, timeout, interval=5).until(
+            self.email_exists(self, subject))
+
+    class email_exists(object):
+
+        def __init__(self, app, subject):
+            self.app = app
+            self.subject = subject
+
+        def __call__(self, marionette):
+            if self.subject in [mail.subject for mail in self.app.mails]:
+                return True
+            else:
+                self.app.toolbar.tap_refresh()
+                self.app.wait_for_emails_to_sync()
+                self.app.mails[0].scroll_to_message()
+                return False
 
 
 class Header(Base):
+
     _menu_button_locator = (By.CSS_SELECTOR, '.card.center .msg-folder-list-btn')
     _compose_button_locator = (By.CSS_SELECTOR, '.card.center .msg-compose-btn')
     _label_locator = (By.CSS_SELECTOR, '.card.center .msg-list-header-folder-label.header-label')
@@ -162,15 +197,19 @@ class ToolBar(Base):
     _settings_locator = (By.CSS_SELECTOR, '#cardContainer .card.center .fld-nav-settings-btn')
 
     def tap_refresh(self):
+        self.wait_for_element_displayed(*self._refresh_locator)
         self.marionette.find_element(*self._refresh_locator).tap()
 
     def tap_search(self):
+        self.wait_for_element_displayed(*self._search_locator)
         self.marionette.find_element(*self._search_locator).tap()
 
     def tap_edit(self):
+        self.wait_for_element_displayed(*self._edit_locator)
         self.marionette.find_element(*self._edit_locator).tap()
 
     def tap_settings(self):
+        self.wait_for_element_displayed(*self._settings_locator)
         self.marionette.find_element(*self._settings_locator).tap()
 
     @property
@@ -213,6 +252,7 @@ class Message(PageRegion):
         el = self.root_element.find_element(*self._subject_locator)
         # TODO: Remove scrollIntoView when bug #877163 is fixed
         self.marionette.execute_script("arguments[0].scrollIntoView(false);", [el])
+        self.wait_for_element_displayed(*self._subject_locator)
         self.root_element.find_element(*self._subject_locator).tap()
         from gaiatest.apps.email.regions.read_email import ReadEmail
         return ReadEmail(self.marionette)

@@ -1,8 +1,9 @@
 define(function(require) {
   'use strict';
 
-  var Template = require('shared/js/template');
+  var Template = require('template');
   var GestureDetector = require('shared/js/gesture_detector');
+  var spinnerHtml = require('text!picker/spinner.html');
 
   // units covered per millisecond threshold to kick off inertia
   var SPEED_THRESHOLD = 0.01;
@@ -19,6 +20,7 @@ define(function(require) {
   var DRAGGING_TIMEOUT = 200;
 
   function calculateSpeed(previous, current) {
+    /* jshint validthis:true */
     var motion = (previous.y - current.y) / this.unitHeight;
     var delta = current.time - previous.time;
     var speed = motion / delta;
@@ -62,6 +64,16 @@ define(function(require) {
           this.select(this.values.indexOf(value));
         }
       },
+      unitHeight: {
+        get: function() {
+          return this.element.children[0].clientHeight;
+        }
+      },
+      space: {
+        get: function() {
+          return this.unitHeight * this.length;
+        }
+      },
       container: {
         value: setup.element.parentNode
       },
@@ -73,13 +85,15 @@ define(function(require) {
       },
       length: {
         value: setup.values.length
+      },
+      textValues: {
+        value: setup.textValues || setup.values
       }
     });
 
-    this.template = new Template('picker-unit-tmpl');
+    this.template = new Template(spinnerHtml);
 
     this.top = 0;
-    this.space = 0;
     this.index = 0;
 
     this.previous = new Touch();
@@ -101,6 +115,11 @@ define(function(require) {
     this.container.addEventListener('touchstart', this, false);
     this.container.addEventListener('pan', this, false);
     this.container.addEventListener('swipe', this, false);
+    this.container.addEventListener('keypress', this, false);
+    this.container.setAttribute('aria-valuemax', this.upper);
+    this.container.setAttribute('aria-valuemin', this.lower);
+    this.container.setAttribute('aria-valuenow', this.index);
+    this.container.setAttribute('aria-valuetext', this.textValues[this.index]);
 
     this.reset();
 
@@ -108,14 +127,14 @@ define(function(require) {
   }
 
   Spinner.prototype.reset = function() {
-    this.unitHeight = this.element.children[0].clientHeight;
-    this.space = this.unitHeight * this.length;
     this.index = 0;
     this.top = 0;
     this.update();
   };
 
   Spinner.prototype.update = function() {
+    this.container.setAttribute('aria-valuenow', this.index);
+    this.container.setAttribute('aria-valuetext', this.textValues[this.index]);
     this.element.style.transform = 'translateY(' + this.top + 'px)';
   };
 
@@ -164,7 +183,7 @@ define(function(require) {
   Spinner.prototype.onpan = function(event) {
     event.stopPropagation();
     var position = event.detail.position;
-    var diff, moving;
+    var diff;
 
     // If this is the first pan event after a swipe...
     if (this.element.classList.contains('animation-on')) {
@@ -219,6 +238,15 @@ define(function(require) {
 
     this.stopInteraction();
 
+  };
+
+  Spinner.prototype.onkeypress = function(event) {
+    this.element.classList.add('animation-on');
+    if (event.keyCode == KeyEvent.DOM_VK_DOWN) {
+      this.select(this.index - 1);
+    } else {
+      this.select(this.index + 1);
+    }
   };
 
   return Spinner;

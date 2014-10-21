@@ -1,56 +1,79 @@
 'use strict';
 
-require('/tests/js/app_integration.js');
-require('/tests/js/integration_helper.js');
-require('/tests/performance/performance_helper.js');
+var assert = require('assert');
+var App = require('./app');
+var PerformanceHelper = requireGaia('/tests/performance/performance_helper.js');
+var perfUtils = require('./perf-utils');
+var appPath = config.appPath;
 
-function GenericIntegration(device) {
-  AppIntegration.apply(this, arguments);
+if (perfUtils.isWhitelisted(config.whitelists.mozLaunch, appPath) ||
+    perfUtils.isBlacklisted(config.blacklists.legacyLaunch, appPath)) {
+  return;
 }
 
-var [manifestPath, entryPoint] = window.mozTestInfo.appPath.split('/');
+var arr = appPath.split('/');
+var manifestPath = arr[0];
+var entryPoint = arr[1];
 
-GenericIntegration.prototype = {
-  __proto__: AppIntegration.prototype,
-  appName: window.mozTestInfo.appPath,
-  manifestURL: 'app://' + manifestPath + '.gaiamobile.org/manifest.webapp',
-  entryPoint: entryPoint
-};
+marionette('startup test > ' + appPath + ' >', function() {
 
-suite(window.mozTestInfo.appPath + ' >', function() {
-  var device;
   var app;
+  var client = marionette.client({
+    settings: {
+      'ftu.manifestURL': null,
+      'lockscreen.enabled': false
+    }
+  });
+  // Do nothing on script timeout. Bug 987383
+  client.onScriptTimeout = null;
 
   var performanceHelper;
+  var isHostRunner = (config.runnerHost === 'marionette-device-host');
 
-  MarionetteHelper.start(function(client) {
-    app = new GenericIntegration(client);
-    device = app.device;
-    performanceHelper = new PerformanceHelper({ app: app });
-  });
+  app = new App(client, appPath);
+  if (app.skip) {
+    return;
+  }
 
   setup(function() {
-    yield IntegrationHelper.unlock(device); // it affects the first run otherwise
-    yield PerformanceHelper.registerLoadTimeListener(device);
-  });
-
-  teardown(function() {
-    yield PerformanceHelper.unregisterLoadTimeListener(device);
+    // Mocha timeout for this test
+    this.timeout(config.timeout);
+    // Marionnette timeout for each command sent to the device
+    client.setScriptTimeout(config.scriptTimeout);
   });
 
   test('startup time', function() {
-    // Mocha timeout for this test
-    this.timeout(100000);
-    // Marionnette timeout for each command sent to the device
-    yield device.setScriptTimeout(10000);
 
-    yield performanceHelper.repeatWithDelay(function(app, next) {
-      yield app.launch();
-      yield app.close();
+    performanceHelper = new PerformanceHelper({ app: app });
+    performanceHelper.disableScreenTimeout();
+
+    PerformanceHelper.registerLoadTimeListener(client);
+
+    var goals = PerformanceHelper.getGoalData(client);
+
+    var memStats = [];
+    performanceHelper.repeatWithDelay(function(app, next) {
+      app.launch();
+
+      if (!isHostRunner) {
+        return app.close();
+      }
+
+      // we can only collect memory if we have a host device (adb)
+      var memUsage = performanceHelper.getMemoryUsage(app);
+
+      // Bug 1045717: be sure to close app before we assert the value of
+      // memStats so we avoid leaking problems into other tests
+      app.close();
+
+      assert.ok(memUsage, 'couldn\'t collect mem usage');
+      memStats.push(memUsage);
     });
 
-    var results = yield PerformanceHelper.getLoadTimes(device);
-    results = results.filter(function (element) {
+    var results = PerformanceHelper.getLoadTimes(client);
+    assert.ok(results, 'empty results');
+
+    results = results.filter(function(element) {
       if (element.src.indexOf('app://' + manifestPath) !== 0) {
         return false;
       }
@@ -58,11 +81,17 @@ suite(window.mozTestInfo.appPath + ' >', function() {
         return false;
       }
       return true;
-    }).map(function (element) {
+    }).map(function(element) {
       return element.time;
     });
 
+    // results is an Array of values, one per run.
+    assert.ok(results.length == config.runs, 'missing runs');
+
     PerformanceHelper.reportDuration(results);
+    PerformanceHelper.reportMemory(memStats);
+    PerformanceHelper.reportGoal(goals);
+
+    PerformanceHelper.unregisterLoadTimeListener(client);
   });
 });
-

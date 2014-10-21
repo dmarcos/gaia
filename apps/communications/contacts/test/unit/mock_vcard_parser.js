@@ -9,7 +9,6 @@ MockVcardParser.prototype.process = function process(cb) {
 };
 
 function MockVCFReader(textToParse) {
-  var f = 0;
   this.text = textToParse;
 }
 
@@ -29,5 +28,5 @@ MockVCFReader.prototype.process = function process(cb) {
       }
     }
   }
-  cb(importedContacts);
+  cb(importedContacts, this.numDuplicated);
 };

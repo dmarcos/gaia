@@ -1,19 +1,33 @@
 'use strict';
+/* jshint nonew: false */
+/* global ActivityHandler */
+/* global COMMS_APP_ORIGIN */
+/* global Contacts */
+/* global ContactsButtons */
+/* global ContactPhotoHelper */
+/* global fb */
+/* global LazyLoader */
+/* global Normalizer */
+/* global SCALE_RATIO */
+/* global WebrtcClient */
+/* global utils */
+/* global TAG_OPTIONS */
+/* global ICEData */
 
 var contacts = window.contacts || {};
 
 contacts.Details = (function() {
   var photoPos = 7;
   var initMargin = 8;
+  var DEFAULT_TEL_TYPE = 'other';
+  // If it is a favourite on/off change, I cancel the render
+  var isAFavoriteChange = false;
   var contactData,
       contactDetails,
       listContainer,
-      star,
       detailsName,
       orgTitle,
-      birthdayTemplate,
-      phonesTemplate,
-      emailsTemplate,
+      datesTemplate,
       addressesTemplate,
       socialTemplate,
       duplicateTemplate,
@@ -22,10 +36,8 @@ contacts.Details = (function() {
       isFbLinked,
       editContactButton,
       cover,
-      wrapper,
       favoriteMessage,
       detailsInner,
-      TAG_OPTIONS,
       dom,
       currentSocial,
       _;
@@ -41,12 +53,9 @@ contacts.Details = (function() {
     dom = currentDom || document;
     contactDetails = dom.querySelector('#contact-detail');
     listContainer = dom.querySelector('#details-list');
-    star = dom.querySelector('#favorite-star');
     detailsName = dom.querySelector('#contact-name-title');
     orgTitle = dom.querySelector('#org-title');
-    birthdayTemplate = dom.querySelector('#birthday-template-\\#i\\#');
-    phonesTemplate = dom.querySelector('#phone-details-template-\\#i\\#');
-    emailsTemplate = dom.querySelector('#email-details-template-\\#i\\#');
+    datesTemplate = dom.querySelector('#dates-template-\\#i\\#');
     addressesTemplate = dom.querySelector('#address-details-template-\\#i\\#');
     socialTemplate = dom.querySelector('#social-template-\\#i\\#');
     duplicateTemplate = dom.querySelector('#duplicate-contacts-template');
@@ -56,111 +65,153 @@ contacts.Details = (function() {
     favoriteMessage = dom.querySelector('#toggle-favorite');
     notesTemplate = dom.querySelector('#note-details-template-\\#i\\#');
 
-    wrapper = dom.querySelector('#contact-detail-wrapper');
+    window.addEventListener('online', checkOnline);
+    window.addEventListener('offline', checkOnline);
+
     initPullEffect(cover);
 
     utils.listeners.add({
       '#toggle-favorite': toggleFavorite,
-      '#details-back': handleDetailsBack,
+      '#details-view-header': [
+        {
+          event: 'action',
+          handler: handleDetailsBack
+        }
+      ],
       '#edit-contact-button': showEditContact
     });
+
+    ContactsButtons.init(listContainer, contactDetails, ActivityHandler);
+  };
+
+  var getWebrtcClientResources = function getWebrtcClientResources(cb) {
+    if (typeof cb !== 'function') {
+      return;
+    }
+    LazyLoader.load(
+      [
+        '/contacts/style/webrtc-client/webrtc_client.css',
+        '/contacts/js/webrtc-client/webrtc_client.js'
+      ],
+      cb
+    );
   };
 
   var handleDetailsBack = function handleDetailsBack() {
-    if (ActivityHandler.currentlyHandling) {
+    // disable NFC listeners if NFC is available
+    if ('mozNfc' in navigator) {
+      contacts.NFC.stopListening();
+    }
+
+    if (WebrtcClient) {
+      getWebrtcClientResources(WebrtcClient.stop);
+    }
+
+    if (ActivityHandler.currentActivityIsNot(['import'])) {
       ActivityHandler.postCancel();
       Contacts.navigation.home();
-    } else {
-      var hasParams = window.location.hash.split('?');
-      var params = hasParams.length > 1 ?
-        utils.extractParams(hasParams[1]) : -1;
+    }
+    else if (contacts.ICEView && contacts.ICEView.iceListDisplayed) {
+      ICEData.getActiveIceContacts().then(function(list) {
+        if (!Array.isArray(list) || list.length === 0) {
+          Contacts.navigation.home();
+        }
+        else {
+          doHandleDetailsBack();
+        }
+      }, doHandleDetailsBack);
+    }
+    else {
+      doHandleDetailsBack();
+    }
+  };
 
-      Contacts.navigation.back();
-      // post message to parent page included Contacts app.
-      if (params['back_to_previous_tab'] === '1') {
-        var message = { 'type': 'contactsiframe', 'message': 'back' };
-        window.parent.postMessage(message, COMMS_APP_ORIGIN);
-      }
+  var doHandleDetailsBack = function() {
+    var hashParams = window.location.hash.split('?');
+    var params = hashParams.length > 1 ?
+                      utils.extractParams(hashParams[1]) : -1;
+
+    Contacts.navigation.back(resetPhoto);
+    // post message to parent page included Contacts app.
+    if (params.back_to_previous_tab === '1') {
+      var message = { 'type': 'contactsiframe', 'message': 'back' };
+      window.parent.postMessage(message, COMMS_APP_ORIGIN);
     }
   };
 
   var showEditContact = function showEditContact() {
-    Contacts.showForm(true);
+    Contacts.showForm(true, contactData);
   };
 
   var setContact = function cd_setContact(currentContact) {
     contactData = currentContact;
   };
 
-  var setContainer = function cd_setContainer(container) {
-    listContainer = container;
-  };
-
   var initPullEffect = function cd_initPullEffect(cover) {
-    wrapper.addEventListener('touchstart', function(event) {
+    var maxPosition = Math.round(150 * SCALE_RATIO);
+    var startPosition = 0;
 
-      // Avoiding repaint (at least when no scroll is needed)
-      if (cover.style.overflow == 'hidden') {
-        var headerHeight = 5;
-        contactDetails.style.top = headerHeight + 'rem';
-        contactDetails.style.position = 'fixed';
-      }
-
-      var event = event.changedTouches[0];
-      if (contactDetails.classList.contains('no-photo'))
+    function onTouchStart(e) {
+      if (contactDetails.classList.contains('no-photo')) {
         return;
+      }
+      e.preventDefault();
+      startPosition = e.changedTouches[0].clientY;
 
-      var startPosition = event.clientY;
       contactDetails.classList.add('up');
       cover.classList.add('up');
 
-      var max_margin = Math.round(150 * SCALE_RATIO);
+      window.addEventListener('touchmove', onTouchMove, true);
+      window.addEventListener('touchend', onTouchEnd, true);
+    }
 
-      var onMouseMove = function onMouseMove(event) {
-        var event = event.changedTouches[0];
-        var newMargin = event.clientY - startPosition;
-        if (newMargin > 0 && newMargin < max_margin) {
-          contactDetails.classList.remove('up');
-          cover.classList.remove('up');
-          var calc = 'calc(' + initMargin + 'rem + ' + newMargin + 'px)';
-          // Divide by 40 (4 times slower and in rems)
-          contactDetails.style.transform = 'translateY(' + calc + ')';
-          var newPos = (-photoPos + (newMargin / 40)) + 'rem';
-          cover.style.transform = 'translateY(' + newPos + ')';
-        }
-      };
+    function onTouchEnd(e) {
+      e.preventDefault();
 
-      var onMouseUp = function onMouseUp(event) {
-        var event = event.changedTouches[0];
-        contactDetails.classList.add('up');
-        cover.classList.add('up');
-        contactDetails.style.transform = null;
-        cover.style.transform = null;
-        removeEventListener('touchmove', onMouseMove);
-        removeEventListener('touchend', onMouseUp);
-        contactDetails.addEventListener('transitionend', function transEnd() {
-          contactDetails.style.position = 'relative';
-          contactDetails.style.top = '0';
-          this.removeEventListener('transitionend', transEnd);
-        });
-      };
+      contactDetails.style.transform = null;
+      contactDetails.classList.add('up');
 
-      addEventListener('touchmove', onMouseMove);
-      addEventListener('touchend', onMouseUp);
-    });
+      cover.style.transform = null;
+      cover.classList.add('up');
+
+      window.removeEventListener('touchmove', onTouchMove, true);
+      window.removeEventListener('touchend', onTouchEnd, true);
+    }
+
+    function onTouchMove(e) {
+      e.preventDefault();
+
+      var deltaY = e.changedTouches[0].clientY - startPosition;
+      deltaY = Math.min(maxPosition, Math.max(0, deltaY));
+
+      var calc = 'calc(' + initMargin + 'rem + ' + deltaY + 'px)';
+      contactDetails.style.transform = 'translateY(' + calc + ')';
+      contactDetails.classList.remove('up');
+
+      // Divide by 40 (4 times slower and in rems)
+      var coverPosition = (-photoPos + (deltaY / 40)) + 'rem';
+      cover.style.transform = 'translateY(' + coverPosition + ')';
+      cover.classList.remove('up');
+    }
+
+    cover.addEventListener('touchstart', onTouchStart, true);
   };
 
-  var render = function cd_render(currentContact, tags, isEnrichedContact) {
+  var render = function cd_render(currentContact, fbContactData) {
+    if(isAFavoriteChange){
+      isAFavoriteChange = false;
+      return Promise.resolve(isAFavoriteChange);
+    }
+
     contactData = currentContact || contactData;
 
-    TAG_OPTIONS = tags || TAG_OPTIONS;
     isFbContact = fb.isFbContact(contactData);
     isFbLinked = fb.isFbLinked(contactData);
 
     // Initially enabled and only disabled if necessary
     editContactButton.removeAttribute('disabled');
 
-    if (!isEnrichedContact && isFbContact) {
+    if (!fbContactData && isFbContact) {
       var fbContact = new fb.Contact(contactData);
       var req = fbContact.getData();
 
@@ -173,18 +224,42 @@ contacts.Details = (function() {
         doReloadContactDetails(contactData);
       };
     } else {
-      doReloadContactDetails(contactData);
+      doReloadContactDetails(fbContactData || contactData);
     }
   };
 
+  // Fills the contact data to display if no givenName and familyName
+  var getDisplayName = function getDisplayName(contact) {
+    var name = _('noName');
 
+    if (hasName(contact)) {
+      name = contact.name[0];
+    } else if (hasContent(contact.tel)) {
+      name = contact.tel[0].value;
+    } else if (hasContent(contact.email)) {
+      name = contact.email[0].value;
+    }
+    return name;
+  };
+
+  function hasContent(field) {
+    return (Array.isArray(field) &&
+            field.length > 0 &&
+            field[0].value &&
+            field[0].value.trim());
+  }
+
+  function hasName(contact) {
+    return (Array.isArray(contact.name) &&
+            contact.name[0] &&
+            contact.name[0].trim());
+  }
 
   //
   // Method that generates HTML markup for the contact
   //
   var doReloadContactDetails = function doReloadContactDetails(contact) {
-
-    detailsName.textContent = contact.name;
+    detailsName.textContent = getDisplayName(contact);
     contactDetails.classList.remove('no-photo');
     contactDetails.classList.remove('fb-contact');
     contactDetails.classList.remove('up');
@@ -192,11 +267,16 @@ contacts.Details = (function() {
 
     renderFavorite(contact);
     renderOrg(contact);
-    renderBday(contact);
 
-    renderPhones(contact);
-    renderEmails(contact);
+    ContactsButtons.renderPhones(contact);
+    ContactsButtons.renderEmails(contact);
+
+    renderWebrtcClient(contactData);// Don't share the FB info
+
     renderAddresses(contact);
+
+    renderDates(contact);
+
     renderNotes(contact);
     if (fb.isEnabled) {
       renderSocial(contact);
@@ -213,9 +293,9 @@ contacts.Details = (function() {
     var favorite = isFavorite(contact);
     toggleFavoriteMessage(favorite);
     if (contact.category && contact.category.indexOf('favorite') != -1) {
-      star.classList.remove('hide');
+      detailsName.classList.add('favorite');
     } else {
-      star.classList.add('hide');
+      detailsName.classList.remove('favorite');
     }
   };
 
@@ -238,46 +318,56 @@ contacts.Details = (function() {
       }
       var pos = contact.category.indexOf('favorite');
       if (pos > -1) {
-        delete contact.category[pos];
+        contact.category.splice(pos, 1);
       }
     }
 
     // Disabling button while saving the contact
     favoriteMessage.style.pointerEvents = 'none';
 
-    var request = navigator.mozContacts.save(contact);
-    request.onsuccess = function onsuccess() {
-      var cList = contacts.List;
-      /*
-         Two contacts are returned because the enrichedContact is readonly
-         and if the Contact is edited we need to prevent saving
-         FB data on the mozContacts DB.
-      */
-       cList.getContactById(contact.id,
-                           function onSuccess(savedContact, enrichedContact) {
-        renderFavorite(savedContact);
-        setContact(savedContact);
+    var promise = new Promise(function(resolve, reject) {
+      var request =
+        navigator.mozContacts.save(utils.misc.toMozContact(contact));
+      request.onsuccess = function onsuccess() {
+        isAFavoriteChange = true;
+        var cList = contacts.List;
+        /*
+           Two contacts are returned because the enrichedContact is readonly
+           and if the Contact is edited we need to prevent saving
+           FB data on the mozContacts DB.
+        */
+         cList.getContactById(contact.id,
+                             function onSuccess(savedContact, enrichedContact) {
+          renderFavorite(savedContact);
+          setContact(savedContact);
+          favoriteMessage.style.pointerEvents = 'auto';
+        }, function onError() {
+          console.error('Error reloading contact');
+          favoriteMessage.style.pointerEvents = 'auto';
+        });
+        resolve(isAFavoriteChange);
+      };
+
+      request.onerror = function onerror() {
         favoriteMessage.style.pointerEvents = 'auto';
-      }, function onError() {
-        console.error('Error reloading contact');
-        favoriteMessage.style.pointerEvents = 'auto';
-      });
-    };
-    request.onerror = function onerror() {
-      favoriteMessage.style.pointerEvents = 'auto';
-      console.error('Error saving favorite');
-    };
+        console.error('Error saving favorite');
+        reject('Error saving favorite');
+        resolve(false);
+      };
+    }).then();
+
+    return promise;
   };
 
   var toggleFavoriteMessage = function toggleFavMessage(isFav) {
     var cList = favoriteMessage.classList;
-    var text = isFav ? _('removeFavorite') : _('addFavorite');
-    favoriteMessage.textContent = text;
+    var l10nId = isFav ? 'removeFavorite' : 'addFavorite';
+    favoriteMessage.setAttribute('data-l10n-id', l10nId);
     isFav ? cList.add('on') : cList.remove('on');
   };
 
   var renderOrg = function cd_renderOrg(contact) {
-    if (contact.org && contact.org.length > 0 && contact.org[0] != '') {
+    if (contact.org && contact.org.length > 0 && contact.org[0] !== '') {
       orgTitle.textContent = contact.org[0];
       orgTitle.className = '';
     } else {
@@ -286,29 +376,36 @@ contacts.Details = (function() {
     }
   };
 
-  var renderBday = function cd_renderBday(contact) {
-    if (!contact.bday) {
+  var renderDates = function cd_renderDates(contact) {
+    if (!contact.bday && !contact.anniversary) {
       return;
     }
 
-    var f = new navigator.mozL10n.DateTimeFormat();
-    var birthdayFormat = _('birthdayDateFormat') || '%e %B';
-    var birthdayString = '';
-    try {
-      var offset = contact.bday.getTimezoneOffset() * 60 * 1000;
-      var normalizeBirthdayDate = new Date(contact.bday.getTime() + offset);
-      birthdayString = f.localeFormat(normalizeBirthdayDate, birthdayFormat);
-    } catch (err) {
-      console.error('Error parsing birthday');
-      return;
+    var dateString = '';
+
+    var fields = ['bday', 'anniversary'];
+    var l10nIds = ['birthday', 'anniversary'];
+
+    var rendered = 0;
+    for (var j = 0; j < fields.length; j++) {
+      var value = contact[fields[j]];
+      if (!value) {
+        continue;
+      }
+      try {
+        dateString = utils.misc.formatDate(value);
+      } catch (err) {
+        console.error('Error parsing date');
+        continue;
+      }
+      var element = utils.templates.render(datesTemplate, {
+        i: ++rendered,
+        date: dateString,
+        type: _(l10nIds[j])
+      });
+
+      listContainer.appendChild(element);
     }
-
-    var element = utils.templates.render(birthdayTemplate, {
-      i: contact.id,
-      bday: birthdayString
-    });
-
-    listContainer.appendChild(element);
   };
 
   var renderSocial = function cd_renderSocial(contact) {
@@ -336,10 +433,12 @@ contacts.Details = (function() {
       doDisableButton(linkButton);
     } else {
         var socialLabel = social.querySelector('#social-label');
-        if (socialLabel)
-          socialLabel.textContent = _('facebook');
-          // Check whether the social buttons that require to be online
-          // should be there
+        if (socialLabel) {
+          socialLabel.setAttribute('data-l10n-id', 'facebook');
+        }
+
+        // Check whether the social buttons that require to be online
+        // should be there
         disableButtons(social, socialButtonIds);
     }
 
@@ -353,8 +452,9 @@ contacts.Details = (function() {
     listContainer.appendChild(social);
   };
 
-  var checkOnline = function(social) {
-    var socialTemplate = social || currentSocial;
+  var checkOnline = function() {
+    var socialTemplate = document.querySelector(
+                                        ':not([data-template])[data-social]');
 
     if (socialTemplate) {
       if (isFbContact) {
@@ -384,78 +484,10 @@ contacts.Details = (function() {
     }
   }
 
-  var renderPhones = function cd_renderPhones(contact) {
-    if (!contact.tel) {
-      return;
-    }
-    var telLength = Contacts.getLength(contact.tel);
-    for (var tel = 0; tel < telLength; tel++) {
-      var currentTel = contact.tel[tel];
-      var escapedType = Normalizer.escapeHTML(currentTel.type, true);
-      var telField = {
-        value: Normalizer.escapeHTML(currentTel.value, true) || '',
-        type: _(escapedType) || escapedType ||
-                                        TAG_OPTIONS['phone-type'][0].value,
-        'type_l10n_id': currentTel.type,
-        carrier: Normalizer.escapeHTML(currentTel.carrier || '', true) || '',
-        i: tel
-      };
-      var template = utils.templates.render(phonesTemplate, telField);
-
-      // Add event listeners to the phone template components
-      var sendSmsButton = template.querySelector('#send-sms-button-' + tel);
-      sendSmsButton.dataset['tel'] = telField.value;
-      sendSmsButton.addEventListener('click', onSendSmsClicked);
-
-      var callOrPickButton = template.querySelector('#call-or-pick-' + tel);
-      callOrPickButton.dataset['tel'] = telField.value;
-      callOrPickButton.addEventListener('click', onCallOrPickClicked);
-
-      listContainer.appendChild(template);
-    }
-  };
-
-  var onSendSmsClicked = function onSendSmsClicked(evt) {
-    var tel = evt.target.dataset['tel'];
-    Contacts.sendSms(tel);
-  };
-
-  var onCallOrPickClicked = function onCallOrPickClicked(evt) {
-    var tel = evt.target.dataset['tel'];
-    Contacts.callOrPick(tel);
-  };
-
-  var renderEmails = function cd_renderEmails(contact) {
-    if (!contact.email) {
-      return;
-    }
-    var emailLength = Contacts.getLength(contact.email);
-    for (var email = 0; email < emailLength; email++) {
-      var currentEmail = contact.email[email];
-      var escapedType = Normalizer.escapeHTML(currentEmail['type'], true);
-      var emailField = {
-        value: Normalizer.escapeHTML(currentEmail['value'], true) || '',
-        type: _(escapedType) || escapedType ||
-                                          TAG_OPTIONS['email-type'][0].value,
-        'type_l10n_id': currentEmail['type'],
-        i: email
-      };
-      var template = utils.templates.render(emailsTemplate, emailField);
-
-      // Add event listeners to the phone template components
-      var emailButton = template.querySelector('#email-or-pick-' + email);
-      emailButton.dataset['email'] = emailField.value;
-      emailButton.addEventListener('click', onEmailOrPickClick);
-
-      listContainer.appendChild(template);
-    }
-  };
-
-  var onEmailOrPickClick = function onEmailOrPickClick(evt) {
-    evt.preventDefault();
-    var email = evt.target.dataset['email'];
-    Contacts.sendEmailOrPick(email);
-    return false;
+  var renderWebrtcClient = function renderWebrtcClient(contact) {
+    getWebrtcClientResources(function onLoaded() {
+      WebrtcClient.start(contact);
+    });
   };
 
   var renderAddresses = function cd_renderAddresses(contact) {
@@ -469,14 +501,14 @@ contacts.Details = (function() {
         'locality', 'countryName'])) {
         continue;
       }
-      var address = currentAddress['streetAddress'] || '';
+      var address = currentAddress.streetAddress || '';
       var escapedStreet = Normalizer.escapeHTML(address, true);
-      var locality = currentAddress['locality'];
+      var locality = currentAddress.locality;
       var escapedLocality = Normalizer.escapeHTML(locality, true);
-      var escapedType = Normalizer.escapeHTML(currentAddress['type'], true);
-      var country = currentAddress['countryName'] || '';
+      var escapedType = Normalizer.escapeHTML(currentAddress.type, true);
+      var country = currentAddress.countryName || '';
       var escapedCountry = Normalizer.escapeHTML(country, true);
-      var postalCode = currentAddress['postalCode'] || '';
+      var postalCode = currentAddress.postalCode || '';
       var escapedPostalCode = Normalizer.escapeHTML(postalCode, true);
 
       var addressField = {
@@ -486,7 +518,7 @@ contacts.Details = (function() {
         countryName: escapedCountry,
         type: _(escapedType) || escapedType ||
                                         TAG_OPTIONS['address-type'][0].value,
-        'type_l10n_id': currentAddress['type'],
+        'type_l10n_id': currentAddress.type,
         i: i
       };
       var template = utils.templates.render(addressesTemplate, addressField);
@@ -516,7 +548,7 @@ contacts.Details = (function() {
     }
     var container = document.createElement('li');
     var title = document.createElement('h2');
-    title.textContent = _('comments');
+    title.setAttribute('data-l10n-id', 'comments');
     container.appendChild(title);
     for (var i = 0; i < contact.note.length; i++) {
       var currentNote = contact.note[i];
@@ -530,13 +562,63 @@ contacts.Details = (function() {
     }
   };
 
+  var calculateHash = function calculateHash(photo, cb) {
+    var START_BYTES = 127;
+    var BYTES_HASH = 16;
+
+    var out = [photo.type, photo.size];
+
+    // We skip the first bytes that typically are headers
+    var chunk = photo.slice(START_BYTES, START_BYTES + BYTES_HASH);
+    var reader = new FileReader();
+    reader.onloadend = function() {
+      out.push(reader.result);
+      cb(out.join(''));
+    };
+    reader.onerror = function() {
+      window.console.error('Error while calculating the hash: ',
+                           reader.error.name);
+      cb(out.join(''));
+    };
+    reader.readAsDataURL(chunk);
+  };
+
+  var updateHash = function updateHash(photo, cover) {
+    calculateHash(photo, function(hash) {
+      cover.dataset.imgHash = hash;
+    });
+  };
+
   var renderPhoto = function cd_renderPhoto(contact) {
     contactDetails.classList.remove('up');
     if (isFbContact) {
       contactDetails.classList.add('fb-contact');
     }
-    if (contact.photo && contact.photo.length > 0) {
+
+    var photo = ContactPhotoHelper.getFullResolution(contact);
+    if (photo) {
+      var currentHash = cover.dataset.imgHash;
+      if (!currentHash) {
+        Contacts.updatePhoto(photo, cover);
+        updateHash(photo, cover);
+      }
+      else {
+        // Need to recalculate the hash and see whether the images changed
+        calculateHash(photo, function(newHash) {
+          if (currentHash !== newHash) {
+            Contacts.updatePhoto(photo, cover);
+            cover.dataset.imgHash = newHash;
+          }
+          else {
+            // Only for testing purposes
+            cover.dataset.photoReady = 'true';
+          }
+        });
+      }
+
       contactDetails.classList.add('up');
+      cover.classList.add('translated');
+      contactDetails.classList.add('translated');
       var clientHeight = contactDetails.clientHeight -
           (initMargin * 10 * SCALE_RATIO);
       if (detailsInner.offsetHeight < clientHeight) {
@@ -544,21 +626,19 @@ contacts.Details = (function() {
       } else {
         cover.style.overflow = 'auto';
       }
-      Contacts.updatePhoto(contact.photo[0], cover);
     } else {
-      cover.style.backgroundImage = '';
-      cover.style.overflow = 'auto';
-      contactDetails.style.transform = '';
-      contactDetails.classList.add('no-photo');
+      resetPhoto();
     }
   };
 
-  var reMark = function(field, value) {
-    var selector = '[data-' + field + '="' + value + '"]';
-    var elements = listContainer.querySelectorAll(selector);
-    for (var i = 0; i < elements.length; i++) {
-      elements[i].classList.add('remark');
-    }
+  var resetPhoto = function cd_resetPhoto() {
+    cover.classList.remove('translated');
+    contactDetails.classList.remove('translated');
+    cover.style.backgroundImage = '';
+    cover.style.overflow = 'auto';
+    contactDetails.style.transform = '';
+    contactDetails.classList.add('no-photo');
+    cover.dataset.imgHash = '';
   };
 
   return {
@@ -566,7 +646,6 @@ contacts.Details = (function() {
     'setContact': setContact,
     'toggleFavorite': toggleFavorite,
     'render': render,
-    'onLineChanged': checkOnline,
-    'reMark': reMark
+    'defaultTelType' : DEFAULT_TEL_TYPE
   };
 })();

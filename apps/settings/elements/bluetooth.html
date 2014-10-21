@@ -1,35 +1,30 @@
 <element name="bluetooth" extends="section">
   <template>
 
-    <header>
-      <a href="#root"><span class="icon icon-back">back</span></a>
-      <h1 data-l10n-id="bluetooth"> Bluetooth </h1>
-    </header>
+    <gaia-header action="back" data-href="#root">
+      <h1 data-l10n-id="bluetooth-header"> Bluetooth </h1>
+    </gaia-header>
 
     <div>
       <ul>
         <li id="bluetooth-status" class="hint">
           <label class="pack-switch">
-            <input type="checkbox" data-ignore/>
-            <span></span>
+            <input type="checkbox" data-ignore>
+            <span data-l10n-id="bluetooth">Bluetooth</span>
           </label>
-          <a data-l10n-id="bluetooth">Bluetooth</a>
           <p data-l10n-id="bluetooth-enable-msg" id="bluetooth-enable-msg" class="explanation">
             Turn Bluetooth on to view devices in the area.
           </p>
         </li>
         <li hidden id="device-visible">
           <label class="pack-switch">
-            <input type="checkbox" data-ignore />
-            <span></span>
+            <input type="checkbox" data-ignore>
+            <span data-l10n-id="bluetooth-visible-to-all">Visible to all</span>
+            <small id="bluetooth-device-name"></small>
           </label>
-          <small id="bluetooth-device-name"></small>
-          <a data-l10n-id="bluetooth-visible-to-all">Visible to all</a>
         </li>
         <li hidden id="bluetooth-rename">
-          <label>
-            <button id="rename-device" data-l10n-id="rename-device" disabled>Rename My Device</button>
-          </label>
+          <button id="rename-device" data-l10n-id="rename-device" disabled>Rename My Device</button>
         </li>
       </ul>
 
@@ -49,25 +44,23 @@
       </div>
       <ul hidden id="bluetooth-search">
         <li>
-          <label>
-            <button id="search-device" data-l10n-id="search-device" disabled>Search for Devices</button>
-          </label>
+          <button id="search-device" data-l10n-id="search-device" disabled>Search for Devices</button>
         </li>
       </ul>
     </div>
 
-    <form role="dialog" data-type="action" id="update-device-name" hidden>
-      <header>
-        <button id="update-device-name-cancel"><span class="icon icon-close" data-l10n-id="cancel">close</span></button>
-        <menu type="toolbar">
-          <button data-l10n-id="ok" id="update-device-name-confirm">done</button>
-        </menu>
-        <h1 data-l10n-id="change-phone-name">Change phone name</h1>
-      </header>
+    <form role="dialog" data-type="confirm" id="update-device-name" hidden>
       <section>
-        <input type="text" id="update-device-name-input" value=""/>
-        <p data-l10n-id="change-phone-name-desc">Change the name of your device as it appears in your computer</p>
+        <h1 data-l10n-id="change-device-name">Change phone name</h1>
+        <p>
+          <input type="text" id="update-device-name-input" value="" dir="auto"/>
+          <span data-l10n-id="change-phone-name-desc">Change the name of your device as it appears in your computer</span>
+        </p>
       </section>
+      <menu>
+        <button id="update-device-name-cancel" data-l10n-id="cancel">close</button>
+        <button data-l10n-id="ok" id="update-device-name-confirm" class="recommend">done</button>
+      </menu>
     </form>
 
     <form role="dialog" data-type="action" id="paired-device-option" hidden>
@@ -81,11 +74,11 @@
 
     <form role="dialog" data-type="confirm" id="unpair-device" hidden>
       <section>
-        <h1>Confirmation</h1>
-        <p data-l10n-id="device-option-unpair-device">Unpair Device?</p>
+        <h1 data-l10n-id="device-option-unpair-confirmation">Confirmation</h1>
+        <p data-l10n-id="device-option-unpair-device">Unpair device?</p>
       </section>
       <menu>
-        <button data-l10n-id="cancel">Cancel</button>
+        <button data-l10n-id="cancel" id="unpair-device-cancel">Cancel</button>
         <button data-l10n-id="device-option-confirm" id="confirm-option" class="danger">Confirm</button>
       </menu>
     </form>

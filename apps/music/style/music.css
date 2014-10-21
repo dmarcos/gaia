@@ -99,7 +99,7 @@ body {
 
 /*
  * spinner animation styles copied from
- * shared/style_unstable/progress_activity.css
+ * shared/style/progress_activity.css
  */
 #spinner {
   position: absolute;
@@ -172,13 +172,6 @@ body {
   text-overflow: ellipsis;
 }
 
-body.tiles-mode #title-back,
-body.list-mode #title-back,
-body.search-from-tiles-mode #title-back,
-body.search-from-list-mode #title-back {
-  display: none;
-}
-
 body.search-from-tiles-mode #title,
 body.search-from-list-mode #title {
   transform: translateY(-5rem);
@@ -237,15 +230,12 @@ body.picker-mode #views {
 
 body.player-mode #title-player,
 body.picker-mode #title-player {
+  display: none !important;
+}
+
+#title-player[hidden],
+#title-done[hidden] {
   display: none;
-}
-
-#title-player > .icon-player {
-  background-image: url("./images/now_playing.png");
-}
-
-#title-done > .icon-done {
-  background-image: url("./images/IconAction_Done_30x30.png");
 }
 
 #title {
@@ -263,7 +253,7 @@ body.picker-mode #title-player {
 #search {
   position: relative;
   width: 100%;
-  height: calc(100% - 3.6rem);
+  height: calc(100% - 3.7rem);
   overflow-x: hidden;
   overflow-y: auto;
   background: -moz-linear-gradient(center top, #303030 0%, #000000 100%) repeat scroll 0 0 transparent;
@@ -286,33 +276,34 @@ body.picker-mode #title-player {
 #views-tiles,
 #views-list,
 #views-sublist {
-  height: 100%;
+  height: calc(100% - 4.5rem);
   overflow-x: hidden;
   overflow-y: auto;
-  background: -moz-linear-gradient(center top, #303030 0%, #000000 100%) repeat scroll 0 0 transparent;
+  background-color: #0E1214;
+  will-change: scroll-position;
 }
 
 #views-tiles {
-  left: 0%;
+  transform: translateX(0);
 }
 
 #views-list {
-  left: 100%;
+  transform: translateX(100%);
 }
 
 #views-sublist {
-  left: 200%;
+  transform: translateX(200%);
   overflow-y: hidden;
 }
 
 #views-player {
-  left: 300%;
+  transform: translateX(300%);
   height: 100%;
   overflow: hidden;
 }
 
 #views-player.open-mode {
-  left: 0%;
+  transform: translateX(0);
 }
 
 /* Make sure the tiles and list views are tall enough that we can scroll the
@@ -320,6 +311,16 @@ body.picker-mode #title-player {
 #views-tiles-anchor,
 #views-list-anchor {
   min-height: 100%;
+}
+
+/*
+ * Bug 968456 - Ensure background
+ * scrolls w/ the content
+ */
+#views-tiles-anchor,
+#views-list-anchor,
+#views-sublist-anchor {
+  background-color: #0E1214;
 }
 
 #views-sublist-header,
@@ -330,17 +331,23 @@ body.picker-mode #title-player {
 }
 
 #views-sublist-header {
-  height: 8rem;
+  height: 8.1rem;
+}
+
+#views-scrollable-sublist-anchor {
+  overflow-x: hidden;
+  overflow-y: auto;
+  width: 100%;
+  height: calc(100% - 8rem);
 }
 
 #views-sublist-anchor {
   width: 100%;
   height: calc(100% - 8rem);
-  overflow-x: hidden;
-  overflow-y: auto;
+  will-change: scroll-position;
 }
 
-#views-sublist-header-default,
+#views-sublist-header-image,
 #views-sublist-header-controls {
   position: relative;
   float: left;
@@ -348,15 +355,13 @@ body.picker-mode #title-player {
   border-bottom: solid 0.1rem rgba(255, 255, 255, 0.1);
 }
 
-#views-sublist-header-default {
+#views-sublist-header-image {
   width: 8rem;
   height: 8rem;
   overflow: hidden;
   background-clip: content-box;
-}
-
-#views-sublist-header-image {
-  position: absolute;
+  background-size: cover;
+  background-position: center center;
   opacity: 0;
 }
 
@@ -389,14 +394,7 @@ body.picker-mode #title-player {
   background-position: center center;
   background-repeat: no-repeat;
   background-size: 3rem;
-}
-
-#views-sublist-controls-play {
-  background-image: url("./images/IconAction_Media_Play_30x30.png");
-}
-
-#views-sublist-controls-shuffle {
-  background-image: url("./images/IconAction_Media_ShuffleOn_30x30.png");
+  color: #fff;
 }
 
 .album-controls-button {
@@ -430,6 +428,13 @@ body.picker-mode #title-player {
   /* We set a background URL here when the thumbnail loads */
 }
 
+/* Favor scrolling performance over quality while scrolling */
+#views.scroll li.list-item,
+#views.scrolling .tile {
+  image-rendering: -moz-crisp-edges;
+  text-rendering: optimizeSpeed;
+}
+
 .main-tile {
   width: 66%;
   height: 0;
@@ -455,14 +460,9 @@ body.picker-mode #title-player {
   width: 33%;
   height: 0;
   padding-bottom: 33%;
-  font-weight: lighter;
+  font-weight: 300;
   background-color: #303030;
   overflow: hidden;
-}
-
-.main-tile:last-child,
-.sub-tile:last-child {
-  margin-bottom: 4rem;
 }
 
 .tile-container {
@@ -533,60 +533,10 @@ body.picker-mode #title-player {
   right: 0.5%;
 }
 
-.default-album-0 {
-  background-image: url('./images/AlbumArt1_small.png');
-  background-size: 100% 100%;
-}
-
-.default-album-1 {
-  background-image: url('./images/AlbumArt2_small.png');
-  background-size: 100% 100%;
-}
-
-.default-album-2 {
-  background-image: url('./images/AlbumArt3_small.png');
-  background-size: 100% 100%;
-}
-
-.default-album-3 {
-  background-image: url('./images/AlbumArt4_small.png');
-  background-size: 100% 100%;
-}
-
-.default-album-4 {
-  background-image: url('./images/AlbumArt5_small.png');
-  background-size: 100% 100%;
-}
-
-.default-album-5 {
-  background-image: url('./images/AlbumArt6_small.png');
-  background-size: 100% 100%;
-}
-
-.default-album-6 {
-  background-image: url('./images/AlbumArt7_small.png');
-  background-size: 100% 100%;
-}
-
-.default-album-7 {
-  background-image: url('./images/AlbumArt8_small.png');
-  background-size: 100% 100%;
-}
-
-.default-album-8 {
-  background-image: url('./images/AlbumArt9_small.png');
-  background-size: 100% 100%;
-}
-
-.default-album-9 {
-  background-image: url('./images/AlbumArt10_small.png');
-  background-size: 100% 100%;
-}
-
 #player-cover {
   position: relative;
   width: 100%;
-  height: calc(100% - 10rem);
+  height: calc(100% - 9.1rem);
   overflow: hidden;
 }
 
@@ -602,15 +552,19 @@ body.picker-mode #title-player {
 
 .fadeIn {
   animation-name: fadeIn;
-  animation-duration: 1500ms;
+  animation-duration: 500ms;
   animation-timing-function: ease-in-out;
   animation-fill-mode: forwards;
-  animation-delay: 500ms;
+  animation-delay: 50ms;
 }
 
 #player-cover-image {
   position: absolute;
+  width: 100%;
+  height: 100%;
   opacity: 0;
+  background-position: center;
+  background-size: cover;
 }
 
 #player-cover.slideOut #player-cover-caption {
@@ -672,14 +626,11 @@ body.picker-mode #title-player {
   border-radius: 3.5rem;
   margin: 0 1rem;
   font-weight: 500;
-  background-position: center center;
-  background-repeat: no-repeat;
-  background-size: 3rem;
-  background-image: url("./images/iconaction_media_share_30x30.png");
   position: absolute;
   top: 10%;
   right: -2%;
   z-index: 1;
+  color: #fff;
 }
 
 #player-cover-buttons {
@@ -702,31 +653,28 @@ body.picker-mode #title-player {
   border-radius: 3.5rem;
   margin: 0 1rem;
   font-weight: 500;
-  background-position: center center;
-  background-repeat: no-repeat;
-  background-size: 3rem;
+  color: #777;
 }
 
-#player-album-shuffle {
-  background-image: url("./images/IconAction_Media_ShuffleOff_30x30.png");
-}
-
-#player-album-shuffle:disabled,
 #player-album-shuffle.shuffle-on {
-  background-image: url("./images/IconAction_Media_ShuffleOn_30x30.png");
+  color: #fff;
 }
 
-#player-album-repeat.repeat-off {
-  background-image: url("./images/IconAction_Media_RepeatOff_30x30.png");
+#player-album-shuffle:disabled {
+  color: #777;
 }
 
-#player-album-repeat:disabled,
-#player-album-repeat.repeat-list {
-  background-image: url("./images/IconAction_Media_RepeatList_30x30.png");
+#player-album-repeat:disabled {
+  color: #777;
 }
 
+#player-album-repeat.repeat-list,
 #player-album-repeat.repeat-song {
-  background-image: url("./images/IconAction_Media_RepeatSong_30x30.png");
+  color: #fff;
+}
+
+#player-album-repeat.repeat-song:before {
+  content: 'repeat-once';
 }
 
 #player-album-rating {
@@ -762,122 +710,135 @@ button::-moz-focus-inner {
 
 #player-seek {
   position: relative;
-  width: 100%;
-  height: 4.5rem;
-  background: url('./images/scroll_bar_bg.png');
-  background-position: center center;
-  background-repeat: no-repeat;
-  background-size: 100% 2.1rem;
-  background-color: #151515;
-  overflow: hidden;
+  height: 4.2rem;
+  font-size: 0;
+  background-color: rgba(0,0,0, 0.85);
+}
+
+#player-seek.disabled {
+  pointer-events: none;
+  opacity: 0.3;
 }
 
 #player-seek-elapsed,
 #player-seek-bar,
 #player-seek-remaining {
+  display: inline-block;
   position: relative;
-  float: left;
+  vertical-align: top;
 }
 
 #player-seek-elapsed,
 #player-seek-remaining {
-  top: calc(50% - 0.69rem);
-  width: 18%;
-  line-height: 1.38rem;
+  width: 5.3rem;
+  line-height: 4.2rem;
   font-size: 1.4rem;
-  font-weight: 500;
-  color: #a1afb2;
-  text-align: center;
+  font-weight: 400;
+  color: #e7e7e7;
+}
+
+#player-seek-elapsed {
+  padding-left: 1.5rem;
+}
+
+#player-seek-remaining {
+  text-align: right;
+  padding-right: 1.5rem;
 }
 
 #player-seek-bar {
-  width: 60%;
+  display: inline-block;
+  width: calc(100% - 13.6rem);
   height: 100%;
-  padding: 0 2%;
+  z-index: 1;
 }
 
 #player-seek-bar-progress {
   pointer-events: none;
   -moz-appearance: none;
   position: absolute;
-  top: calc(50% - 0.15rem);
-  left: 2.5%;
-  width: 95%;
-  height: 0.3rem;
-  border-radius: 0.5rem;
+  top: calc(50% - 0.1rem);
+  left: 0;
+  height: 0.1rem;
   border-width: 0;
-  box-shadow: 0.1rem 0.1rem rgba(255, 255, 255, 0.2);
-  background: url("./images/timeline.png");
-  background-position: center center;
-  background-repeat: no-repeat;
-  background-size: 100% 100%;
+  border-radius: 0;
+  background-color: #a6b4b7;
 }
 
 #player-seek-bar-progress::-moz-progress-bar {
-  border-radius: 0.5rem;
-  background: url("./images/timeline_filled.png") no-repeat 50% 50% / 100% 100%;
+  height: 0.3rem;
+  margin-top: -0.1rem;
+  background-color: #00CAF2;
 }
 
 #player-seek-bar-indicator {
   position: absolute;
-  top: calc(50% - 2.25rem);
-  width: 8.1rem;
-  height: 4.5rem;
-  background: url("./images/scrubber.png") no-repeat 50% 50% / 2.7rem;
+  top: calc(50% - 1.15rem);
+  width: 2.3rem;
+  height: 2.3rem;
   pointer-events: none;
 }
 
-#player-seek-bar-indicator.highlight {
-  background-image: url("./images/scrubber_pressed.png");
-  background-size: 8.1rem 4.5rem;
+#player-seek-bar-indicator:after {
+  content: "";
+  position: absolute;
+  top: calc(50% - 1.25rem);
+  left: calc(50% - 1.15rem);
+  width: 2.1rem;
+  height: 2.1rem;
+  border-radius: 50%;
+  border: 0.1rem solid #ffffff;
+  background-color: #ffffff;
+}
+
+
+#player-seek-bar-indicator.highlight:before {
+  content: "";
+  position: absolute;
+  top: calc(50% - 3.05rem);
+  left: calc(50% - 3.05rem);
+  width: 6.1rem;
+  height: 6.1rem;
+  border-radius: 50%;
+  background-color: #00CAF2;
 }
 
 #player-controls {
   position: relative;
-  width: 100%;
-  height: 5.5rem;
+  height: 4.8rem;
+  font-size: 0;
+  vertical-align: top;
+  border-top: 0.1rem solid rgba(255,255,255, 0.1);
+  background-color: #000;
   overflow: hidden;
-  background: #000;
 }
 
 #player-controls-previous,
 #player-controls-play,
 #player-controls-next {
   position: relative;
-  float: left;
   height: 100%;
   padding: 0;
-  border-width: 0;
   font-weight: 500;
-  overflow: hidden;
   background-position: center center;
   background-repeat: no-repeat;
   background-size: 3rem;
 }
 
-#player-controls-previous,
-#player-controls-next {
-  width: 30%;
-}
-
-#player-controls-play {
-  width: 40%;
-}
-
 #player-controls-previous {
-  background-image: url("./images/IconAction_Media_SkipBackwards_30x30.png");
+  width: 33%;
 }
 
 #player-controls-play {
-  background-image: url("./images/IconAction_Media_Pause_30x30.png");
+  width: 34%;
 }
 
-#player-controls-play.is-pause {
-  background-image: url("./images/IconAction_Media_Play_30x30.png");
+#player-controls-play.is-pause:before {
+  content: 'play';
 }
 
 #player-controls-next {
-  background-image: url("./images/IconAction_Media_SkipForward_30x30.png");
+  width: 33%;
 }
 
 .player-controls-button {
@@ -891,7 +852,7 @@ button::-moz-focus-inner {
   background: transparent;
 }
 .player-controls-button:active {
-  background: rgb(0, 138, 170);
+  background: #00caf2;
 }
 .player-controls-button:disabled {
   opacity: 0.3;
@@ -904,43 +865,25 @@ button::-moz-focus-inner {
   position: absolute;
   bottom: 0;
   width: 100%;
-  height: 4rem;
   z-index: 20;
 }
 
-/* Overwrite BB tabs background transparency */
-[role="tablist"] > [role="tab"] > a {
-  background-color: rgba(0, 0, 0, 0.75);
+#tabs li:last-child {
+  margin-bottom: 0;
 }
 
 #tabs a {
   outline: none;
 }
 
-#mix[role="tab"] a:after {
-  background-image: url("./images/iconaction_media_gridview.png");
-}
-
-#playlists[role="tab"] a:after {
-  background-image: url("./images/iconaction_media_playlistfilter.png");
-}
-
-#artists[role="tab"] a:after {
-  background-image: url("./images/iconaction_media_artistfilter.png");
-}
-
-#albums[role="tab"] a:after {
-  background-image: url("./images/iconaction_media_albumfilter.png");
-}
-
-#songs[role="tab"] a:after {
-  background-image: url("./images/iconaction_media_songsfilter.png");
+#tabs li {
+  overflow: hidden;
 }
 
 .player-cover-button {
   border: none;
   border-radius: 0;
-  background: transparent;
+  background: none;
   transition: background 200ms ease;
 }
 .player-cover-button:hover {
@@ -960,10 +903,6 @@ button::-moz-focus-inner {
   display: none;
 }
 
-li:last-child {
-  padding-bottom: 4rem;
-}
-
 li.list-header {
   list-style-type: none;
   position: relative;
@@ -981,6 +920,9 @@ li.list-item {
   list-style-type: none;
   position: relative;
   width: 100%;
+  background-size: contain;
+  background-position: calc(100% - 2.5rem) -0.1rem;
+  background-repeat: no-repeat;
 }
 
 li.list-item a {
@@ -1061,10 +1003,7 @@ li.list-item a:active {
   right: 2rem;
   width: 4rem;
   height: 6rem;
-  background-position: center center;
-  background-repeat: no-repeat;
-  background-image: url("./images/IconAction_Media_ShuffleOn_30x30.png");
-  background-size: 3rem;
+  line-height: 6rem;
   pointer-events: none;
 }
 
@@ -1103,40 +1042,18 @@ li.list-item a:active {
   border-bottom: solid 0.1rem rgba(255, 255, 255, 0.1);
 }
 
-.list-image-parent {
-  position: absolute;
-  right: 2.5rem;
-  top: 0;
-  height: 6rem;
-  width: 6rem;
-  overflow: hidden;
-  background-color: #8a9699;
-  box-shadow: 0 0 0.1rem black;
-  pointer-events: none;
-}
-
-.list-image {
-  position: absolute;
-}
-
-form[role="search"] {
-  background: url(/shared/style/headers/images/ui/dark/subheader.png);
-}
-
-form[role="search"] button {
-  background: url(/shared/style/headers/images/ui/dark/separator.png) no-repeat scroll 2rem center transparent;
-  border: none;
-  border-radius: 0;
-  padding: 0;
-  float: left;
-  width: calc(2rem + 2px);
-}
-
 .search-highlight {
   background-color: rgb(0, 138, 170);
 }
 
-form p input + button[type="reset"] {
-  width: 4rem;
-  padding: 1rem;
+#info-banner {
+  z-index: -1;
+  opacity: 0;
+  transition: all 600ms ease;
+}
+
+#info-banner.visible {
+  z-index: 100;
+  opacity: 1;
+  transition: all 600ms ease;
 }

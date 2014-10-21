@@ -7,7 +7,8 @@ var templateNode = require('tmpl!./settings_account_servers.html'),
     Cards = common.Cards;
 
 /**
- * Per-account server settings, it can be activesync or imap+smtp
+ * Per-account server settings, it can be activesync, imap+smtp, or
+ * pop3+smtp
  */
 function SettingsAccountServerCard(domNode, mode, args) {
   this.domNode = domNode;
@@ -26,8 +27,9 @@ function SettingsAccountServerCard(domNode, mode, args) {
   domNode.getElementsByClassName('tng-account-save')[0]
     .addEventListener('click', this.onBack.bind(this), false);
 
-  domNode.getElementsByClassName('tng-account-server-label')[0]
-    .textContent = mozL10n.get('settings-' + this.server.type + '-label');
+  mozL10n.setAttributes(
+    domNode.getElementsByClassName('tng-account-server-label')[0],
+    'settings-' + this.server.type + '-label');
 
   var hostnameNodeInput =
     this.domNode.getElementsByClassName('tng-server-hostname-input')[0];

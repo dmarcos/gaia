@@ -5,83 +5,71 @@ function click(client, element) {
   // and is probably masking a bug in Marionette, since all the elements we're
   // clicking on should be displayed thanks to waitForContainerShown.
   if (!element.displayed()) {
-    this.client.waitFor(function() {
+    client.waitFor(function() {
       return element.displayed();
     });
   }
   element.click();
 }
 
-function MediaPlaybackTest(client) {
+function MediaPlaybackContainer(client, container) {
   this.client = client;
+  this.containerElement = container;
 }
 
-module.exports = MediaPlaybackTest;
+MediaPlaybackContainer.Selector = Object.freeze({
+  nowPlayingElement: '.media-playback-nowplaying',
+  controlsElement: '.media-playback-controls',
 
-MediaPlaybackTest.Selector = Object.freeze({
-  containerElement: '#media-playback-container',
-  nowPlayingElement: '#media-playback-nowplaying',
+  trackElement: '.track',
 
-  titleElement: '#media-playback-nowplaying > .title',
-  artistElement: '#media-playback-nowplaying > .artist',
-
-  previousTrackElement: '#media-playback-controls > .previous',
-  playPauseElement: '#media-playback-controls > .play-pause',
-  nextTrackElement: '#media-playback-controls > .next'
+  previousTrackElement: '.previous',
+  playPauseElement: '.play-pause',
+  nextTrackElement: '.next'
 });
 
-MediaPlaybackTest.prototype = {
+MediaPlaybackContainer.prototype = {
   client: null,
-  origin: null,
-
-  get containerElement() {
-    return this.client.findElement(MediaPlaybackTest.Selector.containerElement);
-  },
+  container: null,
 
   get nowPlayingElement() {
-    return this.client.findElement(
-      MediaPlaybackTest.Selector.nowPlayingElement);
+    return this.containerElement.findElement(
+      MediaPlaybackContainer.Selector.nowPlayingElement
+    );
   },
 
-  get titleElement() {
-    return this.client.findElement(MediaPlaybackTest.Selector.titleElement);
+  get controlsElement() {
+    return this.containerElement.findElement(
+      MediaPlaybackContainer.Selector.controlsElement
+    );
   },
 
-  get artistElement() {
-    return this.client.findElement(MediaPlaybackTest.Selector.artistElement);
+  get trackElement() {
+    return this.containerElement.findElement(
+      MediaPlaybackContainer.Selector.trackElement
+    );
   },
 
   get previousTrackElement() {
-    return this.client.findElement(
-      MediaPlaybackTest.Selector.previousTrackElement);
+    return this.containerElement.findElement(
+      MediaPlaybackContainer.Selector.previousTrackElement
+    );
   },
 
   get playPauseElement() {
-    return this.client.findElement(MediaPlaybackTest.Selector.playPauseElement);
+    return this.containerElement.findElement(
+      MediaPlaybackContainer.Selector.playPauseElement
+    );
   },
 
   get nextTrackElement() {
-    return this.client.findElement(MediaPlaybackTest.Selector.nextTrackElement);
+    return this.containerElement.findElement(
+      MediaPlaybackContainer.Selector.nextTrackElement
+    );
   },
 
-  get titleText() {
-    return this.titleElement.getAttribute('textContent');
-  },
-
-  get artistText() {
-    return this.artistElement.getAttribute('textContent');
-  },
-
-  openUtilityTray: function(callback) {
-    this.client.executeScript(function() {
-      window.wrappedJSObject.UtilityTray.show();
-    });
-
-    callback();
-
-    this.client.executeScript(function() {
-      window.wrappedJSObject.UtilityTray.hide();
-    });
+  get trackText() {
+    return this.trackElement.getAttribute('textContent');
   },
 
   waitForContainerShown: function(shouldBeShown) {
@@ -93,8 +81,7 @@ MediaPlaybackTest.prototype = {
 
   waitForNowPlayingText: function(artist, title) {
     this.client.waitFor(function() {
-      return this.artistText === artist &&
-             this.titleText === title;
+      return this.trackText === title + ' — ' + artist;
     }.bind(this));
   },
 
@@ -103,8 +90,7 @@ MediaPlaybackTest.prototype = {
   },
 
   get isPlaying() {
-    var className = this.playPauseElement.getAttribute('class');
-    return !(/\bis-paused\b/.test(className));
+    return this.playPauseElement.getAttribute('data-icon') === 'pause';
   },
 
   previousTrack: function() {
@@ -113,5 +99,79 @@ MediaPlaybackTest.prototype = {
 
   nextTrack: function() {
     click(this.client, this.nextTrackElement);
+  }
+};
+
+function MediaPlayback(client) {
+  this.client = client;
+}
+
+module.exports = MediaPlayback;
+
+MediaPlayback.Selector = Object.freeze({
+  notificationContainerElement: '#media-playback-container',
+  lockscreenContainerElement: '#lockscreen-media-container'
+});
+
+MediaPlayback.prototype = {
+  client: null,
+
+  get notificationContainerElement() {
+    return this.client.findElement(
+      MediaPlayback.Selector.notificationContainerElement
+    );
+  },
+
+  get lockscreenContainerElement() {
+    var lockScreenFrame = this.client.findElement('#lockscreen-frame');
+    if (!lockScreenFrame) {
+      throw new Error('--- no lockscreen frame ---');
+    }
+    this.client.switchToFrame(lockScreenFrame);
+    var container = this.client.findElement(
+      MediaPlayback.Selector.lockscreenContainerElement
+    );
+    this.client.switchToFrame();
+    return container;
+  },
+
+  openUtilityTray: function() {
+    this.client.executeScript(function() {
+      window.wrappedJSObject.UtilityTray.show();
+    });
+  },
+
+  closeUtilityTray: function() {
+    this.client.executeScript(function() {
+      window.wrappedJSObject.UtilityTray.hide();
+    });
+  },
+
+  inUtilityTray: function(callback) {
+    this.openUtilityTray();
+    callback(new MediaPlaybackContainer(
+      this.client, this.notificationContainerElement
+    ));
+    this.closeUtilityTray();
+  },
+
+  lockScreen: function() {
+    this.client.executeScript(function() {
+      window.wrappedJSObject.System.request('lock', { 'forcibly': true });
+    });
+  },
+
+  unlockScreen: function() {
+    this.client.executeScript(function() {
+      window.wrappedJSObject.System.request('unlock', { 'forcibly': true });
+    });
+  },
+
+  inLockscreen: function(callback) {
+    this.lockScreen();
+    callback(new MediaPlaybackContainer(
+      this.client, this.lockscreenContainerElement
+    ));
+    this.unlockScreen();
   }
 };

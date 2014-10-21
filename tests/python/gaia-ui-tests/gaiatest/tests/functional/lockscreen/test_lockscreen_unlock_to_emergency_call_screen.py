@@ -5,7 +5,6 @@
 from gaiatest import GaiaTestCase
 from gaiatest.apps.lockscreen.app import LockScreen
 
-
 class TestLockScreen(GaiaTestCase):
 
     _input_passcode = '7931'
@@ -18,16 +17,13 @@ class TestLockScreen(GaiaTestCase):
         self.data_layer.set_setting('lockscreen.passcode-lock.enabled', True)
 
         # this time we need it locked!
-        self.lockscreen.lock()
-        self.lock_screen = LockScreen(self.marionette)
+        self.device.lock()
 
     def test_unlock_to_emergency_call_screen(self):
-        """Test that emergency call screen can open
-
-        https://github.com/mozilla/gaia-ui-tests/issues/762
-        """
-        self.lock_screen.unlock()
-        emergency_screen = self.lock_screen.passcode_pad.tap_emergency_call()
-
-        self.assertTrue(emergency_screen.is_emergency_dialer_keypad_displayed,
-                        'emergency dialer keypad is not displayed')
+        lock_screen = LockScreen(self.marionette)
+        lock_screen.switch_to_frame()
+        passcode_pad = lock_screen.unlock_to_passcode_pad()
+        emergency_call = passcode_pad.tap_emergency_call()
+        emergency_call.switch_to_emergency_call_frame()
+        self.assertTrue(emergency_call.is_emergency_dialer_keypad_displayed,
+                       'emergency dialer keypad is not displayed')

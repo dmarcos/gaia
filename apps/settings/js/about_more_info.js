@@ -1,10 +1,23 @@
+/* global SettingsListener */
 'use strict';
 
 var AboutMoreInfo = {
+  /** MMI control code used for retrieving a phone's IMEI code. */
+  GET_IMEI_COMMAND: '*#06#',
 
   init: function about_init() {
-    this.loadHardwareInfo();
+    this.loadImei();
+    this.loadIccId();
     this.loadGaiaCommit();
+    this.loadMacAddress();
+    this.loadBluetoothAddress();
+  },
+
+  loadMacAddress: function about_loadMacAddress() {
+    var field = document.querySelector('[data-name="deviceinfo.mac"]');
+    SettingsListener.observe('deviceinfo.mac', '', function(macAddress) {
+      field.textContent = macAddress;
+    });
   },
 
   loadGaiaCommit: function about_loadGaiaCommit() {
@@ -12,8 +25,9 @@ var AboutMoreInfo = {
 
     var dispDate = document.getElementById('gaia-commit-date');
     var dispHash = document.getElementById('gaia-commit-hash');
-    if (dispHash.textContent)
+    if (dispHash.textContent) {
       return; // `gaia-commit.txt' has already been loaded
+    }
 
     function dateToUTC(d) {
       var arr = [];
@@ -40,7 +54,7 @@ var AboutMoreInfo = {
 
           var d = new Date(parseInt(data[1] + '000', 10));
           dispDate.textContent = dateToUTC(d);
-          dispHash.textContent = data[0];
+          dispHash.textContent = data[0].substr(0, 8);
         } else {
           console.error('Failed to fetch gaia commit: ', req.statusText);
         }
@@ -52,30 +66,144 @@ var AboutMoreInfo = {
     req.send();
   },
 
-  loadHardwareInfo: function about_loadHardwareInfo() {
-    var mobileConnection = getMobileConnection();
-    if (!mobileConnection)
-      return;
+  /**
+   * Retrieves the IMEI code corresponding with the specified SIM card slot.
+   *
+   * @param {Integer} simSlotIndex The slot whose IMEI code we want to retrieve.
+   * @return {Promise} A promise that resolves to the IMEI code or rejects
+   *          if an error occurred.
+   */
+  _getImeiCode: function about_getImeiCode(simSlotIndex) {
+    var self = this;
 
-    if (!IccHelper.enabled)
-      return;
-
-    var deviceInfoIccid = document.getElementById('deviceInfo-iccid');
-    var deviceInfoImei = document.getElementById('deviceInfo-imei');
-    var info = IccHelper.iccInfo;
-    if (!navigator.mozTelephony || !info) {
-      deviceInfoIccid.parentNode.hidden = true;
-      deviceInfoImei.parentNode.hidden = true;
-    } else {
-      deviceInfoIccid.textContent = info.iccid;
-      var req = mobileConnection.sendMMI('*#06#');
-      req.onsuccess = function getIMEI() {
-        if (req.result && req.result.statusMessage) {
-          deviceInfoImei.textContent = req.result.statusMessage;
+    return new Promise(function(resolve, reject) {
+      var connection = navigator.mozMobileConnections[simSlotIndex];
+      var request = connection.sendMMI(self.GET_IMEI_COMMAND);
+      request.onsuccess = function about_onGetImeiCodeSuccess() {
+        if (!this.result || (this.result.serviceCode !== 'scImei') ||
+            (this.result.statusMessage === null)) {
+          reject(new Error('Could not retrieve the IMEI code for SIM' +
+            simSlotIndex));
+          return;
         }
+
+        resolve(this.result.statusMessage);
       };
+      request.onerror = function about_onGetImeiCodeError() {
+        reject(this.error);
+      };
+    });
+  },
+
+  /**
+   * Populate the IMEI information entry with the provided list of IMEI codes.
+   * If the code is not given or if it's empty then the entry will be marked
+   * as unavailable.
+   *
+   * @param {Array} imeis An array of IMEI codes.
+   */
+  _createImeiField: function about_createImeiField(imeis) {
+    var deviceInfoImeis = document.getElementById('deviceInfo-imeis');
+
+    while (deviceInfoImeis.hasChildNodes()) {
+      deviceInfoImeis.removeChild(deviceInfoImeis.lastChild);
+    }
+
+    if (!imeis || imeis.length === 0) {
+      var span = document.createElement('span');
+
+      span.setAttribute('data-l10n-id', 'unavailable');
+      deviceInfoImeis.appendChild(span);
+    } else {
+      imeis.forEach(function(imei, index) {
+        var span = document.createElement('span');
+
+        span.textContent = (imeis.length > 1) ?
+          'IMEI ' + (index + 1) + ': ' + imei : imei;
+        span.dataset.slot = index;
+        deviceInfoImeis.appendChild(span);
+      });
+    }
+  },
+
+  /**
+   * Loads all the phone's IMEI code in the corresponding entry.
+   *
+   * @return {Promise} A promise that is resolved when the container has been
+   *          fully populated.
+   */
+  loadImei: function about_loadImei() {
+    var deviceInfoImeis = document.getElementById('deviceInfo-imeis');
+    var conns = navigator.mozMobileConnections;
+
+    if (!navigator.mozTelephony || !conns) {
+      deviceInfoImeis.parentNode.hidden = true;
+      return Promise.resolve();
+    }
+
+    // Retrieve all IMEI codes.
+    var promises = [];
+
+    for (var i = 0; i < conns.length; i++) {
+      promises.push(this._getImeiCode(i));
+    }
+
+    var self = this;
+
+    return Promise.all(promises).then(function(imeis) {
+      self._createImeiField(imeis);
+    }, function() {
+      self._createImeiField(null);
+    });
+  },
+
+  loadIccId: function about_loadIccId() {
+    var deviceInfoIccIds = document.getElementById('deviceInfo-iccids');
+    var conns = navigator.mozMobileConnections;
+
+    if (!navigator.mozTelephony || !conns) {
+      deviceInfoIccIds.parentNode.hidden = true;
+      return;
+    }
+
+    var multiSim = conns.length > 1;
+
+    // update iccids
+    while (deviceInfoIccIds.hasChildNodes()) {
+      deviceInfoIccIds.removeChild(deviceInfoIccIds.lastChild);
+    }
+    Array.prototype.forEach.call(conns, function(conn, index) {
+      var span = document.createElement('span');
+      if (conn.iccId) {
+        span.textContent = multiSim ?
+          'SIM ' + (index + 1) + ': ' + conn.iccId : conn.iccId;
+      } else {
+        if (multiSim) {
+          navigator.mozL10n.setAttributes(span,
+            'deviceInfo-ICCID-unavailable-sim', { index: index + 1 });
+        } else {
+          navigator.mozL10n.setAttributes(span, 'unavailable');
+        }
+      }
+      deviceInfoIccIds.appendChild(span);
+    });
+  },
+
+  loadBluetoothAddress: function about_loadBluetoothAddress() {
+    require(['modules/bluetooth'], function(Bluetooth) {
+      Bluetooth.observe('address', this._refreshBluetoothAddress.bind(this));
+    }.bind(this));
+  },
+
+  // Private method for refreshing the address field only.
+  _refreshBluetoothAddress: function about__refreshBluetoothAddress(address) {
+    // update UI fields
+    var fields =
+      document.querySelectorAll('[data-name="deviceinfo.bt_address"]');
+    for (var i = 0, l = fields.length; i < l; i++) {
+      fields[i].textContent = address;
     }
   }
 };
 
-navigator.mozL10n.ready(AboutMoreInfo.init.bind(AboutMoreInfo));
+navigator.mozL10n.once(AboutMoreInfo.init.bind(AboutMoreInfo));

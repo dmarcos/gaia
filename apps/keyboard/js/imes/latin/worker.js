@@ -53,43 +53,52 @@ var pendingPrediction;
 
 var Commands = {
   setLanguage: function setLanguage(language) {
-    if (language !== currentLanguage) {
-      currentLanguage = language;
+    if (language === currentLanguage) {
+      return;
+    }
 
-      try {
-        var dicturl = 'dictionaries/' + language + '.dict';
-        var xhr = new XMLHttpRequest();
-        xhr.open('GET', dicturl, false);
-        xhr.responseType = 'arraybuffer';
-        xhr.send();
-        //
-        // XXX
-        // https://bugzilla.mozilla.org/show_bug.cgi?id=804395
-        // The app protocol doesn't seem to return a status code and
-        // we just get a zero-length array if the url is undefined
-        //
-        if (xhr.response && xhr.response.byteLength) {
+    function postError(message) {
+      postMessage({
+        cmd: 'error',
+        message: 'setLanguage: ' + message
+      });
+    }
+
+    currentLanguage = language;
+
+    var dicturl = 'dictionaries/' + language + '.dict';
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', dicturl, false);
+    xhr.responseType = 'arraybuffer';
+    xhr.send();
+
+    try {
+      if (xhr.status === 200) {
+        try {
           Predictions.setDictionary(xhr.response);
-        }
-        else {
           postMessage({
-            cmd: 'error',
-            message: 'setLanguage: Unknown language: ' + language
+            cmd: 'success',
+            fn: 'setLanguage',
+            language: language
           });
         }
+        catch (e) {
+          postError('setDictionary failed: ' + e);
+        }
       }
-      catch (e) {
-        postMessage({
-          cmd: 'error',
-          message: 'setLanguage: Unknown language: ' + language + ': ' + e
-        });
+      else {
+        postError('Unknown language: ' + language);
       }
+    }
+    catch (ex) {
+      postError('Unknown language: ' + language + ': ' + xhr.error);
     }
   },
 
   setNearbyKeys: function setNearbyKeys(nearbyKeys) {
     try {
       Predictions.setNearbyKeys(nearbyKeys);
+      postMessage({ cmd: 'success', fn: 'setNearbyKeys' });
     }
     catch (e) {
       postMessage({cmd: 'error', message: 'setNearbyKeys: ' + e.message});
@@ -100,10 +109,10 @@ var Commands = {
     if (pendingPrediction)  // Make sure we're not still running a previous one
       pendingPrediction.abort();
 
-    // Ask for 3 predictions, considering 24 candidates that and considering
+    // Ask for 4 predictions, considering 24 candidates and considering
     // only words with an edit distance of 1 (i.e. make only one correction
     // per word)
-    pendingPrediction = Predictions.predict(prefix, 3, 24, 1,
+    pendingPrediction = Predictions.predict(prefix, 4, 24, 1,
                                             success, error);
 
     function success(words) {
@@ -115,7 +124,7 @@ var Commands = {
         // If we didn't find anything, try more candidates and a larger
         // edit distance to enlarge the search space.
         pendingPrediction =
-          Predictions.predict(prefix, 3, 60, 2,
+          Predictions.predict(prefix, 4, 60, 2,
                               function(words) {
                                 postMessage({ cmd: 'predictions',
                                               input: prefix,

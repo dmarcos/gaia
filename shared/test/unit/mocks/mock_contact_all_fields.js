@@ -1,6 +1,11 @@
 'use strict';
+/* exported MockContactAllFields */
 
-function MockContactAllFields() {
+function MockContactAllFields(withoutPhoto) {
+  var photo;
+  if (!withoutPhoto) {
+    photo = getPhotoBlob();
+  }
   return {
     'id': '1',
     'updated': new Date(),
@@ -38,7 +43,7 @@ function MockContactAllFields() {
     'tel': [
       {
         'value': '+346578888888',
-        'type': ['Mobile'],
+        'type': ['mobile'],
         'carrier': 'TEF',
         'pref': true
       },
@@ -56,7 +61,7 @@ function MockContactAllFields() {
     ],
     'category': ['favorite'],
     'note': ['Note 1'],
-    'photo': [getPhotoBlob()]
+    'photo': [photo]
   };
 }
 

@@ -1,3 +1,7 @@
+/* global exports */
+/* global require */
+'use strict';
+
 var utils = require('./utils');
 var config;
 
@@ -6,7 +10,7 @@ function debug(str) {
 }
 
 function execute(options) {
-  var gaia = utils.getGaia(options);
+  var gaia = utils.gaia.getInstance(options);
   config = options;
   debug('Begin');
 

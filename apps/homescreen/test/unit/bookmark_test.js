@@ -5,13 +5,13 @@ requireApp('homescreen/js/bookmark.js');
 
 suite('bookmark.js >', function() {
   var bookmark;
-  var URL = 'http://www.mozilla.org/es-ES/firefox/new/';
+  var URL = 'http://www.mozilla.org/es-ES/firefox/new';
   var icon = 'http://www.mozilla.org/images/icon.png';
   var name = 'Mozilla';
 
   suiteSetup(function() {
     bookmark = new Bookmark({
-      bookmarkURL: URL,
+      url: URL,
       name: name,
       icon: icon,
       iconable: false,
@@ -42,7 +42,19 @@ suite('bookmark.js >', function() {
   test('This bookmark defines the url correctly >', function() {
     assert.equal(bookmark.origin, URL);
     assert.equal(bookmark.url, URL);
-    assert.equal(bookmark.bookmarkURL, URL);
+    assert.equal(bookmark.bookmarkURL, bookmark.generateIndex(URL));
+  });
+
+  test('This bookmark defines the url correctly after rebooting >', function() {
+    bookmark = new Bookmark({
+      url: URL,
+      name: name,
+      icon: icon
+    });
+
+    assert.equal(bookmark.origin, URL);
+    assert.equal(bookmark.url, URL);
+    assert.equal(bookmark.bookmarkURL, bookmark.generateIndex(URL));
   });
 
   test('This bookmark defines the icon correctly >', function() {

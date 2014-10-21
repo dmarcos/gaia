@@ -1,9 +1,16 @@
+'use strict';
 var Settings = require('../app/app'),
     assert = require('assert');
 
 marionette('manipulate bluetooth settings', function() {
-  var client = marionette.client();
+  var client = marionette.client({
+    settings: {
+      'ftu.manifestURL': null,
+      'lockscreen.enabled': false
+    }
+  });
   var settingsApp;
+  var bluetoothPanel;
 
   setup(function() {
     settingsApp = new Settings(client);

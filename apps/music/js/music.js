@@ -38,14 +38,11 @@ var pendingPick;
 var SETTINGS_OPTION_KEY = 'settings_option_key';
 var playerSettings;
 
-// We get a localized event when the application is launched and when
-// the user switches languages.
-window.addEventListener('localized', function onlocalized() {
-  // Set the 'lang' and 'dir' attributes to <html> when the page is translated
-  document.documentElement.lang = navigator.mozL10n.language.code;
-  document.documentElement.dir = navigator.mozL10n.language.direction;
+var chromeInteractive = false;
+var firstScanDone = false;
 
-  // Get prepared for the localized strings, these will be used later
+// Get prepared for the localized strings, these will be used later
+navigator.mozL10n.ready(function onLanguageChange() {
   musicTitle = navigator.mozL10n.get('music');
   playlistTitle = navigator.mozL10n.get('playlists');
   artistTitle = navigator.mozL10n.get('artists');
@@ -60,68 +57,94 @@ window.addEventListener('localized', function onlocalized() {
   recentlyAddedTitle = navigator.mozL10n.get(recentlyAddedTitleL10nId);
   mostPlayedTitle = navigator.mozL10n.get(mostPlayedTitleL10nId);
   leastPlayedTitle = navigator.mozL10n.get(leastPlayedTitleL10nId);
+});
 
-  // The first time we get this event we start running the application.
-  // But don't re-initialize if the user switches languages while we're running.
-  if (!musicdb) {
-    init();
+navigator.mozL10n.once(function onLocalizationInit() {
+  // Tell performance monitors that our chrome is visible.
+  window.dispatchEvent(new CustomEvent('moz-chrome-dom-loaded'));
 
-    TitleBar.init();
-    TilesView.init();
-    ListView.init();
-    SubListView.init();
-    SearchView.init();
-    TabBar.init();
+  init();
 
-    // If the URL contains '#pick', we will handle the pick activity
-    // or just start the Music app from Mix page
-    if (document.URL.indexOf('#pick') !== -1) {
-      navigator.mozSetMessageHandler('activity', function activityHandler(a) {
-        var activityName = a.source.name;
+  TitleBar.init();
+  TilesView.init();
+  ListView.init();
+  SubListView.init();
+  SearchView.init();
+  TabBar.init();
 
-        if (activityName === 'pick') {
-          pendingPick = a;
-        }
-      });
+  // If the URL contains '#pick', we will handle the pick activity
+  // or just start the Music app from Mix page
+  if (document.URL.indexOf('#pick') !== -1) {
+    navigator.mozSetMessageHandler('activity', function activityHandler(a) {
+      var activityName = a.source.name;
 
-      TabBar.option = 'title';
-      ModeManager.start(MODE_PICKER);
-    } else {
-      TabBar.option = 'mix';
-      ModeManager.start(MODE_TILES);
+      if (activityName === 'pick') {
+        pendingPick = a;
+      }
+    });
 
-      // The player options will be used later,
-      // so let's get them first before the player is loaded.
-      asyncStorage.getItem(SETTINGS_OPTION_KEY, function(settings) {
-        playerSettings = settings;
-      });
-
-      // The done button must be removed when we are not in picker mode
-      // because the rules of the header building blocks
-      var doneButton = document.getElementById('title-done');
-      doneButton.parentNode.removeChild(doneButton);
-    }
+    TabBar.option = 'title';
+    ModeManager.start(MODE_PICKER);
   } else {
-    ModeManager.updateTitle();
+    TabBar.option = 'mix';
+    ModeManager.start(MODE_TILES);
+
+    // The player options will be used later,
+    // so let's get them first before the player is loaded.
+    asyncStorage.getItem(SETTINGS_OPTION_KEY, function(settings) {
+      playerSettings = settings;
+    });
+
+    // The done button must be removed when we are not in picker mode
+    // because the rules of the header building blocks
+    var doneButton = document.getElementById('title-done');
+    doneButton.parentNode.removeChild(doneButton);
   }
 
-  TabBar.playlistArray.localize();
+  // Do this now and on each language change in the future
+  navigator.mozL10n.ready(function() {
+    ModeManager.updateTitle();
+    TabBar.playlistArray.localize();
+
+    if (!chromeInteractive) {
+      chromeInteractive = true;
+      // Tell performance monitors that our chrome is interactible.
+      window.dispatchEvent(new CustomEvent('moz-chrome-interactive'));
+    }
+  });
+
 });
 
 // We use this flag when switching views. We want to hide the scan progress
 // bar (to show the titlebar) when we enter sublist mode or player mode
 var displayingScanProgress = false;
 
+// We need to know if we're in the middle of reparsing all the existing music
+// to show the correct overlay.
+var reparsingMetadata = false;
+
 function init() {
+  // We want to exclude some folders that store ringtones so they don't show up
+  // in the music app. The regex matches absolute paths starting with a volume
+  // name (e.g. "/volume-name/Ringtones/") or relative paths starting with the
+  // excluded folder name (e.g. "Ringtones/").
+  var excludedFolders = ['Ringtones', 'Notifications', 'Alarms'];
+  var excludeFilter = new RegExp(
+    '^(/[^/]*/)?(' + excludedFolders.join('|') + ')/', 'i'
+  );
+
   // Here we use the mediadb.js which gallery is using (in shared/js/)
   // to index our music contents with metadata parsed.
   // So the behaviors of musicdb are the same as the MediaDB in gallery
   musicdb = new MediaDB('music', metadataParserWrapper, {
     indexes: ['metadata.album', 'metadata.artist', 'metadata.title',
               'metadata.rated', 'metadata.played', 'date'],
+    excludeFilter: excludeFilter,
     batchSize: 1,
     autoscan: false, // We call scan() explicitly after listing music we know
-    version: 2
+    updateRecord: updateRecord,
+    reparsedRecord: reparsedRecord,
+    version: 3
   });
 
   function metadataParserWrapper(file, onsuccess, onerror) {
@@ -130,9 +153,33 @@ function init() {
     });
   }
 
+  function updateRecord(record, oldVersion, newVersion) {
+    if (oldVersion === 2) {
+      // Version 3 of the music DB changes ID3 parsing, so we need to reparse
+      // the file from scratch!
+      record.needsReparse = true;
+      reparsingMetadata = true;
+    }
+    return record.metadata;
+  }
+
+  function reparsedRecord(oldMetadata, newMetadata) {
+    // We assume that updateRecord has already changed oldMetadata if necessary.
+    // (It's not necessary at the moment).
+    newMetadata.rated = oldMetadata.rated;
+    newMetadata.played = oldMetadata.played;
+    return newMetadata;
+  }
+
   // show dialog in upgradestart, when it finished, it will turned to ready.
-  musicdb.onupgrading = function() {
+  musicdb.onupgrading = function(event) {
     showOverlay('upgrade');
+
+    if (event.detail.oldClientVersion === 2) {
+      // We want to delete asyncStorage, which was used in version 2 to cache
+      // album art.
+      window.indexedDB.deleteDatabase('asyncStorage');
+    }
   };
 
   // This is called when DeviceStorage becomes unavailable because the
@@ -168,8 +215,12 @@ function init() {
     if (typeof PlayerView !== 'undefined')
       PlayerView.stop();
 
-    ModeManager.start(MODE_TILES);
-    TilesView.hideSearch();
+    // TabBar should be set to "mix" to sync with the tab selection.
+    if (!pendingPick) {
+      TabBar.option = 'mix';
+      ModeManager.start(MODE_TILES);
+      TilesView.hideSearch();
+    }
   };
 
   musicdb.onready = function() {
@@ -180,16 +231,20 @@ function init() {
 
     // Display music that we already know about
     showCurrentView(function() {
+      reparsingMetadata = false;
       // Hide the  spinner once we've displayed the initial screen
       document.getElementById('spinner-overlay').classList.add('hidden');
+
+      // Concurrently, start scanning for new music
+      musicdb.scan();
+
+      // Only init the communication when music is not in picker mode.
+      if (document.URL.indexOf('#pick') === -1) {
+        // We need to wait to init the music comms until the UI is fully loaded
+        // because the init of music comms could slow down the startup time.
+        MusicComms.init();
+      }
     });
-
-    // Concurrently, start scanning for new music
-    musicdb.scan();
-
-    // We have to wait for the MediaDB ready then we may able to play songs
-    // after we received media commands from the remote controls.
-    MusicComms.init();
   };
 
   var filesDeletedWhileScanning = 0;
@@ -226,6 +281,13 @@ function init() {
       filesFoundBatch = 0;
       filesDeletedWhileScanning = 0;
       showCurrentView();
+    }
+
+    // If this was the first scan after startup, tell the performance monitors
+    // that we finished loading everything.
+    if (!firstScanDone) {
+      firstScanDone = true;
+      window.dispatchEvent(new CustomEvent('moz-app-loaded'));
     }
   };
 
@@ -295,18 +357,13 @@ function init() {
     }
   };
 
-  // Click to open the media storage panel when the default storage
-  // is unavailable.
-  document.getElementById('storage-setting-button').
-    addEventListener('click', function() {
-      var activity = new MozActivity({
-      name: 'configure',
-      data: {
-        target: 'device',
-        section: 'mediaStorage'
+  // If the overlay is displayed during a pick, let the user get out of it
+  document.getElementById('overlay-cancel-button')
+    .addEventListener('click', function() {
+      if (pendingPick) {
+        pendingPick.postError('pick cancelled');
       }
     });
-  });
 }
 
 //
@@ -335,28 +392,24 @@ function showOverlay(id) {
   }
 
   var menu = document.getElementById('overlay-menu');
-  if (id === 'nocard') {
+  if (pendingPick) {
     menu.classList.remove('hidden');
   } else {
     menu.classList.add('hidden');
   }
 
   var title, text;
+  var l10nIds = {'title': id + '-title', 'text': id + '-text'};
   if (id === 'nocard') {
-    title = navigator.mozL10n.get('nocard2-title');
-    text = navigator.mozL10n.get('nocard2-text');
-  } else {
-    title = navigator.mozL10n.get(id + '-title');
-    text = navigator.mozL10n.get(id + '-text');
+    l10nIds.title = 'nocard2-title';
+    l10nIds.text = 'nocard3-text';
   }
 
   var titleElement = document.getElementById('overlay-title');
   var textElement = document.getElementById('overlay-text');
 
-  titleElement.textContent = title;
-  titleElement.dataset.l10nId = id + '-title';
-  textElement.textContent = text;
-  textElement.dataset.l10nId = id + '-text';
+  titleElement.dataset.l10nId = l10nIds.title;
+  textElement.dataset.l10nId = l10nIds.text;
 
   document.getElementById('overlay').classList.remove('hidden');
 }
@@ -369,8 +422,10 @@ function showCorrectOverlay() {
   // If we do know about songs and the 'empty overlay is being displayed
   // then hide it.
   if (knownSongs.length > 0) {
-    if (currentOverlay === 'empty')
+    if (currentOverlay === 'empty' || currentOverlay === 'upgrade')
       showOverlay(null);
+  } else if (reparsingMetadata) {
+    showOverlay('upgrade');
   } else {
     showOverlay('empty');
   }
@@ -388,25 +443,22 @@ function showCurrentView(callback) {
   // to display thumbnails in TilesView
   // it's possibly not loaded so load it
   LazyLoader.load('js/metadata_scripts.js', function() {
+    function showListView() {
+      var option = TabBar.option;
+      var info = {
+        key: 'metadata.' + option,
+        range: null,
+        direction: (option === 'title') ? 'next' : 'nextunique',
+        option: option
+      };
+
+      ListView.activate(info);
+    }
     // If it's in picking mode we will just enumerate all the songs
     // and don't need to enumerate data for TilesView
     // because mix page is not needed in picker mode
     if (pendingPick) {
-      ListView.clean();
-
-      knownSongs.length = 0;
-      listHandle =
-        musicdb.enumerate('metadata.' + TabBar.option, null, 'nextunique',
-                          function(song) {
-                            // Don't allow the user to pick locked music
-                            if (song.metadata.locked)
-                              return;
-
-                            ListView.update(TabBar.option, song);
-                            // Push the song to knownSongs then
-                            // we can display a correct overlay
-                            knownSongs.push(song);
-                          });
+      showListView();
 
       if (callback)
         callback();
@@ -419,15 +471,7 @@ function showCurrentView(callback) {
     // and modified the songs so musicdb will be updated
     // then we should update the list view if music app is in list mode
     if (ModeManager.currentMode === MODE_LIST && TabBar.option !== 'playlist')
-    {
-      ListView.clean();
-
-      listHandle =
-        musicdb.enumerate('metadata.' + TabBar.option, null, 'nextunique',
-                          function(song) {
-                            ListView.update(TabBar.option, song);
-                          });
-    }
+      showListView();
 
     // Enumerate existing song entries in the database
     // List them all, and sort them in ascending order by album.
@@ -437,25 +481,37 @@ function showCurrentView(callback) {
     // every song.
     // * Note that we need to update tiles view every time this happens
     // because it's the top level page and an independent view
-    tilesHandle = musicdb.enumerateAll('metadata.album', null, 'nextunique',
-                                       function(songs) {
-                                         // Add null to the array of songs
-                                         // this is a flag that tells update()
-                                         // to show or hide the 'empty' overlay
-                                         songs.push(null);
-                                         TilesView.clean();
+    tilesHandle = musicdb.enumerateAll(
+      'metadata.album', null, 'nextunique',
+      function(songs) {
+        // Add null to the array of songs
+        // this is a flag that tells update()
+        // to show or hide the 'empty' overlay
+        songs.push(null);
+        TilesView.clean();
 
-                                         knownSongs.length = 0;
-                                         songs.forEach(function(song) {
-                                           TilesView.update(song);
-                                           // Push the song to knownSongs then
-                                           // we can display a correct overlay
-                                           knownSongs.push(song);
-                                         });
+        knownSongs.length = 0;
+        songs.forEach(function(song) {
+          TilesView.update(song);
+          // Push the song to knownSongs then
+          // we can display a correct overlay
+          knownSongs.push(song);
+        });
 
-                                         if (callback)
-                                            callback();
-                                      });
+        // Tell performance monitors that the content is displayed and is ready
+        // to interact with. We won't send the final moz-app-loaded event until
+        // we're completely stable and have finished scanning.
+        //
+        // XXX: Maybe we could emit these events earlier, when we've just
+        // finished the "above the fold" content. That's hard to do on arbitrary
+        // screen resolutions, though.)
+        window.dispatchEvent(new CustomEvent('moz-app-visually-complete'));
+        window.dispatchEvent(new CustomEvent('moz-content-interactive'));
+
+        if (callback)
+          callback();
+      }
+    );
   });
 }
 
@@ -493,10 +549,23 @@ var ModeManager = {
   },
 
   pop: function() {
-    if (this._modeStack.length <= 1)
+    if (this._modeStack.length <= 1) {
       return;
+    }
     this._modeStack.pop();
     this._updateMode();
+  },
+
+  updateBackArrow: function() {
+    var noBackArrow = [
+      MODE_TILES,
+      MODE_LIST,
+      MODE_SEARCH_FROM_TILES,
+      MODE_SEARCH_FROM_LIST
+    ];
+
+    var hide = noBackArrow.indexOf(this.currentMode) > -1;
+    TitleBar.showBackArrow(!hide);
   },
 
   updateTitle: function() {
@@ -536,8 +605,11 @@ var ModeManager = {
     // because the title is already localized in HTML
     // And if title does exist, it should be the localized "Music"
     // so it will be just fine to update changeTitleText() again
-    if (title)
+    if (title) {
       TitleBar.changeTitleText(title);
+    }
+
+
   },
 
   _updateMode: function(callback) {
@@ -545,6 +617,7 @@ var ModeManager = {
     var playerLoaded = (typeof PlayerView != 'undefined');
 
     this.updateTitle();
+    this.updateBackArrow();
 
     if (mode === MODE_PLAYER) {
       // Here if Player is not loaded yet and we are going to play
@@ -556,9 +629,12 @@ var ModeManager = {
           PlayerView.setOptions(playerSettings);
         }
 
+        // Music only share the playing file when it's in player mode.
+        this.enableNFCSharing(true);
+
         if (callback)
           callback();
-      });
+      }.bind(this));
     } else {
       if (mode === MODE_LIST || mode === MODE_PICKER)
         document.getElementById('views-list').classList.remove('hidden');
@@ -576,14 +652,19 @@ var ModeManager = {
         document.getElementById('views-player').classList.add('hidden');
       }
 
-      if (callback)
+      // Disable the NFC sharing when it's in the other modes.
+      this.enableNFCSharing(false);
+
+      if (callback) {
         callback();
+      }
     }
 
     // We have to show the done button when we are in picker mode
     // and previewing the selecting song
-    if (pendingPick)
+    if (pendingPick) {
       document.getElementById('title-done').hidden = (mode !== MODE_PLAYER);
+    }
 
     // Remove all mode classes before applying a new one
     var modeClasses = ['tiles-mode', 'list-mode', 'sublist-mode', 'player-mode',
@@ -604,6 +685,26 @@ var ModeManager = {
         (mode === MODE_SUBLIST || mode === MODE_PLAYER)) {
       document.getElementById('scan-progress').classList.add('hidden');
       displayingScanProgress = false;
+    }
+  },
+
+  enableNFCSharing: function(enabled) {
+    if (!navigator.mozNfc) {
+      return;
+    }
+
+    if (enabled && !pendingPick) {
+      // Assign the sharing function to onpeerready so that it will trigger
+      // the shrinking ui to share the playing file.
+      navigator.mozNfc.onpeerready = function(event) {
+        var peer = event.peer;
+        if (peer)
+          peer.sendFile(PlayerView.playingBlob);
+      };
+    } else {
+      // The mozNfc api will check onpeerready, if it's null, then it will not
+      // trigger the shrinking ui so it won't be able to share the file.
+      navigator.mozNfc.onpeerready = null;
     }
   }
 };
@@ -627,10 +728,29 @@ var TitleBar = {
 
   init: function tb_init() {
     this.view.addEventListener('click', this);
+    this.view.addEventListener('action', this.onActionBack);
   },
 
   changeTitleText: function tb_changeTitleText(content) {
     this.titleText.textContent = content;
+  },
+
+  showBackArrow: function(show) {
+    if (show) { this.view.setAttribute('action', 'back'); }
+    else { this.view.removeAttribute('action'); }
+  },
+
+  onActionBack: function() {
+    if (pendingPick) {
+      if (ModeManager.currentMode === MODE_PICKER) {
+        pendingPick.postError('pick cancelled');
+        return;
+      }
+
+      PlayerView.stop();
+    }
+
+    ModeManager.pop();
   },
 
   handleEvent: function tb_handleEvent(evt) {
@@ -642,23 +762,11 @@ var TitleBar = {
 
     switch (evt.type) {
       case 'click':
-        if (!target)
+        if (!target) {
           return;
+        }
 
         switch (target.id) {
-          case 'title-back':
-            if (pendingPick) {
-              if (ModeManager.currentMode === MODE_PICKER) {
-                pendingPick.postError('pick cancelled');
-                return;
-              }
-
-              cleanupPick();
-            }
-
-            ModeManager.pop();
-
-            break;
           case 'title-player':
             // We cannot to switch to player mode
             // when there is no song in the dataSource of player
@@ -667,15 +775,29 @@ var TitleBar = {
 
             break;
           case 'title-done':
-            pendingPick.postResult({
-              type: PlayerView.playingBlob.type,
-              blob: PlayerView.playingBlob,
-              name:
-                PlayerView.dataSource[PlayerView.currentIndex].metadata.title ||
-                ''
+            var currentFileinfo = PlayerView.dataSource[
+              PlayerView.currentIndex
+            ];
+            var playingBlob = PlayerView.playingBlob;
+            getAlbumArtBlob(currentFileinfo, function(err, picture) {
+              var currentMetadata = currentFileinfo.metadata;
+              pendingPick.postResult({
+                type: playingBlob.type,
+                blob: playingBlob,
+                name: currentMetadata.title || '',
+                // We only pass some metadata attributes so we don't share
+                // personal details like # of times played and ratings.
+                metadata: {
+                  title: currentMetadata.title,
+                  artist: currentMetadata.artist,
+                  album: currentMetadata.album,
+                  picture: picture
+                }
+              });
+
+              cleanupPick();
             });
 
-            cleanupPick();
             break;
         }
 
@@ -810,13 +932,9 @@ var TilesView = {
     var NUM_INITIALLY_VISIBLE_TILES = 8;
     var INITIALLY_HIDDEN_TILE_WAIT_TIME_MS = 1000;
 
-    var placeholderBackgroundClass = 'default-album-' + this.index % 10;
     var setTileBackgroundClosure = function(url) {
-      if (url) {
-        tile.style.backgroundImage = 'url(' + url + ')';
-      } else {
-        tile.classList.add(placeholderBackgroundClass);
-      }
+      url = url || generateDefaultThumbnailURL(result.metadata);
+      tile.style.backgroundImage = 'url(' + url + ')';
     };
 
     if (this.index <= NUM_INITIALLY_VISIBLE_TILES) {
@@ -913,8 +1031,6 @@ var TilesView = {
     }
 
     function tv_playAlbum(data, index) {
-      var backgroundIndex = index % 10;
-
       var key = 'metadata.album';
       var range = IDBKeyRange.only(data.metadata.album);
       var direction = 'next';
@@ -933,9 +1049,9 @@ var TilesView = {
 
             if (PlayerView.shuffleOption) {
               PlayerView.setShuffle(true);
-              PlayerView.play(PlayerView.shuffledList[0], backgroundIndex);
+              PlayerView.play(PlayerView.shuffledList[0]);
             } else {
-              PlayerView.play(0, backgroundIndex);
+              PlayerView.play(0);
             }
           }
         );
@@ -953,7 +1069,6 @@ function createListElement(option, data, index, highlight) {
   li.className = 'list-item';
 
   var a = document.createElement('a');
-  a.href = '#';
   a.dataset.index = index;
   a.dataset.option = option;
 
@@ -996,6 +1111,7 @@ function createListElement(option, data, index, highlight) {
       if (index === 0) {
         var shuffleIcon = document.createElement('div');
         shuffleIcon.className = 'list-playlist-icon';
+        shuffleIcon.dataset.icon = 'shuffle';
         li.appendChild(shuffleIcon);
       }
 
@@ -1004,16 +1120,15 @@ function createListElement(option, data, index, highlight) {
     case 'artist':
     case 'album':
     case 'title':
-      var parent = document.createElement('div');
-      parent.className = 'list-image-parent';
-      parent.classList.add('default-album-' + index % 10);
-      var img = document.createElement('img');
-      img.className = 'list-image';
+      // Use background image instead of creating img elements can reduce
+      // the amount of total elements in the DOM tree, it can save memory
+      // and gecko can render the elements faster as well.
+      var setBackground = function(url) {
+        url = url || generateDefaultThumbnailURL(data.metadata);
+        li.style.backgroundImage = 'url(' + url + ')';
+      };
 
-      if (data.metadata.picture) {
-        parent.appendChild(img);
-        displayAlbumArt(img, data);
-      }
+      getThumbnailURL(data, setBackground);
 
       if (option === 'artist') {
         var artistSpan = document.createElement('span');
@@ -1055,8 +1170,6 @@ function createListElement(option, data, index, highlight) {
         li.appendChild(artistSpan);
       }
 
-      li.appendChild(parent);
-
       a.dataset.keyRange = data.metadata[option];
       a.dataset.option = option;
 
@@ -1067,7 +1180,12 @@ function createListElement(option, data, index, highlight) {
 
       var indexSpan = document.createElement('span');
       indexSpan.className = 'list-song-index';
-      indexSpan.textContent = index + 1;
+      var trackNum = data.metadata.tracknum;
+      if (data.metadata.discnum && data.multidisc) {
+        trackNum = data.metadata.discnum + '.' +
+          (trackNum < 10 ? '0' + trackNum : trackNum);
+      }
+      indexSpan.textContent = trackNum;
 
       var titleSpan = document.createElement('span');
       titleSpan.className = 'list-song-title';
@@ -1087,6 +1205,9 @@ function createListElement(option, data, index, highlight) {
   return li;
 }
 
+// Assuming the ListView will prepare 5 pages for batch loading.
+// Each page contains 7 list elements.
+var LIST_BATCH_SIZE = 7 * 5;
 // View of List
 var ListView = {
   get view() {
@@ -1119,27 +1240,38 @@ var ListView = {
   },
 
   init: function lv_init() {
-    this.dataSource = [];
-    this.index = 0;
-    this.lastFirstLetter = null;
+    this.clean();
 
     this.view.addEventListener('click', this);
     this.view.addEventListener('input', this);
+    this.view.addEventListener('touchmove', this);
     this.view.addEventListener('touchend', this);
+    this.view.addEventListener('scroll', this);
     this.searchInput.addEventListener('focus', this);
   },
 
   clean: function lv_clean() {
+    this.cancelEnumeration();
+
+    this.info = null;
+    this.dataSource = [];
+
+    this.index = 0;
+    this.lastDataIndex = 0;
+    this.firstLetters = [];
+    this.lastFirstLetter = null;
+    this.anchor.innerHTML = '';
+    this.anchor.style.height = 0;
+    this.view.scrollTop = 0;
+    this.hideSearch();
+    this.moveTimer = null;
+    this.scrollTimer = null;
+  },
+
+  cancelEnumeration: function lv_cancelEnumeration() {
     // Cancel a pending enumeration before start a new one
     if (listHandle)
       musicdb.cancelEnumeration(listHandle);
-
-    this.dataSource = [];
-    this.index = 0;
-    this.lastFirstLetter = null;
-    this.anchor.innerHTML = '';
-    this.view.scrollTop = 0;
-    this.hideSearch();
   },
 
   hideSearch: function lv_hideSearch() {
@@ -1147,6 +1279,80 @@ var ListView = {
     // XXX: we probably want to animate this...
     if (this.view.scrollTop < this.searchBox.offsetHeight)
       this.view.scrollTop = this.searchBox.offsetHeight;
+  },
+
+  // This function basically create the section header of the list elements.
+  // When we hit a different first letter, this function will use it to
+  // create a new header then keep it, until to hit another different one,
+  // it will create the next header with the new first letter.
+  createHeader: function lv_createHeader(option, result) {
+    var firstLetter = result.metadata[option].charAt(0);
+    var headerLi;
+
+    if (this.lastFirstLetter !== firstLetter) {
+      this.lastFirstLetter = firstLetter;
+
+      headerLi = document.createElement('li');
+      headerLi.className = 'list-header';
+      headerLi.textContent = this.lastFirstLetter || '?';
+    }
+
+    return headerLi;
+  },
+
+  activate: function lv_activate(info) {
+    // If info is not provided, then we should be displaying playlists,
+    // so it does not need to enumerate from MediaDB.
+    if (!info) {
+      this.clean();
+      return;
+    }
+
+    // Choose one of the indexes to get the count and it should be the
+    // correct count because failed records don't contain metadata, so
+    // here we just pick the album, artist or title as indexes.
+    musicdb.count('metadata.' + info.option, null, function(count) {
+      this.clean();
+      this.info = info;
+      // Keep the count with the info for later use in PlayerView.
+      this.info.count = count;
+
+      listHandle = musicdb.enumerate(info.key, info.range, info.direction,
+        function(record) {
+          if (record) {
+            // Check if music is in picker mode because we don't to allow the
+            // user to pick locked music.
+            if (!pendingPick || !record.metadata.locked)
+              this.dataSource.push(record);
+
+            // Save the current length of the dataSource to lastDataIndex
+            // because we might expand the length to the total count of
+            // the records, since we cannot retrieve all of them in a short
+            // time and the enumeration might be cancelled.
+            // It will also be used to judge the enumeration is end of not.
+            this.lastDataIndex = this.dataSource.length;
+          }
+
+          // When we got the first batch size of the records,
+          // or the total count is less than the batch size,
+          // display it so that users are able to see the first paint
+          // very quickly.
+          if (this.dataSource.length === LIST_BATCH_SIZE || !record) {
+            this.batchUpdate(info.option, LIST_BATCH_SIZE);
+            // If record is null then the enumeration is finished,
+            // so ListView has all the records and is able to adjust
+            // the height.
+            count = record ? count : null;
+            this.adjustHeight(info.option, count);
+            // In picker mode we have to use the ListView's dataSource to
+            // display the correct overlay.
+            if (pendingPick) {
+              knownSongs = this.dataSource;
+              showCorrectOverlay();
+            }
+          }
+        }.bind(this));
+    }.bind(this));
   },
 
   update: function lv_update(option, result) {
@@ -1158,22 +1364,194 @@ var ListView = {
     this.dataSource.push(result);
 
     if (option !== 'playlist') {
-      var firstLetter = result.metadata[option].charAt(0);
-
-      if (this.lastFirstLetter != firstLetter) {
-        this.lastFirstLetter = firstLetter;
-
-        var headerLi = document.createElement('li');
-        headerLi.className = 'list-header';
-        headerLi.textContent = this.lastFirstLetter || '?';
-
-        this.anchor.appendChild(headerLi);
+      var header = this.createHeader(option, result);
+      if (header) {
+        this.anchor.appendChild(header);
       }
     }
 
     this.anchor.appendChild(createListElement(option, result, this.index));
 
     this.index++;
+  },
+
+  // This function is used for judging if the ListView should update and the
+  // range it should update, it sees where the bottom element is and calculates
+  // its position to know how many to update.
+  judgeAndUpdate: function lv_judgeAndUpdate() {
+    // If there is no lastChild then the first paint is not drawn yet.
+    // Also if the info is not provide, we don't have to judge for updating.
+    if (!this.anchor.lastChild || !this.info)
+      return;
+
+    var itemHeight = this.anchor.lastChild.offsetHeight;
+    var scrolledHeight = this.view.scrollTop + this.view.offsetHeight;
+    var position = Math.round(scrolledHeight / itemHeight);
+    var last = this.anchor.children.length;
+    var range = position + this.firstLetters.length - last;
+
+    if (range > 0) {
+      this.batchUpdate(TabBar.option, range + LIST_BATCH_SIZE);
+
+      // If the listHandle is cancelled and the lastDataIndex is not -1,
+      // it means the enumeration was cancelled and the dataSource is incomplete
+      // so that we have to resume it from the last data index we have.
+      if (listHandle.state === 'cancelled' && this.lastDataIndex > -1) {
+        var info = this.info;
+        var index = this.lastDataIndex + 1;
+
+        listHandle =
+          musicdb.advancedEnumerate(info.key, info.range, info.direction, index,
+            function(record) {
+              if (record) {
+                this.dataSource[index] = record;
+                this.lastDataIndex = index;
+                index++;
+              } else {
+                this.lastDataIndex = -1;
+              }
+            }.bind(this)
+          );
+      }
+    }
+  },
+
+  // See where is the last index we have for the existing children, and start
+  // to create the rest elements from it, note that here we use fragment to
+  // update all the new elements at once, this is for reducing the amount of
+  // appending child to the DOM tree.
+  batchUpdate: function lv_batchUpdate(option, range) {
+    var start = this.index;
+    var end = start + range;
+    var fragment = document.createDocumentFragment();
+
+    if (end > this.dataSource.length)
+      end = this.dataSource.length;
+
+    for (var i = start; i < end; i++) {
+      var data = this.dataSource[i];
+      if (data) {
+        var header = this.createHeader(option, data);
+
+        if (header)
+          fragment.appendChild(header);
+
+        fragment.appendChild(createListElement(option, data, this.index));
+        this.index++;
+      }
+    }
+
+    this.anchor.appendChild(fragment);
+  },
+
+  // Because the correct height of ListView depends on how many records and
+  // how many section headers it got, also we don't want to cause too many
+  // repaints by appending children to the DOM tree and changes the height,
+  // when we got the first count from the MediaDB or the enumeration is end,
+  // we can fake the the height by the first adjustment(count), then fix the
+  // height to correct by the second adjustment(record is null).
+  adjustHeight: function lv_adjustHeight(option, count) {
+    // If it's the first launch, then dataSource will be empty and we don't
+    // need to adjust the height.
+    if (this.dataSource.length === 0)
+      return;
+
+    if (!count) {
+      count = this.dataSource.length;
+      this.firstLetters.length = 0;
+      var previousFirstLetter;
+      for (var i = 0; i < this.dataSource.length; i++) {
+        var metadata = this.dataSource[i].metadata;
+        var firstLetter = metadata[option].charAt(0);
+        if (previousFirstLetter !== firstLetter) {
+          this.firstLetters.push(firstLetter);
+          previousFirstLetter = firstLetter;
+        }
+      }
+    } else {
+      // Assuming we have all the letters from A to Z.
+      this.firstLetters.length = 26;
+    }
+
+    var headerHeight = this.anchor.firstChild.offsetHeight;
+    var itemHeight = this.anchor.lastChild.offsetHeight;
+    var bottomHeight = parseInt(getComputedStyle(this.anchor.lastChild, null).
+      getPropertyValue('margin-bottom'), 10);
+
+    this.anchor.style.height = (
+      headerHeight * this.firstLetters.length +
+      itemHeight * count +
+      bottomHeight
+    ) + 'px';
+  },
+
+  playWithShuffleAll: function lv_playWithShuffleAll() {
+    ModeManager.push(MODE_PLAYER, function() {
+      musicdb.count('metadata.title', null, function(count) {
+        var info = {
+          key: 'metadata.title',
+          range: null,
+          direction: 'next',
+          option: 'title',
+          count: count
+        };
+
+        PlayerView.setSourceType(TYPE_MIX);
+        // Assign an empty array with correct length to the data source
+        // so that the PlayerView knows we have a queue in playing and
+        // the play icon in the title bar can be displayed correctly.
+        PlayerView.dataSource = new Array(count);
+        PlayerView.setDBInfo(info);
+        PlayerView.setShuffle(true);
+        PlayerView.play(PlayerView.shuffledList[0]);
+      });
+    });
+  },
+
+  playWithIndex: function lv_playWithIndex(index) {
+    ModeManager.push(MODE_PLAYER, function() {
+      if (pendingPick)
+        PlayerView.setSourceType(TYPE_SINGLE);
+      else
+        PlayerView.setSourceType(TYPE_MIX);
+
+      // Because the ListView might still retrieving the records, and
+      // we are assigning the dataSource to the PlayerView, since
+      // setDBInfo will expand the dataSource length to the total
+      // count we will be retrieved, we must cancel the enumeration
+      // or the length will be expanded to a wrong number.
+      this.cancelEnumeration();
+      PlayerView.dataSource = this.dataSource;
+      PlayerView.setDBInfo(this.info);
+
+      if (PlayerView.shuffleOption) {
+        // Shuffled list does not exist yet in all songs.
+        // Here we need to create a new shuffled list
+        // and start from the song which the user clicked.
+        PlayerView.shuffleList(index);
+        PlayerView.play(PlayerView.shuffledList[0]);
+      } else {
+        PlayerView.play(index);
+      }
+    }.bind(this));
+  },
+
+  activateSubListView: function lv_activateSubListView(target) {
+    var option = target.dataset.option;
+    var index = target.dataset.index;
+    var data = this.dataSource[index];
+    var keyRange = (target.dataset.keyRange != 'all') ?
+      IDBKeyRange.only(target.dataset.keyRange) : null;
+    var direction =
+      (data.metadata.title === mostPlayedTitle ||
+       data.metadata.title === recentlyAddedTitle ||
+       data.metadata.title === highestRatedTitle) ? 'prev' : 'next';
+
+    SubListView.activate(
+      option, data, index, keyRange, direction, function() {
+        ModeManager.push(MODE_SUBLIST);
+      }
+    );
   },
 
   handleEvent: function lv_handleEvent(evt) {
@@ -1218,43 +1596,12 @@ var ListView = {
           // When an user select "Shuffle all"
           // We just play all songs with shuffle order
           // or change mode to subList view and list songs
-          if (option === 'shuffleAll') {
-            musicdb.getAll(function lv_getAll(dataArray) {
-              ModeManager.push(MODE_PLAYER, function() {
-                PlayerView.setSourceType(TYPE_MIX);
-                PlayerView.dataSource = dataArray;
-                PlayerView.setShuffle(true);
-                PlayerView.play(PlayerView.shuffledList[0]);
-              });
-            });
-          } else if (option === 'title') {
-            ModeManager.push(MODE_PLAYER, function() {
-              var targetIndex = parseInt(target.dataset.index);
-
-              if (pendingPick)
-                PlayerView.setSourceType(TYPE_SINGLE);
-              else
-                PlayerView.setSourceType(TYPE_MIX);
-
-                PlayerView.dataSource = this.dataSource;
-                PlayerView.play(targetIndex);
-            }.bind(this));
-          } else if (option) {
-            var index = target.dataset.index;
-            var data = this.dataSource[index];
-
-            var keyRange = (target.dataset.keyRange != 'all') ?
-              IDBKeyRange.only(target.dataset.keyRange) : null;
-            var direction =
-             (data.metadata.title === mostPlayedTitle ||
-              data.metadata.title === recentlyAddedTitle ||
-              data.metadata.title === highestRatedTitle) ? 'prev' : 'next';
-
-            SubListView.activate(
-              option, data, index, keyRange, direction, function() {
-                ModeManager.push(MODE_SUBLIST);
-              });
-          }
+          if (option === 'shuffleAll')
+            this.playWithShuffleAll();
+          else if (option === 'title')
+            this.playWithIndex(target.dataset.index);
+          else if (option)
+            this.activateSubListView(target);
         }
 
         break;
@@ -1274,6 +1621,40 @@ var ListView = {
           SearchView.search(target.value);
         }
 
+        break;
+
+      case 'touchmove':
+        // Start the rest batch updating after the first paint
+        if (this.anchor.children.length === 0)
+          return;
+
+        if (this.moveTimer)
+          clearTimeout(this.moveTimer);
+
+        // If the move timer is not cancelled, it should be a suitable time
+        // to update the ui because we don't want to render elements while
+        // the list is scrolling.
+        this.moveTimer = setTimeout(function() {
+          this.judgeAndUpdate();
+          this.moveTimer = null;
+        }.bind(this), 50);
+        break;
+
+      case 'scroll':
+        // Start the rest batch updating after the first paint
+        if (this.anchor.children.length === 0)
+          return;
+
+        if (this.scrollTimer)
+          clearTimeout(this.scrollTimer);
+
+        // If the user try to scroll as possible as it can, after the scrolling
+        // stops, we can see where the position is and try to render the rest
+        // elements that should be displayed on the screen.
+        this.scrollTimer = setTimeout(function() {
+          this.judgeAndUpdate();
+          this.scrollTimer = null;
+        }.bind(this), 500);
         break;
 
       default:
@@ -1307,8 +1688,8 @@ var SubListView = {
   },
 
   init: function slv_init() {
-    this.albumDefault = document.getElementById('views-sublist-header-default');
     this.albumImage = document.getElementById('views-sublist-header-image');
+    this.offscreenImage = new Image();
     this.albumName = document.getElementById('views-sublist-header-name');
     this.playAllButton = document.getElementById('views-sublist-controls-play');
     this.shuffleButton =
@@ -1316,7 +1697,6 @@ var SubListView = {
 
     this.dataSource = [];
     this.index = 0;
-    this.backgroundIndex = 0;
 
     this.view.addEventListener('click', this);
   },
@@ -1328,28 +1708,32 @@ var SubListView = {
 
     this.dataSource = [];
     this.index = 0;
-    this.albumImage.src = '';
+    this.offscreenImage.src = '';
     this.anchor.innerHTML = '';
     this.view.scrollTop = 0;
   },
 
-  setAlbumDefault: function slv_setAlbumDefault(index) {
-    var realIndex = index % 10;
-
-    this.albumDefault.classList.remove('default-album-' + this.backgroundIndex);
-    this.albumDefault.classList.add('default-album-' + realIndex);
-    this.backgroundIndex = realIndex;
-  },
-
   setAlbumSrc: function slv_setAlbumSrc(fileinfo) {
+    // See if we are viewing the predefined playlists, if so, then replace the
+    // fileinfo with the first record in the dataSource to display the first
+    // album art for every predefined playlist.
+    if (TabBar.playlistArray.indexOf(fileinfo) !== -1)
+      fileinfo = this.dataSource[0];
     // Set source to image and crop it to be fitted when it's onloded
-    displayAlbumArt(this.albumImage, fileinfo);
+    this.offscreenImage.src = '';
     this.albumImage.classList.remove('fadeIn');
-    this.albumImage.addEventListener('load', slv_showImage.bind(this));
+
+    getThumbnailURL(fileinfo, function(url) {
+      url = url || generateDefaultThumbnailURL(fileinfo.metadata);
+      this.offscreenImage.addEventListener('load', slv_showImage.bind(this));
+      this.offscreenImage.src = url;
+    }.bind(this));
 
     function slv_showImage(evt) {
       // Don't register multiple copies
       evt.target.removeEventListener('load', slv_showImage);
+      var url = 'url(' + this.offscreenImage.src + ')';
+      this.albumImage.style.backgroundImage = url;
       this.albumImage.classList.add('fadeIn');
     };
   },
@@ -1367,6 +1751,19 @@ var SubListView = {
                                          function lv_enumerateAll(dataArray) {
       var albumName;
       var albumNameL10nId;
+      var maxDiscNum = 1;
+
+      if (option === 'album') {
+        dataArray.sort(function(e1, e2) {
+          return (e1.metadata.discnum - e2.metadata.discnum) ||
+            (e1.metadata.tracknum - e2.metadata.tracknum);
+        });
+
+        maxDiscNum = Math.max(
+          dataArray[dataArray.length - 1].metadata.disccount,
+          dataArray[dataArray.length - 1].metadata.discnum
+        );
+      }
 
       if (option === 'artist') {
         albumName = data.metadata.artist || unknownArtist;
@@ -1383,14 +1780,12 @@ var SubListView = {
       if (data.metadata.l10nId)
         albumNameL10nId = data.metadata.l10nId;
 
-      SubListView.setAlbumName(albumName, albumNameL10nId);
-      SubListView.setAlbumDefault(index);
       SubListView.dataSource = dataArray;
-
-      if (data.metadata.picture)
-        SubListView.setAlbumSrc(data);
+      SubListView.setAlbumName(albumName, albumNameL10nId);
+      SubListView.setAlbumSrc(data);
 
       dataArray.forEach(function(songData) {
+        songData.multidisc = (maxDiscNum > 1);
         SubListView.update(songData);
       });
 
@@ -1421,7 +1816,7 @@ var SubListView = {
             PlayerView.setSourceType(TYPE_LIST);
             PlayerView.dataSource = this.dataSource;
             PlayerView.setShuffle(true);
-            PlayerView.play(PlayerView.shuffledList[0], this.backgroundIndex);
+            PlayerView.play(PlayerView.shuffledList[0]);
           }.bind(this));
           return;
         }
@@ -1440,7 +1835,7 @@ var SubListView = {
               PlayerView.setShuffle(false);
             }
 
-            var targetIndex = parseInt(target.dataset.index);
+            var targetIndex = parseInt(target.dataset.index, 10);
 
             if (PlayerView.shuffleOption) {
               // Shuffled list maybe not exist yet
@@ -1450,9 +1845,9 @@ var SubListView = {
               // Here we need to create a new shuffled list
               // and start from the song which a user clicked.
               PlayerView.shuffleList(targetIndex);
-              PlayerView.play(PlayerView.shuffledList[0], this.backgroundIndex);
+              PlayerView.play(PlayerView.shuffledList[0]);
             } else {
-              PlayerView.play(targetIndex, this.backgroundIndex);
+              PlayerView.play(targetIndex);
             }
           }.bind(this));
         }
@@ -1596,7 +1991,7 @@ var SearchView = {
           } else {
             PlayerView.setSourceType(TYPE_LIST);
             PlayerView.dataSource = [data];
-            PlayerView.play(0, index);
+            PlayerView.play(0);
           }
         }.bind(this));
       } else {
@@ -1633,9 +2028,32 @@ var TabBar = {
     return this._view = document.getElementById('tabs');
   },
 
+  get tabs() {
+    delete this._tabs;
+    return this._tabs = this.view.querySelectorAll('[role="tab"]');
+  },
+
+  set option(choice) {
+    var map = {
+      'mix': 'tabs-mix',
+      'playlist': 'tabs-playlists',
+      'artist': 'tabs-artists',
+      'album': 'tabs-albums',
+      'title': 'tabs-songs'
+    };
+
+    var tab = document.getElementById(map[choice]);
+    AccessibilityHelper.setAriaSelected(tab, this.tabs);
+    this._option = choice;
+  },
+
+  get option() {
+    return this._option;
+  },
+
   init: function tab_init() {
-    this.option = '';
-    this.view.addEventListener('click', this);
+    this.option = 'mix';
+    this.view.addEventListener('touchend', this);
 
     this.playlistArray.localize = function() {
       this.forEach(function(playList) {
@@ -1658,7 +2076,7 @@ var TabBar = {
       return;
 
     switch (evt.type) {
-      case 'click':
+      case 'touchend':
         var target = evt.target;
 
         if (!target)
@@ -1673,13 +2091,18 @@ var TabBar = {
 
         switch (target.id) {
           case 'tabs-mix':
+            // Assuming the users will switch to ListView later or tap one of
+            // the album on TilesView to play, just cancel the enumeration
+            // because we will start a new one and it can be responsive.
+            ListView.cancelEnumeration();
+
             ModeManager.start(MODE_TILES);
             TilesView.hideSearch();
 
             break;
           case 'tabs-playlists':
             ModeManager.start(MODE_LIST);
-            ListView.clean();
+            ListView.activate();
 
             this.playlistArray.forEach(function(playlist) {
               ListView.update(this.option, playlist);
@@ -1689,14 +2112,15 @@ var TabBar = {
           case 'tabs-artists':
           case 'tabs-albums':
           case 'tabs-songs':
+            var info = {
+              key: 'metadata.' + this.option,
+              range: null,
+              direction: (this.option === 'title') ? 'next' : 'nextunique',
+              option: this.option
+            };
+
             ModeManager.start(MODE_LIST);
-            ListView.clean();
-
-            listHandle =
-              musicdb.enumerate('metadata.' + this.option, null,
-                                'nextunique',
-                                ListView.update.bind(ListView, this.option));
-
+            ListView.activate(info);
             break;
         }
 
@@ -1707,3 +2131,13 @@ var TabBar = {
     }
   }
 };
+
+window.addEventListener('scrollstart', function onScroll(e) {
+  var views = document.getElementById('views');
+  views.classList.add('scrolling');
+});
+
+window.addEventListener('scrollend', function onScroll(e) {
+  var views = document.getElementById('views');
+  views.classList.remove('scrolling');
+});

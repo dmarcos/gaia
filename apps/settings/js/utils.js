@@ -51,7 +51,7 @@ function openDialog(dialogID, onSubmit, onReset) {
   var submit = dialog.querySelector('[type=submit]');
   if (submit) {
     submit.onclick = function onsubmit() {
-      if (onSubmit)
+      if (typeof onSubmit === 'function')
         (onSubmit.bind(dialog))();
       Settings.currentPanel = origin; // hide dialog box
     };
@@ -60,35 +60,88 @@ function openDialog(dialogID, onSubmit, onReset) {
   var reset = dialog.querySelector('[type=reset]');
   if (reset) {
     reset.onclick = function onreset() {
-      if (onReset)
+      if (typeof onReset === 'function')
         (onReset.bind(dialog))();
       Settings.currentPanel = origin; // hide dialog box
     };
   }
 }
 
-/**
- * Audio Preview
- * First click = play, second click = pause.
- */
+function openIncompatibleSettingsDialog(dialogId, newSetting,
+  oldSetting, callback) {
+  var headerL10nMap = {
+    'ums.enabled': 'is-warning-storage-header',
+    'tethering.usb.enabled': 'is-warning-tethering-header',
+    'tethering.wifi.enabled': 'is-warning-wifi-header'
+  };
+  var messageL10nMap = {
+    'ums.enabled': {
+      'tethering.usb.enabled': 'is-warning-storage-tethering-message'
+    },
+    'tethering.usb.enabled': {
+      'ums.enabled': 'is-warning-tethering-storage-message',
+      'tethering.wifi.enabled': 'is-warning-tethering-wifi-message'
+    },
+    'tethering.wifi.enabled': {
+      'tethering.usb.enabled': 'is-warning-wifi-tethering-message'
+    }
+  };
 
-function audioPreview(element, type) {
-  var audio = document.querySelector('#sound-selection audio');
-  var source = audio.src;
-  var playing = !audio.paused;
+  var headerL10n = headerL10nMap[newSetting];
+  var messageL10n =
+    messageL10nMap[newSetting] && messageL10nMap[newSetting][oldSetting];
 
-  // Both ringer and notification are using notification channel
-  audio.mozAudioChannelType = 'notification';
+  var dialogElement = document.querySelector('.incompatible-settings-dialog'),
+    dialogHead = document.querySelector('.is-warning-head'),
+    dialogMessage = document.querySelector('.is-warning-message'),
+    okBtn = document.querySelector('.incompatible-settings-ok-btn'),
+    cancelBtn = document.querySelector('.incompatible-settings-cancel-btn'),
+    mozL10n = navigator.mozL10n;
 
-  var url = '/shared/resources/media/' + type + '/' +
-            element.querySelector('input').value;
-  audio.src = url;
-  if (source === audio.src && playing) {
-    audio.pause();
-    audio.src = '';
-  } else {
-    audio.play();
+  dialogHead.setAttribute('data-l10n-id', headerL10n);
+  dialogMessage.setAttribute('data-l10n-id', messageL10n);
+
+  // User has requested enable the feature so the old feature
+  // must be disabled
+  function onEnable() {
+    var lock = Settings.mozSettings.createLock();
+    var cset = {};
+
+    cset[newSetting] = true;
+    cset[oldSetting] = false;
+    lock.set(cset);
+
+    enableDialog(false);
+
+    if (callback) {
+      callback();
+    }
   }
+
+  function onCancel() {
+    var lock = Settings.mozSettings.createLock();
+    var cset = {};
+
+    cset[newSetting] = false;
+    cset[oldSetting] = true;
+    lock.set(cset);
+
+    enableDialog(false);
+  }
+
+  var enableDialog = function enableDialog(enabled) {
+    if (enabled) {
+      okBtn.addEventListener('click', onEnable);
+      cancelBtn.addEventListener('click', onCancel);
+      dialogElement.hidden = false;
+    } else {
+      okBtn.removeEventListener('click', onEnable);
+      cancelBtn.removeEventListener('click', onCancel);
+      dialogElement.hidden = true;
+    }
+  };
+
+  enableDialog(true);
 }
 
 /**
@@ -111,12 +164,6 @@ function loadJSON(href, callback) {
 }
 
 /**
- * L10n helper
- */
-
-var localize = navigator.mozL10n.localize;
-
-/**
  * Helper class for formatting file size strings
  * required by *_storage.js
  */
@@ -137,7 +184,7 @@ var FileSizeFormatter = (function FileSizeFormatter(fixed) {
     var sizeDecimal = parseFloat(sizeString);
 
     return {
-      size: sizeDecimal.toString(),
+      size: sizeDecimal,
       unit: units[i]
     };
   }
@@ -151,35 +198,6 @@ var FileSizeFormatter = (function FileSizeFormatter(fixed) {
  */
 
 var DeviceStorageHelper = (function DeviceStorageHelper() {
-  function getStat(type, callback) {
-    var deviceStorage = navigator.getDeviceStorage(type);
-
-    if (!deviceStorage) {
-      console.error('Cannot get DeviceStorage for: ' + type);
-      return;
-    }
-    deviceStorage.freeSpace().onsuccess = function(e) {
-      var freeSpace = e.target.result;
-      deviceStorage.usedSpace().onsuccess = function(e) {
-        var usedSpace = e.target.result;
-        callback(usedSpace, freeSpace, type);
-      };
-    };
-  }
-
-  function getFreeSpace(callback) {
-    var deviceStorage = navigator.getDeviceStorage('sdcard');
-
-    if (!deviceStorage) {
-      console.error('Cannot get free space size in sdcard');
-      return;
-    }
-    deviceStorage.freeSpace().onsuccess = function(e) {
-      var freeSpace = e.target.result;
-      callback(freeSpace);
-    };
-  }
-
   function showFormatedSize(element, l10nId, size) {
     if (size === undefined || isNaN(size)) {
       element.textContent = '';
@@ -191,127 +209,67 @@ var DeviceStorageHelper = (function DeviceStorageHelper() {
     var sizeInfo = FileSizeFormatter.getReadableFileSize(size, fixedDigits);
 
     var _ = navigator.mozL10n.get;
-    element.textContent = _(l10nId, {
-      size: sizeInfo.size,
-      unit: _('byteUnit-' + sizeInfo.unit)
-    });
+    navigator.mozL10n.setAttributes(element,
+                                    l10nId,
+                                    {
+                                      size: sizeInfo.size,
+                                      unit: _('byteUnit-' + sizeInfo.unit)
+                                    });
   }
 
   return {
-    getStat: getStat,
-    getFreeSpace: getFreeSpace,
     showFormatedSize: showFormatedSize
   };
 })();
 
 /**
- * Connectivity accessors
- */
-
-// create a fake mozMobileConnection if required (e.g. desktop browser)
-var getMobileConnection = function() {
-  var navigator = window.navigator;
-  if (('mozMobileConnection' in navigator) &&
-      navigator.mozMobileConnection &&
-      navigator.mozMobileConnection.data)
-    return navigator.mozMobileConnection;
-
-  var initialized = false;
-  var fakeNetwork = { shortName: 'Fake Orange F', mcc: '208', mnc: '1' };
-  var fakeVoice = {
-    state: 'notSearching',
-    roaming: true,
-    connected: true,
-    emergencyCallsOnly: false
-  };
-
-  function fakeEventListener(type, callback, bubble) {
-    if (initialized)
-      return;
-
-    // simulates a connection to a data network;
-    setTimeout(function fakeCallback() {
-      initialized = true;
-      callback();
-    }, 5000);
-  }
-
-  return {
-    addEventListener: fakeEventListener,
-    get data() {
-      return initialized ? { network: fakeNetwork } : null;
-    },
-    get voice() {
-      return initialized ? fakeVoice : null;
-    }
-  };
-};
-
-var getBluetooth = function() {
-  var navigator = window.navigator;
-  if ('mozBluetooth' in navigator)
-    return navigator.mozBluetooth;
-  return {
-    enabled: false,
-    addEventListener: function(type, callback, bubble) {},
-    onenabled: function(event) {},
-    onadapteradded: function(event) {},
-    ondisabled: function(event) {},
-    getDefaultAdapter: function() {}
-  };
-};
-
-/**
  * The function returns an object of the supporting state of category of network
- * types. The categories are 'gsm' and 'cdma'.
+ * types. The categories are 'gsm', 'cdma', and 'lte'.
  */
-var getSupportedNetworkInfo = (function() {
-  var _result = null;
+(function(exports) {
+  var supportedNetworkTypeHelpers = [];
 
-  return function(callback) {
-    if (!callback)
-      return;
+  var helperFuncReady = function(callback) {
+    if (exports.SupportedNetworkTypeHelper) {
+      if (typeof callback === 'function') {
+        callback();
+      }
+    } else {
+      LazyLoader.load(['js/supported_network_type_helper.js'], function() {
+        if (typeof callback === 'function') {
+          callback();
+        }
+      });
+    }
+  };
 
-    // early return if the result is available
-    if (_result) {
-      callback(_result);
-      return;
+  var getMobileConnectionIndex = function(mobileConnection) {
+    return Array.prototype.indexOf.call(navigator.mozMobileConnections,
+      mobileConnection);
+  };
+
+  var getSupportedNetworkInfo = function(mobileConnection, callback) {
+    if (!navigator.mozMobileConnections) {
+      if (typeof callback === 'function') {
+        callback();
+      }
     }
 
-    // get network type
-    loadJSON('/resources/network.json', function loadNetwork(network) {
-      _result = {
-        gsm: false,
-        cdma: false,
-        networkTypes: null
-      };
-
-      /*
-       * Possible values of the item in network.types are:
-       * "wcdma/gsm", "gsm", "wcdma", "wcdma/gsm-auto",
-       * "cdma/evdo", "cdma", "evdo", "wcdma/gsm/cdma/evdo"
-       */
-      if (network.types) {
-        var types = _result.networkTypes = network.types;
-        for (var i = 0; i < types.length; i++) {
-          var type = types[i];
-          type.split('/').forEach(function(subType) {
-            _result.gsm = _result.gsm || (subType === 'gsm') ||
-                         (subType === 'gsm-auto') || (subType === 'wcdma');
-            _result.cdma = _result.cdma || (subType === 'cdma') ||
-                          (subType === 'evdo');
-          });
-
-          if (_result.gsm && _result.cdma) {
-            break;
-          }
-        }
+    helperFuncReady(function ready() {
+      var index = getMobileConnectionIndex(mobileConnection);
+      var supportedNetworkTypeHelper = supportedNetworkTypeHelpers[index];
+      if (!supportedNetworkTypeHelper) {
+        supportedNetworkTypeHelpers[index] = supportedNetworkTypeHelper =
+          SupportedNetworkTypeHelper(mobileConnection.supportedNetworkTypes);
       }
-
-      callback(_result);
+      if (typeof callback === 'function') {
+        callback(supportedNetworkTypeHelper);
+      }
     });
   };
-})();
+
+  exports.getSupportedNetworkInfo = getSupportedNetworkInfo;
+})(this);
 
 function isIP(address) {
   return /^\d+\.\d+\.\d+\.\d+$/.test(address);
@@ -329,145 +287,28 @@ function sanitizeAddress(input) {
   }
 }
 
-function getTruncated(oldName, options) {
+/**
+ * Retrieve current ICC by a given index. If no index is provided, it will
+ * use the index provided by `DsdsSettings.getIccCardIndexForCallSettings`,
+ * which is the default. Unless there are very specific reasons to provide an
+ * index, this function should always be invoked with no parameters in order to
+ * use the currently selected ICC index.
+ *
+ * @param {Number} index index of the mobile connection to get the ICC from
+ * @return {object}
+ */
+function getIccByIndex(index) {
+  if (index === undefined) {
+    index = DsdsSettings.getIccCardIndexForCallSettings();
+  }
+  var iccObj;
 
-  // options
-  var maxLine = options.maxLine || 2;
-  var node = options.node;
-  var ellipsisIndex = options.ellipsisIndex || 3;
-  var ellipsisCharacter = options.ellipsisCharacter || '...';
-
-  if (node === null) {
-    return oldName;
+  if (navigator.mozMobileConnections[index]) {
+    var iccId = navigator.mozMobileConnections[index].iccId;
+    if (iccId) {
+      iccObj = navigator.mozIccManager.getIccById(iccId);
+    }
   }
 
-  // used variables and functions
-  function hitsNewline(oldHeight, newHeight) {
-    return oldHeight !== newHeight;
-  }
-
-  var newName = '';
-  var oldHeight;
-  var newHeight;
-  var baseHeight;
-  var currentLine;
-  var ellipsisAt;
-  var hasNewEllipsisPoint = true;
-  var nameBeforeEllipsis = [];
-  var nameBeforeEllipsisString;
-  var nameAfterEllipsis = oldName.slice(-ellipsisIndex);
-  var realVisibility = node.style.visibility;
-  var realWordBreak = node.style.wordBreak;
-
-  /*
-   * Hide UI, because we are manipulating DOM
-   */
-  node.style.visibility = 'hidden';
-
-  /*
-   * Force breaking on boundaries
-   */
-  node.style.wordBreak = 'break-all';
-
-  /*
-   * Get the base height to count the currentLine at first
-   */
-  node.textContent = '.';
-  baseHeight = node.clientHeight;
-  node.textContent = '';
-
-  var needEllipsis = oldName.split('').some(function(character, index) {
-
-    nameBeforeEllipsis.push(character);
-    nameBeforeEllipsisString = nameBeforeEllipsis.join('');
-
-    oldHeight = node.clientHeight;
-    node.textContent = nameBeforeEllipsisString +
-        ellipsisCharacter + nameAfterEllipsis;
-    newHeight = node.clientHeight;
-
-    /*
-     * When index is 0, we have to update currentLine according to
-     * the first assignment (it is possible that at first the currentLine
-     * is not 0 if the width of node is too small)
-     */
-    if (index === 0) {
-      currentLine = Math.floor(newHeight / baseHeight);
-    }
-
-    if (hitsNewline(oldHeight, newHeight) && index !== 0) {
-
-      /*
-       * The reason why we have to check twice is because there is a
-       * situation that truncated string is overflowed but there is
-       * still room for original string.
-       *
-       * In this way, we have to memorize the ellipsis index and
-       * slice `nameBeforeEllipsis` to the index in the end.
-       */
-      var testHeight;
-      node.textContent = nameBeforeEllipsisString;
-      testHeight = node.clientHeight;
-
-      if (hitsNewline(oldHeight, testHeight)) {
-
-        /*
-         * We have to make it true again to keep the ellipsisAt
-         * up to date.
-         */
-        hasNewEllipsisPoint = true;
-        currentLine += 1;
-      } else {
-        /*
-         * This is the situation that we still have room, so we have
-         * to keep the ellipsisAt value for later use.
-         */
-        if (hasNewEllipsisPoint) {
-          ellipsisAt = index;
-          hasNewEllipsisPoint = false;
-        }
-      }
-    }
-
-    if (currentLine > maxLine) {
-      if (index === 0) {
-
-        /*
-         * It means that at first, the whole string is already in
-         * an overflowed situation, you have to avoid this situation.
-         * And we will bypass oldName back to you.
-         *
-         * There are some options for you :
-         *
-         *   1. Check options.ellipsisCharacter
-         *   2. Check options.maxLine
-         *   3. Check node's width (maybe too narrow)
-         */
-        console.log(
-          'Your string is in a overflowed situation, ' +
-          'please check your options');
-      }
-
-      /*
-       * Remove the last character, because it causes the overflow
-       */
-      nameBeforeEllipsis.pop();
-      node.textContent = '';
-      return true;
-    }
-  });
-
-  // restore UI
-  node.style.visibility = realVisibility;
-  node.style.wordBreak = realWordBreak;
-
-  if (!needEllipsis) {
-    newName = oldName;
-  } else {
-    newName += nameBeforeEllipsis.join('').slice(0, ellipsisAt);
-    newName += ellipsisCharacter;
-    newName += nameAfterEllipsis;
-  }
-
-  return newName;
+  return iccObj;
 }

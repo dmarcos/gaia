@@ -5,6 +5,25 @@
     panel.style.display = 'block';
   });
 
+  document.addEventListener('visibilitychange', function() {
+    if (document.mozHidden) {
+      window.close();
+    }
+  });
+
+  function goBack() {
+    this.removeEventListener('action', goBack);
+    var activity = new MozActivity({
+      name: 'moz_configure_window',
+      data: {
+        target: 'device'
+      }
+    });
+  }
+
+  // Until Haida lands this is how users could go back to Settings app
+  document.getElementById('header').addEventListener('action', goBack);
+
   /**
    * Gets the settings based on information from the dom
    */

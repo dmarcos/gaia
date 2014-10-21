@@ -1,6 +1,5 @@
 define(function(require) {
 'use strict';
-var Emitter = require('emitter');
 var priv = new WeakMap();
 var elementMap = new WeakMap();
 
@@ -22,7 +21,8 @@ function View(element) {
   });
 
   priv.set(this, {
-    visible: !element.classList.contains('hidden')
+    visible: !element.classList.contains('hidden'),
+    pendingVisible: false
   });
 }
 
@@ -38,8 +38,6 @@ View.instance = function(element, ctor = View) {
   }
   return new ctor(element);
 };
-
-View.prototype = Object.create(Emitter.prototype);
 
 Object.defineProperties(View.prototype, {
   /**
@@ -57,9 +55,17 @@ Object.defineProperties(View.prototype, {
     set: function(value) {
       var state = priv.get(this);
       value = !!value;
-      if (state.visible !== value) {
+      if (state.visible !== value || state.pendingVisible) {
+        state.pendingVisible = false;
         state.visible = value;
-        this.emit('visibilitychange', value);
+
+        var event = new CustomEvent('panel-visibilitychange', {
+          detail: {
+            isVisible: value
+          }
+        });
+        this.element.dispatchEvent(event);
+
         if (!value) {
           this.element.classList.add('hidden');
         } else {
@@ -67,6 +73,15 @@ Object.defineProperties(View.prototype, {
         }
       }
       return value;
+    }
+  },
+
+  pendingVisible: {
+    get: function() {
+      return priv.get(this).pendingVisible;
+    },
+    set: function(value) {
+      return (priv.get(this).pendingVisible = !!value);
     }
   }
 });

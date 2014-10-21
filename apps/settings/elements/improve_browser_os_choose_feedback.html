@@ -1,30 +1,27 @@
 <element name="improveBrowserOS-chooseFeedback" extends="section">
   <template>
 
-  	<header>
-      <a href="#improveBrowserOS"><span class="icon icon-back">back</span></a>
+  	<gaia-header action="back" data-href="#improveBrowserOS">
       <h1 data-l10n-id="sendFeedbackTitle">Submit Your Feedback</h1>
-    </header>
+    </gaia-header>
     <div>
       <ul>
-        <li>
-          <p class="description">
-            <span data-l10n-id="feedback-description">
+        <li class="description">
+          <p data-l10n-id="feedback-description">
               Your feedback will help us to improve Firefox OS.
-            </span>
           </p>
         </li>
         <li>
           <ul class="feedback-choose" id="feedback-mood">
             <li id="feedback-happy">
               <span class="feedback-choose-face"></span>
-              <span data-l10n-id="feedback-happy">
+              <span data-l10n-id="feedback-happy" class="feedback-face-caption">
                 Happy
               </span>
             </li>
             <li id="feedback-sad">
               <span class="feedback-choose-face"></span>
-              <span data-l10n-id="feedback-sad">
+              <span data-l10n-id="feedback-sad" class="feedback-face-caption">
                 Sad
               </span>
             </li>
@@ -37,8 +34,6 @@
         </li>
       </ul>
     </div>
-
-    <script src="js/feedback.js"></script>
-
+    <panel data-path="panels/feedback_choose/panel"></panel>
   </template>
 </element>

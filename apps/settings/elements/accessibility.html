@@ -1,29 +1,28 @@
 <element name="accessibility" extends="section">
   <template>
 
-    <header>
-      <a href="#root"><span class="icon icon-back">back</span></a>
-      <h1 data-l10n-id="accessibility"> Accessibility </h1>
-    </header>
+    <gaia-header action="back" data-href="#root">
+      <h1 data-l10n-id="accessibility-header"> Accessibility </h1>
+    </gaia-header>
 
     <div>
       <ul>
         <li>
-          <label class="pack-checkbox">
-            <input type="checkbox" name="accessibility.invert"/>
-            <span></span>
-          </label>
-          <a data-l10n-id="invertColors">Invert Colors</a>
+          <a class="menu-item" href="#accessibility-colors">
+            <span data-l10n-id="colorFilter">Color Filter</span>
+            <small id="colorFilter-desc">Disabled</small>
+          </a>
         </li>
-        <li>
-          <label class="pack-checkbox">
-            <input type="checkbox" name="accessibility.screenreader"/>
-            <span></span>
-          </label>
-          <a data-l10n-id="screenReader">Screen Reader</a>
+        <li data-show-name="accessibility.screenreader-show-settings" hidden>
+          <a class="menu-item" href="#accessibility-screenreader">
+            <span data-l10n-id="screenReader">Screen Reader</span>
+            <small id="screenReader-desc">Disabled</small>
+          </a>
         </li>
       </ul>
     </div>
+
+    <panel data-path="panels/accessibility/panel"><panel>
 
   </template>
 </element>

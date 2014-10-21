@@ -1,25 +1,15 @@
 define(function(require, exports) {
-
   'use strict';
 
   // ---------------------------------------------------------
   // Constants
 
-  var DAYS = exports.DAYS = [
+  exports.DAYS_STARTING_MONDAY = [
     'monday', 'tuesday', 'wednesday', 'thursday', 'friday',
-    'saturday', 'sunday'
-  ];
+    'saturday', 'sunday'];
 
-  var RDAYS = exports.RDAYS = DAYS.map(function(_, n) {
-    return n;
-  });
-
-  var WEEKDAYS = exports.WEEKDAYS = [0, 1, 2, 3, 4].map(function(x) {
-    return DAYS[x];
-  });
-
-  var WEEKENDS = exports.WEEKENDS = [5, 6].map(function(x) {
-    return DAYS[x];
-  });
+  exports.DAYS_STARTING_SUNDAY = [
+    'sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday',
+    'saturday'];
 
 });

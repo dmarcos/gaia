@@ -2,65 +2,61 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-from marionette.by import By
-
 from gaiatest import GaiaTestCase
 from gaiatest.apps.homescreen.app import Homescreen
+from gaiatest.apps.homescreen.regions.confirm_install import ConfirmInstall
 
 
 class TestDeleteApp(GaiaTestCase):
 
-    MANIFEST = 'http://mozqa.com/data/webapps/mozqa.com/manifest.webapp'
-    APP_NAME = 'Mozilla QA WebRT Tester'
-    APP_INSTALLED = False
-
-    # App install popup
-    _confirm_install_button_locator = (By.ID, 'app-install-install-button')
-    _notification_banner_locator = (By.ID, 'system-banner')
-
     def setUp(self):
         GaiaTestCase.setUp(self)
 
-        if self.apps.is_app_installed(self.APP_NAME):
-            self.apps.uninstall(self.APP_NAME)
-
-        self.connect_to_network()
+        # Turn off geolocation prompt for smart collections
+        self.apps.set_permission('Smart Collections', 'geolocation', 'deny')
 
         self.homescreen = Homescreen(self.marionette)
-        self.homescreen.launch()
+        self.apps.switch_to_displayed_app()
+
+        self.test_data = {
+            'name': 'Mozilla QA WebRT Tester',
+            'url': 'http://mozqa.com/data/webapps/mozqa.com/manifest.webapp'}
+
+        if not self.apps.is_app_installed(self.test_data['name']):
+            self.connect_to_network()
+
+            if self.device.is_desktop_b2g or self.data_layer.is_wifi_connected():
+                self.test_data['url'] = self.marionette.absolute_url(
+                    'webapps/mozqa.com/manifest.webapp')
+
+            # Install app so we can delete it
+            self.marionette.execute_script(
+                'navigator.mozApps.install("%s")' % self.test_data['url'])
+
+            # Confirm the installation and wait for the app icon to be present
+            confirm_install = ConfirmInstall(self.marionette)
+            confirm_install.tap_confirm()
+
+        self.apps.switch_to_displayed_app()
+        self.homescreen.wait_for_app_icon_present(self.test_data['name'])
 
     def test_delete_app(self):
 
-        # Install app
-        self.marionette.switch_to_frame()
-        self.marionette.execute_script(
-            'navigator.mozApps.install("%s")' % self.MANIFEST)
-
-        # Confirm the installation
-        self.wait_for_element_displayed(*self._confirm_install_button_locator)
-        self.marionette.find_element(*self._confirm_install_button_locator).tap()
-
-        # Wait for the app to be installed and the notification banner to be available
-        self.wait_for_element_displayed(*self._notification_banner_locator)
-        self.wait_for_element_not_displayed(*self._notification_banner_locator)
-
-        self.homescreen.switch_to_homescreen_frame()
-
         # Verify that the app is installed i.e. the app icon is visible on one of the homescreen pages
-        self.assertTrue(self.homescreen.is_app_installed(self.APP_NAME),
-            "App %s not found on Homescreen" % self.APP_NAME)
+        self.assertTrue(
+            self.homescreen.is_app_installed(self.test_data['name']),
+            'App %s not found on homescreen' % self.test_data['name'])
 
         # Activate edit mode
         self.homescreen.activate_edit_mode()
 
         # Tap on the (x) to start delete process and tap on the confirm delete button
-        self.homescreen.installed_app(self.APP_NAME).tap_delete_app().tap_confirm()
+        self.homescreen.installed_app(self.test_data['name']).tap_delete_app().tap_confirm()
 
-        self.homescreen.wait_for_app_icon_not_present(self.APP_NAME)
-
-        # Return to normal mode
-        self.homescreen.touch_home_button()
+        self.wait_for_condition(lambda m: self.apps.displayed_app.name == self.homescreen.name)
+        self.apps.switch_to_displayed_app()
+        self.homescreen.wait_for_app_icon_not_present(self.test_data['name'])
 
         # Check that the app is no longer available
         with self.assertRaises(AssertionError):
-            self.apps.launch(self.APP_NAME)
+            self.apps.launch(self.test_data['name'])

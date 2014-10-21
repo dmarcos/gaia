@@ -1,16 +1,17 @@
-suite('Provider.Mock', function() {
+define(function(require) {
+'use strict';
 
-  testSupport.calendar.loadObjects(
-    'Models.Account',
-    'Models.Calendar'
-  );
+var Factory = require('test/support/factory');
+var nextTick = require('next_tick');
+var providerFactory = require('provider/provider_factory');
 
+suite('provider/mock', function() {
   var app;
   var subject;
 
   setup(function() {
     app = testSupport.calendar.app();
-    subject = Calendar.App.provider('Mock');
+    subject = providerFactory.get('Mock');
   });
 
   test('staged data events', function(done) {
@@ -34,7 +35,7 @@ suite('Provider.Mock', function() {
       assert.ok(firedBefore, 'fires before event');
       assert.ok(!firedAfter, 'after fires after callback');
 
-      Calendar.nextTick(function() {
+      nextTick(function() {
         done(function() {
           assert.ok(firedAfter, 'fires after');
         });
@@ -195,5 +196,6 @@ suite('Provider.Mock', function() {
       });
     });
   });
+});
 
 });

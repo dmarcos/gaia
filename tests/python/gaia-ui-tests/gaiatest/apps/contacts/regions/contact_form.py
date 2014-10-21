@@ -8,8 +8,7 @@ from gaiatest.apps.base import Base
 
 class ContactForm(Base):
 
-    _contact_form_locator = (By.ID, 'contact-form')
-    _contact_form_title_locator = (By.ID, 'contact-form-title')
+    name = 'Contacts'
 
     _given_name_locator = (By.ID, 'givenName')
     _family_name_locator = (By.ID, 'familyName')
@@ -21,16 +20,7 @@ class ContactForm(Base):
     _country_locator = (By.ID, 'countryName_0')
     _comment_locator = (By.ID, 'note_0')
 
-    _add_picture_link_locator = (By.ID, 'thumbnail-photo')
-    _picture_loaded_locator = (By.CSS_SELECTOR, '#thumbnail-photo[style*="background-image"] ')
-
-    def __init__(self, marionette):
-        Base.__init__(self, marionette)
-        self.wait_for_add_edit_contact_to_load()
-
-    @property
-    def title(self):
-        return self.marionette.find_element(*self._contact_form_title_locator).text
+    _thumbnail_photo_locator = (By.ID, 'thumbnail-photo')
 
     @property
     def given_name(self):
@@ -109,25 +99,22 @@ class ContactForm(Base):
         return self.marionette.find_element(*self._comment_locator).text
 
     def type_comment(self, value):
-        self.wait_for_element_displayed(*self._comment_locator)
         element = self.marionette.find_element(*self._comment_locator)
+        self.marionette.execute_script("arguments[0].scrollIntoView(false);", [element])
         element.clear()
         element.send_keys(value)
 
     @property
     def picture_style(self):
-        return self.marionette.find_element(*self._add_picture_link_locator).get_attribute('style')
+        return self.marionette.find_element(*self._thumbnail_photo_locator).get_attribute('style')
 
     def tap_picture(self):
-        self.marionette.find_element(*self._add_picture_link_locator).tap()
+        self.marionette.find_element(*self._thumbnail_photo_locator).tap()
         from gaiatest.apps.system.regions.activities import Activities
         return Activities(self.marionette)
 
     def wait_for_image_to_load(self):
-        self.wait_for_element_displayed(*self._picture_loaded_locator)
-
-    def wait_for_add_edit_contact_to_load(self):
-        self.wait_for_element_displayed(*self._contact_form_locator)
+        self.wait_for_condition(lambda m: 'background-image' in self.picture_style)
 
 
 class EditContact(ContactForm):
@@ -141,12 +128,20 @@ class EditContact(ContactForm):
 
     def __init__(self, marionette):
         ContactForm.__init__(self, marionette)
-        self.wait_for_element_displayed(*self._update_locator)
+        update = self.wait_for_element_present(*self._update_locator)
+        self.wait_for_condition(lambda m: update.location['y'] == 0)
 
-    def tap_update(self):
+    def tap_update(self, return_details=True):
+        self.wait_for_update_button_enabled()
         self.marionette.find_element(*self._update_locator).tap()
-        from gaiatest.apps.contacts.regions.contact_details import ContactDetails
-        return ContactDetails(self.marionette)
+        if return_details:
+            self.wait_for_element_not_displayed(*self._update_locator)
+            from gaiatest.apps.contacts.regions.contact_details import ContactDetails
+            return ContactDetails(self.marionette)
+        else:
+            # else we drop back to the underlying app
+            self.wait_for_condition(lambda m: self.apps.displayed_app.name != self.name)
+            self.apps.switch_to_displayed_app()
 
     def tap_cancel(self):
         self.marionette.find_element(*self._cancel_locator).tap()
@@ -166,19 +161,46 @@ class EditContact(ContactForm):
     def tap_confirm_delete(self):
         self.wait_for_element_displayed(*self._delete_form_locator)
         self.marionette.find_element(*self._confirm_delete_locator).tap()
-        from gaiatest.apps.contacts.app import Contacts
-        return Contacts(self.marionette)
+
+    def wait_for_update_button_enabled(self):
+        self.wait_for_condition(lambda m: m.find_element(
+            *self._update_locator).is_enabled())
 
 
 class NewContact(ContactForm):
 
+    _src = 'app://communications.gaiamobile.org/contacts/index.html?new'
     _done_button_locator = (By.ID, 'save-button')
 
     def __init__(self, marionette):
         ContactForm.__init__(self, marionette)
-        self.wait_for_element_displayed(*self._done_button_locator)
 
-    def tap_done(self):
+    def switch_to_new_contact_form(self):
+        # When NewContact form is called as an ActivityWindow
+        self.wait_for_condition(lambda m: self.apps.displayed_app.src == self._src)
+        self.apps.switch_to_displayed_app()
+        self.wait_for_new_contact_form_to_load()
+
+    def wait_for_new_contact_form_to_load(self):
+        done = self.marionette.find_element(*self._done_button_locator)
+        self.wait_for_condition(lambda m: done.location['y'] == 0)
+
+    def tap_done(self, return_contacts=True):
         self.marionette.find_element(*self._done_button_locator).tap()
-        from gaiatest.apps.contacts.app import Contacts
-        return Contacts(self.marionette)
+        return self.wait_for_done(return_contacts)
+
+    def a11y_click_done(self, return_contacts=True):
+        self.accessibility.click(self.marionette.find_element(*self._done_button_locator))
+        return self.wait_for_done(return_contacts)
+
+    def wait_for_done(self, return_contacts=True):
+        # NewContact can be opened as an Activity from other apps. In this scenario we don't return Contacts
+        if return_contacts:
+            self.wait_for_element_not_displayed(*self._done_button_locator)
+            from gaiatest.apps.contacts.app import Contacts
+            return Contacts(self.marionette)
+        else:
+            from gaiatest.apps.contacts.app import Contacts
+            self.wait_for_condition(lambda m: self.apps.displayed_app.name != Contacts.name)
+            # Fall back to the underlying app
+            self.apps.switch_to_displayed_app()

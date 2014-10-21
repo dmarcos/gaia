@@ -14,7 +14,7 @@ class TestExportContactsToSDCard(GaiaTestCase):
 
         # remove vcf files from sdcard
         for filename in self.data_layer.sdcard_files('.vcf'):
-            self.device.manager.removeFile(filename)
+            self.device.file_manager.remove(filename)
 
     def test_export_contacts_to_sdcard(self):
         """ Export contacts to an SD card """
@@ -30,7 +30,7 @@ class TestExportContactsToSDCard(GaiaTestCase):
         contacts_app.tap_select_all()
         contacts_app.tap_export()
 
-        self.assertIn('1 out of 1 exported', contacts_app.status_message)
+        self.assertIn('1/1 contacts exported', contacts_app.status_message)
 
         vcf_files = self.data_layer.sdcard_files('.vcf')
 

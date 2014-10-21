@@ -1,15 +1,69 @@
+/* global SettingsHelper */
+
 'use strict';
 
-var CustomLogoPath = {
-  poweron: {
-    video: '/resources/power/carrier_power_on.mp4',
-    image: '/resources/power/carrier_power_on.png'
-  },
-  poweroff: {
-    video: '/resources/power/carrier_power_off.mp4',
-    image: '/resources/power/carrier_power_off.png'
-  }
-};
+var CustomLogoPath = (function() {
+
+  const DEFAULT_RESOURCES = {
+    poweron: {
+      video: '/resources/power/carrier_power_on.mp4',
+      image: '/resources/power/carrier_power_on.png'
+    },
+    poweroff: {
+      video: '/resources/power/carrier_power_off.mp4',
+      image: '/resources/power/carrier_power_off.png'
+    }
+  };
+
+  const SETTING_POWER = 'operatorResources.power';
+  const ATT_PWRON_VIDEO = 'poweron.video';
+  const ATT_PWRON_IMG = 'poweron.image';
+  const ATT_PWROFF_VIDEO = 'poweroff.video';
+  const ATT_PWROFF_IMG = 'poweroff.image';
+
+  var _poweron = {};
+  var _poweroff = {};
+
+  function setDefaultValues() {
+    _poweron.video = DEFAULT_RESOURCES.poweron.video;
+    _poweron.image = DEFAULT_RESOURCES.poweron.image;
+    _poweroff.video = DEFAULT_RESOURCES.poweroff.video;
+    _poweroff.image = DEFAULT_RESOURCES.poweroff.image;
+  };
+
+  function init(aNext) {
+    try {
+      var powerSetting = SettingsHelper(SETTING_POWER, {});
+      powerSetting.get(function gotPS(powerValues) {
+        _poweron.video = powerValues[ATT_PWRON_VIDEO] ||
+          DEFAULT_RESOURCES.poweron.video;
+        _poweron.image = powerValues[ATT_PWRON_IMG] ||
+          DEFAULT_RESOURCES.poweron.image;
+        _poweroff.video = powerValues[ATT_PWROFF_VIDEO] ||
+          DEFAULT_RESOURCES.poweroff.video;
+        _poweroff.image = powerValues[ATT_PWROFF_IMG] ||
+          DEFAULT_RESOURCES.poweroff.image;
+
+        aNext && aNext();
+      });
+    } catch (ex) {
+      setDefaultValues();
+      console.error('Error loading powers settings. Loading default values.' +
+                    ex);
+      aNext && aNext();
+    }
+  };
+
+  return {
+    get poweron() {
+      return _poweron;
+    },
+    get poweroff() {
+      return _poweroff;
+    },
+    init: init
+  };
+})();
 
 // Function to animate init starting logo
 var InitLogoHandler = {
@@ -29,20 +83,28 @@ var InitLogoHandler = {
   },
 
   init: function ilh_init(logoLoader) {
+    window.addEventListener('ftuopen', this);
+    window.addEventListener('ftuskip', this);
     this.logoLoader = logoLoader;
     logoLoader.onnotfound = this._removeCarrierPowerOn.bind(this);
     logoLoader.onload = this._appendCarrierPowerOn.bind(this);
   },
 
+  handleEvent: function ilh_handleEvent() {
+    this.animate();
+  },
+
   _removeCarrierPowerOn: function ilh_removeCarrierPowerOn() {
     var self = this;
-    if (this.carrierLogo) {
+    if (this.carrierLogo && this.carrierLogo.parentNode) {
       this.carrierLogo.parentNode.removeChild(self.carrierLogo);
       this._setReady();
     } else {
       var self = this;
       document.addEventListener('DOMContentLoaded', function() {
-        self.carrierLogo.parentNode.removeChild(self.carrierLogo);
+        if (self.carrierLogo) {
+          self.carrierLogo.parentNode.removeChild(self.carrierLogo);
+        }
         self._setReady();
       });
     }
@@ -132,6 +194,7 @@ var InitLogoHandler = {
           elem.load();
         }
         self.carrierLogo.parentNode.removeChild(self.carrierLogo);
+        delete self.carrierLogo; // Don't entrain the DOM nodes.
 
         self.osLogo.classList.add('hide');
         self.carrierPowerOnElement = null;
@@ -141,6 +204,9 @@ var InitLogoHandler = {
     self.osLogo.addEventListener('transitionend', function transOsLogo() {
       self.osLogo.removeEventListener('transitionend', transOsLogo);
       self.osLogo.parentNode.removeChild(self.osLogo);
+      delete self.osLogo; // Don't entrain the DOM nodes.
+      window.mozPerformance.timing.mozOsLogoEnd = Date.now();
+      window.dispatchEvent(new CustomEvent('logohidden'));
       if (callback) {
         callback();
       }
@@ -148,4 +214,6 @@ var InitLogoHandler = {
   }
 };
 
-InitLogoHandler.init(new LogoLoader(CustomLogoPath.poweron));
+CustomLogoPath.init(function() {
+  InitLogoHandler.init(new LogoLoader(CustomLogoPath.poweron));
+});

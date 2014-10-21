@@ -1,13 +1,14 @@
+/* global _, ConfigManager, CostControl, debug, Toolkit, Formatting,
+          SimManager, Common */
+/* jshint -W120 */
 
 /*
  * The data usage tab is in charge of usage charts of mobile and wi-fi networks.
  *
  * It has several canvas areas layered one above the others.
  */
-
+'use strict';
 var DataUsageTab = (function() {
-
-  'use strict';
 
   var DAY = 24 * 60 * 60 * 1000;
   var NEVER_PERIOD = 30 * DAY;
@@ -17,7 +18,7 @@ var DataUsageTab = (function() {
   var wifiLayer, mobileLayer, warningLayer, limitsLayer;
   var wifiOverview, mobileOverview;
   var wifiToggle, mobileToggle;
-  var wifiItem, mobileItem;
+  var appList, noData;
 
   var costcontrol, initialized, model;
 
@@ -39,14 +40,14 @@ var DataUsageTab = (function() {
       graphicPattern = document.getElementById('graphic-pattern');
       wifiLayer = document.getElementById('wifi-layer');
       mobileLayer = document.getElementById('mobile-layer');
-      mobileItem = document.getElementById('mobileItem');
-      wifiItem = document.getElementById('wifiItem');
       wifiOverview = document.getElementById('wifiOverview');
       mobileOverview = document.getElementById('mobileOverview');
       wifiToggle = document.getElementById('wifiCheck');
       mobileToggle = document.getElementById('mobileCheck');
       warningLayer = document.getElementById('warning-layer');
       limitsLayer = document.getElementById('limits-layer');
+      appList = document.getElementById('app-usage-list');
+      noData = document.getElementById('app-usage-no-data');
 
       window.addEventListener('localized', localize);
 
@@ -55,48 +56,60 @@ var DataUsageTab = (function() {
       wifiToggle.addEventListener('click', toggleWifi);
       mobileToggle.addEventListener('click', toggleMobile);
 
-      resetButtonState();
-
       // Setup the model
-      ConfigManager.requestSettings(function _onSettings(settings) {
-        debug('First time setup for model');
-        var lastDataReset = settings.lastDataReset;
-        var nextReset = settings.nextReset;
-        model = {
-          height: toDevicePixels(graphicArea.clientHeight),
-          width: toDevicePixels(graphicArea.clientWidth),
-          originX: Math.floor(toDevicePixels(graphicArea.clientWidth) * 0.15),
-          endX: Math.floor(toDevicePixels(graphicArea.clientWidth) * 0.95),
-          axis: {
-            Y: {
-              lower: 0,
-              margin: 0.20
+      SimManager.requestDataSimIcc(function(dataSimIcc) {
+        ConfigManager.requestSettings(dataSimIcc.iccId,
+                                      function _onSettings(settings) {
+          debug('First time setup for model');
+          model = {
+            height: toDevicePixels(graphicArea.clientHeight),
+            width: toDevicePixels(graphicArea.clientWidth),
+            originX: Math.floor(toDevicePixels(graphicArea.clientWidth) * 0.15),
+            endX: Math.floor(toDevicePixels(graphicArea.clientWidth) * 0.95),
+            axis: {
+              Y: {
+                lower: 0,
+                margin: 0.20
+              },
+              X: {
+                lower: calculateLowerDate(settings),
+                upper: calculateUpperDate(settings)
+              }
             },
-            X: {
-              lower: calculateLowerDate(settings),
-              upper: calculateUpperDate(settings)
-            }
-          },
-          limits: {
-            enabled: settings.dataLimit,
-            value: getLimitInBytes(settings)
-          },
-          data: {
-            wifi: {
-              enabled: true
+            limits: {
+              enabled: settings.dataLimit,
+              value: getLimitInBytes(settings)
             },
-            mobile: {
-              enabled: true
+            data: {
+              wifi: {
+                enabled: true
+              },
+              mobile: {
+                enabled: true
+              }
             }
-          }
-        };
-        ConfigManager.observe('dataLimit', toggleDataLimit, true);
-        ConfigManager.observe('dataLimitValue', setDataLimit, true);
-        ConfigManager.observe('lastDataReset', changeLastReset, true);
-        ConfigManager.observe('nextReset', changeNextReset, true);
+          };
+          expandModel(model);
+          resetButtonState(settings);
 
-        initialized = true;
-        requestDataUsage();
+          ConfigManager.observe('dataLimit', toggleDataLimit, true);
+          ConfigManager.observe('dataLimitValue', setDataLimit, true);
+          ConfigManager.observe('lastCompleteDataReset', updateDataUsage, true);
+          ConfigManager.observe('lastDataReset', updateDataUsage, true);
+          ConfigManager.observe('nextReset', changeNextReset, true);
+
+          function finishInit() {
+            initialized = true;
+            updateDataUsage();
+          }
+
+          Common.loadApps()
+            .then(finishInit)
+            .catch(function(reason) {
+              debug(reason);
+              finishInit();
+            });
+        });
       });
     });
   }
@@ -106,7 +119,6 @@ var DataUsageTab = (function() {
       drawTodayLayer(model);
       drawAxisLayer(model);
       drawLimits(model);
-      // updateUI();
     }
   }
 
@@ -120,32 +132,31 @@ var DataUsageTab = (function() {
     mobileToggle.removeEventListener('click', toggleMobile);
     ConfigManager.removeObserver('dataLimit', toggleDataLimit);
     ConfigManager.removeObserver('dataLimitValue', setDataLimit);
-    ConfigManager.removeObserver('lastDataReset', changeLastReset);
+    ConfigManager.removeObserver('lastCompleteDataReset', updateDataUsage);
+    ConfigManager.removeObserver('lastDataReset', updateDataUsage);
     ConfigManager.removeObserver('nextReset', changeNextReset);
 
     initialized = false;
   }
 
-  function resetButtonState() {
-    ConfigManager.requestSettings(function _onSettings(settings) {
-      var isMobileChartVisible = settings.isMobileChartVisible;
-      if (typeof isMobileChartVisible === 'undefined') {
-        isMobileChartVisible = true;
-      }
-      if (isMobileChartVisible !== mobileToggle.checked) {
-        mobileToggle.checked = isMobileChartVisible;
-        toggleMobile();
-      }
+  function resetButtonState(settings) {
+    var isMobileChartVisible = settings.isMobileChartVisible;
+    if (typeof isMobileChartVisible === 'undefined') {
+      isMobileChartVisible = true;
+    }
+    if (isMobileChartVisible !== mobileToggle.checked) {
+      mobileToggle.checked = isMobileChartVisible;
+      toggleMobile();
+    }
 
-      var isWifiChartVisible = settings.isWifiChartVisible;
-      if (typeof isWifiChartVisible === 'undefined') {
-        isWifiChartVisible = false;
-      }
-      if (isWifiChartVisible !== wifiToggle.checked) {
-        wifiToggle.checked = isWifiChartVisible;
-        toggleWifi();
-      }
-    });
+    var isWifiChartVisible = settings.isWifiChartVisible;
+    if (typeof isWifiChartVisible === 'undefined') {
+      isWifiChartVisible = false;
+    }
+    if (isWifiChartVisible !== wifiToggle.checked) {
+      wifiToggle.checked = isWifiChartVisible;
+      toggleWifi();
+    }
   }
 
   function getLimitInBytes(settings) {
@@ -163,37 +174,89 @@ var DataUsageTab = (function() {
   // On visibility change
   function updateWhenVisible(evt) {
     if (!document.hidden) {
-      requestDataUsage();
+      updateDataUsage();
     }
   }
 
-  function requestDataUsage() {
-    ConfigManager.requestSettings(function _onSettings(settings) {
-      var requestObj = { type: 'datausage' };
-      costcontrol.request(requestObj, updateCharts);
+  function requestDataUsage(perApp) {
+    return new Promise(function(resolve) {
+      SimManager.requestDataSimIcc(function(dataSimIcc) {
+        ConfigManager.requestSettings(dataSimIcc.iccId,
+                                      function _onSettings(settings) {
+
+          var request = { type: 'datausage' };
+          if (perApp) {
+            request.apps = Common.allApps.map(function(app) {
+              return app.manifestURL;
+            });
+          }
+
+          costcontrol.request(request, resolve);
+        });
+      });
     });
   }
 
-  function updateCharts(result) {
-    if (result.status === 'success') {
-      ConfigManager.requestSettings(function _onSettings(settings) {
-        debug('Updating model');
-        var modelData = result.data;
-        model.data.wifi.samples = modelData.wifi.samples;
-        model.data.wifi.total = modelData.wifi.total;
-        model.data.mobile.samples = modelData.mobile.samples;
-        model.data.mobile.total = modelData.mobile.total;
-        model.axis.X.upper = calculateUpperDate(settings);
-        model.axis.X.lower = calculateLowerDate(settings);
-        expandModel(model);
+  function maybeRequestPerAppUsage() {
+    if (!model) {
+      return;
+    }
 
-        debug('Rendering');
-        updateUI();
-        checkDataUsageNotification(settings, modelData.mobile.total);
-      });
+    if (!model.data.mobile.total) {
+      noData.hidden = false;
+      appList.hidden = true;
+      // Repeated here to not rely on the deferred `updateApps()` call which
+      // would add an annoying delay until clearing the data.
+      clearAppList();
 
     } else {
-      console.error('Error requesting data usage. This should not happen.');
+      noData.hidden = true;
+      appList.hidden = false;
+
+      // Bug 1064491: request per-app data usage on the next tick of
+      // the main loop to avoid performance regression in startup
+      setTimeout(function() {
+        requestDataUsage(true).then(updateApps);
+      }, 0);
+    }
+  }
+
+  function updateCharts(result) {
+    return new Promise(function(resolve, reject) {
+      if (result.status === 'success') {
+        SimManager.requestDataSimIcc(function(dataSimIcc) {
+          ConfigManager.requestSettings(dataSimIcc.iccId,
+                                        function _onSettings(settings) {
+            var modelData = result.data;
+            model.data.wifi.samples = modelData.wifi.samples;
+            model.data.wifi.total = modelData.wifi.total;
+
+            model.data.mobile.samples = modelData.mobile.samples;
+            model.data.mobile.total = modelData.mobile.total;
+
+            model.limits.enabled = settings.dataLimit;
+            model.limits.value = getLimitInBytes(settings);
+            model.axis.X.upper = calculateUpperDate(settings);
+            model.axis.X.lower = calculateLowerDate(settings);
+            expandModel(model);
+            resolve();
+
+            debug('Rendering');
+            drawCharts();
+          });
+        });
+      } else {
+        reject(new Error(
+          'Error requesting data usage. This should not happen.'));
+      }
+    });
+  }
+
+  function updateApps(result) {
+    if (result.status === 'success') {
+      model.data.wifi.apps = result.data.wifi.apps;
+      model.data.mobile.apps = result.data.mobile.apps;
+      drawApps(model);
     }
   }
 
@@ -210,28 +273,31 @@ var DataUsageTab = (function() {
   function setDataLimit(value, old, key, settings) {
     model.limits.value = getLimitInBytes(settings);
     expandModel(model);
-    updateUI();
+    drawCharts();
   }
 
-  function changeLastReset(value) {
-    requestDataUsage();
+  function updateDataUsage() {
+    requestDataUsage()
+      .then(updateCharts)
+      .then(maybeRequestPerAppUsage);
   }
 
   function changeNextReset(value, old, key, settings) {
     model.axis.X.upper = calculateUpperDate(settings);
     model.axis.X.lower = calculateLowerDate(settings);
     expandModel(model);
-    updateUI();
+    drawCharts();
   }
 
   function calculateUpperDate(settings) {
+    var today = new Date();
     var trackingPeriod = settings.trackingPeriod;
     var nextReset = settings.nextReset;
-    if (trackingPeriod !== 'never') {
+    if (trackingPeriod !== 'never' && nextReset) {
       return new Date(nextReset.getTime() - DAY);
     }
 
-    var lastReset = settings.lastDataReset;
+    var lastReset = settings.lastCompleteDataReset || today;
     var offset = today.getTime() - lastReset.getTime();
     var upperDate = new Date(lastReset.getTime() + NEVER_PERIOD);
     if (offset >= NEVER_ANCHOR) {
@@ -243,8 +309,8 @@ var DataUsageTab = (function() {
   }
 
   function calculateLowerDate(settings) {
-    var lowerDate = toMidnight(new Date());
-    var nextReset = settings.nextReset;
+    var lowerDate = Toolkit.toMidnight(new Date());
+    var nextReset = settings.nextReset || lowerDate;
     var trackingPeriod = settings.trackingPeriod;
 
     if (trackingPeriod === 'weekly') {
@@ -263,7 +329,8 @@ var DataUsageTab = (function() {
       lowerDate.setYear(newYear);
 
     } else {
-      var lastReset = lowerDate = settings.lastDataReset;
+      var lastReset = settings.lastCompleteDataReset || lowerDate;
+      lowerDate = lastReset;
       var offset = today.getTime() - lastReset.getTime();
       if (offset >= NEVER_ANCHOR) {
         lowerDate = new Date(today.getTime() - NEVER_ANCHOR);
@@ -280,15 +347,71 @@ var DataUsageTab = (function() {
     return Math.abs(a - b) <= threshold;
   }
 
+  function getAppManifest(app) {
+    return app.manifest || app.updateManifest;
+  }
+
+  function getAppName(app) {
+    var manifest = getAppManifest(app);
+    var userLang = document.documentElement.lang;
+    var locales = manifest.locales;
+    var localized = locales && locales[userLang] && locales[userLang].name;
+
+    return localized || manifest.name;
+  }
+
+  function getAppIcon(app) {
+    var manifest = getAppManifest(app);
+    var icons = manifest.icons;
+    var defaultImage = '../style/images/app/icons/default.png';
+
+    if (!icons || !Object.keys(icons).length) {
+      return defaultImage;
+    }
+
+    // The preferred size is 30 by the default. If we use HDPI device, we may
+    // use the image larger than 30 * 1.5 = 45 pixels.
+    var preferredIconSize = 30 * (window.devicePixelRatio || 1);
+    var preferredSize = Number.MAX_VALUE;
+    var max = 0;
+
+    for (var size in icons) {
+      size = parseInt(size, 10);
+      if (size > max) {
+        max = size;
+      }
+
+      if (size >= preferredIconSize && size < preferredSize) {
+        preferredSize = size;
+      }
+    }
+    // If there is an icon matching the preferred size, we return the result,
+    // if there isn't, we will return the maximum available size.
+    if (preferredSize === Number.MAX_VALUE) {
+      preferredSize = max;
+    }
+
+    var url = icons[preferredSize];
+
+    if (url) {
+      return !(/^(http|https|data):/.test(url)) ? app.origin + url : url;
+    } else {
+      return defaultImage;
+    }
+  }
+
   // USER INTERFACE
 
   // On tapping on wifi toggle
   function toggleWifi() {
     var isChecked = wifiToggle.checked;
     wifiLayer.setAttribute('aria-hidden', !isChecked);
-    wifiItem.setAttribute('aria-disabled', !isChecked);
     // save wifi toggled state
     ConfigManager.setOption({ isWifiChartVisible: isChecked });
+
+    if (model) {
+      drawApps(model);
+    }
   }
 
   // On tapping on mobile toggle
@@ -297,7 +420,6 @@ var DataUsageTab = (function() {
     mobileLayer.setAttribute('aria-hidden', !isChecked);
     warningLayer.setAttribute('aria-hidden', !isChecked);
     limitsLayer.setAttribute('aria-hidden', !isChecked);
-    mobileItem.setAttribute('aria-disabled', !isChecked);
     // save wifi toggled state
     ConfigManager.setOption({ isMobileChartVisible: isChecked });
 
@@ -309,12 +431,11 @@ var DataUsageTab = (function() {
   }
 
   // Expand the model with some computed values
-  var today = toMidnight(new Date());
+  var today = Toolkit.toMidnight(new Date());
   var CHART_BG_RATIO = 0.87;
   function expandModel(base) {
-
     // Update today
-    today = toMidnight(new Date());
+    today = Toolkit.toMidnight(new Date());
 
     // Graphic settings
     base.originY = Math.floor(base.height * CHART_BG_RATIO);
@@ -323,9 +444,9 @@ var DataUsageTab = (function() {
     base.axis.X.today = today;
 
     // Normalize today
-    toMidnight(base.axis.X.today);
-    toMidnight(base.axis.X.lower);
-    toMidnight(base.axis.X.upper);
+    Toolkit.toMidnight(base.axis.X.today);
+    Toolkit.toMidnight(base.axis.X.lower);
+    Toolkit.toMidnight(base.axis.X.upper);
 
     // X axis projection function to convert a value into a pixel value
     var xLowerBound = base.axis.X.lower.getTime();
@@ -359,10 +480,12 @@ var DataUsageTab = (function() {
     base.limits.warningValue = base.limits.value * base.limits.warning;
   }
 
-  function updateUI() {
+  function drawCharts() {
     // Update overview
-    wifiOverview.textContent = formatData(roundData(model.data.wifi.total));
-    mobileOverview.textContent = formatData(roundData(model.data.mobile.total));
+    var wifiData = Formatting.roundData(model.data.wifi.total);
+    var mobileData = Formatting.roundData(model.data.mobile.total);
+    wifiOverview.textContent = Formatting.formatData(wifiData);
+    mobileOverview.textContent = Formatting.formatData(mobileData);
 
     // Render the charts
     drawBackgroundLayer(model);
@@ -376,7 +499,7 @@ var DataUsageTab = (function() {
 
   function drawBackgroundLayer(model) {
     var canvas = document.getElementById('background-layer');
-    var height = canvas.height = model.height;
+    canvas.height = model.height;
     var width = canvas.width = model.width;
     var ctx = canvas.getContext('2d');
 
@@ -405,7 +528,7 @@ var DataUsageTab = (function() {
 
     // Vertical lines every day
     var days = (model.axis.X.upper - model.axis.X.lower) / DAY;
-    var step = model.axis.X.len / days;
+    step = model.axis.X.len / days;
     ctx.strokeStyle = '#eeeeee';
     ctx.lineWidth = toDevicePixels(1);
     for (var x = model.originX; x <= model.endX; x += step) {
@@ -414,6 +537,15 @@ var DataUsageTab = (function() {
       ctx.moveTo(drawX, model.originY);
       ctx.lineTo(drawX, 0);
       ctx.stroke();
+      // Ensure draw the last vertical line
+      if (((x + step) > model.endX) && (x !== model.endX)) {
+        // the 0.5 offset is needed to avoid drawing a double line.
+        drawX = model.endX - 0.5;
+        ctx.beginPath();
+        ctx.moveTo(drawX, model.originY);
+        ctx.lineTo(drawX, 0);
+        ctx.stroke();
+      }
     }
 
     ctx.restore();
@@ -425,12 +557,12 @@ var DataUsageTab = (function() {
 
   var todayLabel = {};
   var FONTSIZE = toDevicePixels(13);
-  var TODAY_FONTSIZE = toDevicePixels(15);
   var FONTWEIGHT = '600';
+  var FONTWEIGHT_AXIS = '400'; // normal font weight
   function drawTodayLayer(model) {
     var canvas = document.getElementById('today-layer');
-    var height = canvas.height = model.height;
-    var width = canvas.width = model.width;
+    canvas.height = model.height;
+    canvas.width = model.width;
     var ctx = canvas.getContext('2d');
 
     // Compute the X offset
@@ -442,7 +574,7 @@ var DataUsageTab = (function() {
     var todayTag = formatChartDate(model.axis.X.today);
 
     // Render the text
-    ctx.font = makeCSSFontString(TODAY_FONTSIZE, FONTWEIGHT);
+    ctx.font = makeCSSFontString(FONTSIZE, FONTWEIGHT);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
 
@@ -461,22 +593,23 @@ var DataUsageTab = (function() {
   function formatChartDate(date) {
     return _('verbose-chart-date-format', {
       'monthday-number': date.getDate(),
-      'em-month': _('em-month-' + date.getMonth())
+      'em-month': _('month-' + date.getMonth() + '-short')
     });
   }
 
   function drawAxisLayer(model) {
 
     var canvas = document.getElementById('axis-layer');
-    var height = canvas.height = model.height;
-    var width = canvas.width = model.width;
+    canvas.height = model.height;
+    canvas.width = model.width;
     var ctx = canvas.getContext('2d');
 
     // Start drawing Y axis
     var step = model.axis.Y.step;
     var dataStep = model.axis.Y.upper - model.axis.Y.maxValue;
-    var offsetX = model.originX - 4, marginBottom = 4;
-    ctx.font = makeCSSFontString(FONTSIZE, FONTWEIGHT);
+    var marginRight = 4;
+    var offsetX = model.originX - marginRight;
+    ctx.font = makeCSSFontString(FONTSIZE, FONTWEIGHT_AXIS);
     ctx.textAlign = 'right';
     var displayLimit = mobileToggle.checked && model.limits.enabled;
     var lastUnit;
@@ -485,19 +618,20 @@ var DataUsageTab = (function() {
 
       // First X label for 0 is aligned with the bottom
       if (value === 0) {
+        lastUnit = Formatting.smartRound(dataStep, 0)[1];
         ctx.textBaseline = 'bottom';
         ctx.fillStyle = '#6a6a6a';
-        ctx.fillText(formatData(smartRound(0, 0)), offsetX, y - 2.5);
+        ctx.fillText(Formatting.formatData([0, lastUnit]), offsetX, y - 2.5);
         continue;
       }
 
       // Rest of labels are aligned with the middle
-      var rounded = smartRound(value, 0);
+      var rounded = Formatting.smartRound(value, -1);
       var v = rounded[0];
       var u = rounded[1];
       var label = v;
       if (lastUnit !== u) {
-        label = formatData([v, u]);
+        label = Formatting.formatData([v, u]);
       }
 
       lastUnit = u;
@@ -541,8 +675,8 @@ var DataUsageTab = (function() {
     var color = '#b50202';
 
     var canvas = document.getElementById('limits-layer');
-    var height = canvas.height = model.height;
-    var width = canvas.width = model.width;
+    canvas.height = model.height;
+    canvas.width = model.width;
     var ctx = canvas.getContext('2d');
 
     var displayLimit = mobileToggle.checked && model.limits.enabled;
@@ -552,7 +686,6 @@ var DataUsageTab = (function() {
 
     ctx.save();
 
-    var marginLeft = 4;
     var marginTop = 1;
     var offsetY = set ? model.axis.Y.get(model.limits.value) :
                         FONTSIZE + 2 * marginTop;
@@ -582,22 +715,50 @@ var DataUsageTab = (function() {
     }
 
     var canvas = document.getElementById('wifi-layer');
-    var height = canvas.height = model.height;
-    var width = canvas.width = model.width;
+    canvas.height = model.height;
+    canvas.width = model.width;
     var ctx = canvas.getContext('2d');
 
     // Style
     ctx.fillStyle = '#cbd936';
     ctx.strokeStyle = '#8b9052';
     ctx.lineWidth = toDevicePixels(2);
+    ctx.lineJoin = 'round';
     ctx.moveTo(model.originX, model.originY);
-    var today = toMidnight(new Date());
+
+    var today = Toolkit.toMidnight(new Date());
+    // offset in milliseconds
+    var offset = today.getTimezoneOffset() * 60 * 1000;
+
     var sum = 0; var x, y = model.originY;
     var lastX = model.originX, lastY = model.axis.Y.get(sum);
     for (var i = 0, len = samples.length; i < len; i++) {
-
       var sample = samples[i];
-      if (sample.value == undefined) {
+      var sampleLocalTime = sample.date.getTime() + offset;
+      var sampleUTCDate = Toolkit.toMidnight(new Date(sampleLocalTime));
+
+      var isToday = (today.getTime() === sampleUTCDate.getTime());
+      var isTomorrow = (today.getTime() + DAY === sampleUTCDate.getTime());
+      var thereIsATomorrowSample = (isToday && (i + 2 === len));
+      // Depends on the hour of the day and the offset, it is possible the
+      // networkStats API returns the current data mobile in the  tomorrow
+      // sample, because on the UTC hour is another day.
+      if (thereIsATomorrowSample) {
+        // Join the value of the samples for today and tomorrow
+        var tomorrowSample = samples[i + 1];
+        if (typeof sample.value === 'undefined') {
+          sample.value = tomorrowSample.value;
+        } else if (typeof tomorrowSample.value !== 'undefined') {
+          sample.value += tomorrowSample.value;
+        }
+
+        if (i === 0) {
+          lastX = model.axis.X.get(sample.date);
+        }
+        i++;
+      }
+
+      if (typeof sample.value === 'undefined') {
         lastX = x = model.axis.X.get(sample.date);
         ctx.moveTo(x, y);
 
@@ -616,9 +777,11 @@ var DataUsageTab = (function() {
         lastY = y;
       }
 
-      if (today.getTime() === toMidnight(new Date(sample.date)).getTime() &&
-          x >= model.originX) {
+      var onlyExistTomorrowSample = (i === 0 && isTomorrow);
+      var isXInsideTheGraph = (x >= model.originX);
+      if ((isToday || onlyExistTomorrowSample) && isXInsideTheGraph) {
         drawTodayMark(ctx, x, y, '#8b9052');
+        return;
       }
     }
   }
@@ -652,7 +815,9 @@ var DataUsageTab = (function() {
       // Stroke
       ctx.globalCompositeOperation = 'source-over';
       ctx.beginPath();
-      ctx.moveTo(x0Fixed, y0);
+      // It's necessary add 1 to the X coordinate to make up for the offset
+      // produced with the drawing of the previous line.
+      ctx.moveTo(x0Fixed + 1, y0);
       ctx.lineTo(x1Fixed, y1);
       ctx.stroke();
     }
@@ -665,20 +830,56 @@ var DataUsageTab = (function() {
     }
 
     var canvas = document.getElementById('mobile-layer');
-    var height = canvas.height = model.height;
+    canvas.height = model.height;
     var width = canvas.width = model.width;
     var ctx = canvas.getContext('2d');
 
     ctx.fillStyle = 'rgba(147, 21, 98, 0.7)';
     ctx.strokeStyle = '#762d4a';
     ctx.lineWidth = toDevicePixels(2);
+    ctx.lineJoin = 'round';
 
-    var today = toMidnight(new Date());
+    var today = Toolkit.toMidnight(new Date());
+    // offset in milliseconds
+    var offset = today.getTimezoneOffset() * 60 * 1000;
+
     var sum = 0; var x, y = model.originY;
     var lastX = model.originX, lastY = model.axis.Y.get(sum);
+    // Only dealing with the use cases of negative UTC offset because, due to
+    // the database granularity, the returned samples are given in UTC days, and
+    // we don't know what part of the traffic sample values correspond to the
+    // current localtime day. The query for the samples is generated on the
+    // costcontrol module, and the case into which the returned samples only
+    // have one record with the data for the localtime day of yesterday is not
+    // possible.
+
     for (var i = 0, len = samples.length; i < len; i++) {
       var sample = samples[i];
-      if (sample.value == undefined) {
+      var sampleLocalTime = sample.date.getTime() + offset;
+      var sampleUTCDate = Toolkit.toMidnight(new Date(sampleLocalTime));
+
+      var isToday = (today.getTime() === sampleUTCDate.getTime());
+      var isTomorrow = (today.getTime() + DAY === sampleUTCDate.getTime());
+      var thereIsATomorrowSample = (isToday && (i + 2 === len));
+      // Depends on the hour of the day and the offset, it is possible the
+      // networkStats API returns the current data mobile in the tomorrow
+      // sample, because on the UTC hour is another day.
+      if (thereIsATomorrowSample) {
+        // Join the value of the samples for today and tomorrow
+        var tomorrowSample = samples[i + 1];
+        if (typeof sample.value === 'undefined') {
+          sample.value = tomorrowSample.value;
+        } else if (typeof tomorrowSample.value !== 'undefined') {
+          sample.value += tomorrowSample.value;
+        }
+
+        if (i === 0) {
+          lastX = model.axis.X.get(sample.date);
+        }
+        i++;
+      }
+
+      if (typeof sample.value === 'undefined') {
         lastX = x = model.axis.X.get(sample.date);
         ctx.moveTo(x, y);
 
@@ -697,9 +898,11 @@ var DataUsageTab = (function() {
         lastY = y;
       }
 
-      if (today.getTime() === toMidnight(new Date(sample.date)).getTime() &&
-          x >= model.originX) {
+      var onlyExistTomorrowSample = (i === 0 && isTomorrow);
+      var isXInsideTheGraph = (x >= model.originX);
+      if ((isToday || onlyExistTomorrowSample) && isXInsideTheGraph) {
         drawTodayMark(ctx, x, y, '#762d4a');
+        return;
       }
     }
 
@@ -711,8 +914,8 @@ var DataUsageTab = (function() {
 
   function drawWarningOverlay(model) {
     var canvas = document.getElementById('warning-layer');
-    var height = canvas.height = model.height;
-    var width = canvas.width = model.width;
+    canvas.height = model.height;
+    canvas.width = model.width;
     var ctx = canvas.getContext('2d');
 
     if (!model.limits.enabled || model.limits.value === null) {
@@ -741,13 +944,146 @@ var DataUsageTab = (function() {
     }
 
     // Limit exceeded
-    var limitValue = model.axis.Y.get(model.limits.value);
+    var limitValueExceeded = model.axis.Y.get(model.limits.value);
     ctx.beginPath();
     ctx.fillStyle = 'rgba(255, 0, 0, 0.3)';
     ctx.fillRect(
       model.originX, 0,
-      model.axis.X.len + 0.5, limitValue
+      model.axis.X.len + 0.5, limitValueExceeded
     );
+  }
+
+  var cachedAppItems = {};
+  function drawApps(model) {
+
+    function createAppItem(app) {
+      var appElement = document.createElement('li');
+      appElement.className = 'app-item';
+
+      var imgElement = document.createElement('img');
+      imgElement.className = 'app-image';
+      imgElement.src = getAppIcon(app);
+      appElement.appendChild(imgElement);
+
+      var appInfoElement = document.createElement('div');
+      appInfoElement.className = 'app-info';
+      appElement.appendChild(appInfoElement);
+
+      var nameElement = document.createElement('div');
+      nameElement.className = 'app-info-row app-name';
+      nameElement.textContent = getAppName(app);
+      appInfoElement.appendChild(nameElement);
+
+      var barElement = document.createElement('div');
+      barElement.className = 'app-info-row app-usage-bar';
+      appInfoElement.appendChild(barElement);
+
+      var usedBarElement = document.createElement('div');
+      usedBarElement.className = 'app-usage-bar-used';
+      barElement.appendChild(usedBarElement);
+
+      var usageElement = document.createElement('div');
+      usageElement.className = 'app-info-row app-usage-total';
+      appInfoElement.appendChild(usageElement);
+
+      return appElement;
+    }
+
+    function updateAppItemUsage(appItem, total) {
+      var usedBarElement =
+        appItem.getElementsByClassName('app-usage-bar-used')[0];
+      var totalElement =
+        appItem.getElementsByClassName('app-usage-total')[0];
+
+      var barTotal = mobileTotal;
+      if (model.limits.enabled && model.limits.value !== null) {
+        barTotal = Math.max(barTotal, model.limits.value);
+      }
+
+      var usedPercent = (total / barTotal) * 100;
+      usedBarElement.style.width = usedPercent + '%';
+      totalElement.textContent = '' + Formatting.formatData(
+        Formatting.roundData(total));
+    }
+
+    // Front-end workaround for Bug 1083680: Noticeable difference between by
+    // application breakdown totals and the total displayed in chart and widget.
+    // This method adds the residual traffic (the traffic that cannot be not
+    // allocated to an app) to the System application.
+    function fixResidualTraffic() {
+      var systemManifest = 'app://system.gaiamobile.org/manifest.webapp';
+      var breakdownTotal = 0;
+      if (manifests.length > 0) {
+        breakdownTotal =
+          manifests.reduce(function(accumulatedTraffic, appManifest) {
+            return accumulatedTraffic + mobileApps[appManifest].total;
+          }, 0);
+      }
+      var residualTraffic = mobileTotal - breakdownTotal;
+      // Updating System traffic to add the residual traffic
+      if (residualTraffic > 0) {
+        // Ensure system app exists
+        mobileApps[systemManifest] = mobileApps[systemManifest] || {total: 0};
+        var systemTraffic = mobileApps[systemManifest].total + residualTraffic;
+        mobileApps[systemManifest].total = systemTraffic;
+        if (!manifests[systemManifest]) {
+          manifests.push(systemManifest);
+        }
+      }
+    }
+
+    clearAppList();
+
+    var mobileTotal = model.data.mobile.total;
+    var mobileApps = model.data.mobile.apps;
+    if (!mobileApps) {
+      return;
+    }
+
+    // Filter out apps that have not used any data yet.
+    var manifests = Object.keys(mobileApps).filter(function(key) {
+      return mobileApps[key].total > 0;
+    });
+
+    // Note: The second premise (mobileTotal === 0) must be removed when the
+    // fixResidualTraffic method will be eliminated.
+    if (manifests.length === 0 && mobileTotal === 0) {
+      return;
+    }
+
+    fixResidualTraffic();
+
+    // Sort by total data usage, descending
+    manifests.sort(function(a, b) {
+      return mobileApps[b].total - mobileApps[a].total;
+    });
+
+    var fragment = document.createDocumentFragment();
+    manifests.forEach(function(manifestURL) {
+      var app = Common.allApps.find(function(app) {
+        return app.manifestURL === manifestURL;
+      });
+
+      if (!app) {
+        debug('No app with manifest URL: ' + manifestURL);
+        return;
+      }
+
+      var appTotal = mobileApps[manifestURL].total;
+      var appItem = cachedAppItems[manifestURL];
+      if (!appItem) {
+        appItem = cachedAppItems[manifestURL] = createAppItem(app);
+      }
+
+      updateAppItemUsage(appItem, appTotal);
+      fragment.appendChild(appItem);
+    });
+
+    appList.appendChild(fragment);
+  }
+
+  function clearAppList() {
+    appList.innerHTML = '';
   }
 
   return {

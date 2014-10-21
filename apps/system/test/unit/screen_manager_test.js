@@ -1,13 +1,18 @@
+/* globals ScreenManager, ScreenBrightnessTransition,
+           ScreenWakeLockManager,
+           MocksHelper, MockLockScreen, MockMozPower,
+           MockSettingsListener, MocksleepMenu */
+
 'use strict';
 
-mocha.globals(['SettingsListener', 'LockScreen', 'Bluetooth', 'StatusBar',
-      'AttentionScreen', 'removeEventListener', 'addEventListener',
-      'ScreenManager', 'clearIdleTimeout', 'setIdleTimeout', 'dispatchEvent',
-      'WindowManager']);
-
-requireApp('system/test/unit/mock_window_manager.js');
-requireApp('system/test/unit/mock_navigator_moz_power.js');
-requireApp('system/shared/test/unit/mocks/mock_settings_listener.js');
+require('/test/unit/mock_app_window_manager.js');
+require('/test/unit/mock_lock_screen.js');
+require('/test/unit/mock_statusbar.js');
+require('/test/unit/mock_bluetooth.js');
+require('/test/unit/mock_navigator_moz_power.js');
+require('/test/unit/mock_sleep_menu.js');
+require('/shared/test/unit/mocks/mock_settings_listener.js');
+requireApp('system/shared/test/unit/mocks/mock_system.js');
 
 function switchProperty(originObject, prop, stub, reals, useDefineProperty) {
   if (!useDefineProperty) {
@@ -32,26 +37,42 @@ function restoreProperty(originObject, prop, reals, useDefineProperty) {
   }
 }
 
+var mocksForScreenManager = new MocksHelper([
+  'SettingsListener', 'Bluetooth', 'StatusBar',
+  'System'
+]).init();
+
+require('/js/screen_brightness_transition.js');
+require('/js/wake_lock_manager.js');
+
 suite('system/ScreenManager', function() {
   var reals = {};
+  mocksForScreenManager.attachTestHelpers();
+
+  var stubScreenBrightnessTransition;
+  var stubScreenWakeLockManager;
 
   setup(function(done) {
+    window.lockScreen = MockLockScreen;
     switchProperty(navigator, 'mozPower', MockMozPower, reals, true);
-    switchProperty(window, 'WindowManager', MockWindowManager, reals);
-    switchProperty(window, 'SettingsListener', MockSettingsListener, reals);
     this.sinon.useFakeTimers();
+
+    stubScreenBrightnessTransition =
+      this.sinon.stub(ScreenBrightnessTransition.prototype);
+    this.sinon.stub(window, 'ScreenBrightnessTransition')
+      .returns(stubScreenBrightnessTransition);
+
+    stubScreenWakeLockManager =
+      this.sinon.stub(ScreenWakeLockManager.prototype);
+    this.sinon.stub(window, 'ScreenWakeLockManager')
+      .returns(stubScreenWakeLockManager);
 
     // We make sure fake timers are in place before we require the app
     requireApp('system/js/screen_manager.js', done);
   });
 
   teardown(function() {
-    MockMozPower.mTeardown();
-    MockWindowManager.mTeardown();
-    MockSettingsListener.mTeardown();
     restoreProperty(navigator, 'mozPower', reals, true);
-    restoreProperty(window, 'WindowManager', reals);
-    restoreProperty(window, 'SettingsListener', reals);
   });
 
   suite('init()', function() {
@@ -70,55 +91,34 @@ suite('system/ScreenManager', function() {
       this.sinon.stub(ScreenManager, '_setIdleTimeout');
 
       switchProperty(navigator, 'mozTelephony', stubTelephony, reals);
-      switchProperty(window, 'LockScreen', stubLockscreen, reals);
+      switchProperty(window, 'lockScreen', stubLockscreen, reals);
     });
 
     teardown(function() {
       restoreProperty(navigator, 'mozTelephony', reals);
-      restoreProperty(window, 'LockScreen', reals);
+      restoreProperty(window, 'lockScreen', reals);
     });
 
-    suite('power.addWakeLockListener handling', function() {
-      var wakeLockListenerSpy;
+    test('Event listener adding', function() {
+      var eventListenerStub = this.sinon.stub(window, 'addEventListener');
+      ScreenManager.init();
+      assert.isTrue(eventListenerStub.withArgs('sleep').calledOnce);
+      assert.isTrue(eventListenerStub.withArgs('wake').calledOnce);
+      assert.isTrue(eventListenerStub.withArgs('requestshutdown').calledOnce);
+    });
 
-      setup(function() {
-        wakeLockListenerSpy = this.sinon.spy(MockMozPower,
-                                             'addWakeLockListener');
-        ScreenManager.init();
-      });
+    test('wake lock handling', function() {
+      ScreenManager.init();
+      assert.isTrue(stubScreenWakeLockManager.start.calledOnce);
 
-      test('General case', function() {
-        wakeLockListenerSpy.yield('screen', 'locked-foreground');
-        assert.isTrue(ScreenManager._screenWakeLocked);
-        assert.isTrue(ScreenManager.turnScreenOn.called);
-        assert.isTrue(ScreenManager._reconfigScreenTimeout.called);
-      });
-
-      test('Called with topic "screen"', function() {
-        ScreenManager.turnScreenOn.reset();
-        wakeLockListenerSpy.yield('screen', 'locked-background');
-        assert.isFalse(ScreenManager._screenWakeLocked);
-        assert.isFalse(ScreenManager.turnScreenOn.called);
-        assert.isTrue(ScreenManager._reconfigScreenTimeout.called);
-      });
-
-      suite('Called with topic topic "cpu"', function() {
-        test('state is "another-state"', function() {
-          wakeLockListenerSpy.yield('cpu', 'another-state');
-          assert.isTrue(MockMozPower.cpuSleepAllowed);
-        });
-
-        test('state is "locked-background"', function() {
-          wakeLockListenerSpy.yield('cpu', 'locked-background');
-          assert.isFalse(MockMozPower.cpuSleepAllowed);
-        });
-      });
+      stubScreenWakeLockManager.onwakelockchange(true);
+      assert.isTrue(ScreenManager._reconfigScreenTimeout.called);
     });
 
     test('Testing SettingsListener.observe for screen.timeout', function() {
       ScreenManager._firstOn = false;
       ScreenManager.turnScreenOn.reset();
-      SettingsListener.observe.withArgs('screen.timeout')
+      MockSettingsListener.observe.withArgs('screen.timeout')
           .callsArgWith(2, 50);
 
       ScreenManager.init();
@@ -129,8 +129,8 @@ suite('system/ScreenManager', function() {
 
     test('Testing SettingsListener.observe for ' +
           'screen.automatic-brightness', function() {
-      SettingsListener.observe.reset();
-      SettingsListener.observe.withArgs('screen.automatic-brightness')
+      MockSettingsListener.observe.reset();
+      MockSettingsListener.observe.withArgs('screen.automatic-brightness')
         .callsArgWith(2, true);
       this.sinon.stub(ScreenManager, 'setDeviceLightEnabled');
 
@@ -196,6 +196,39 @@ suite('system/ScreenManager', function() {
       assert.isTrue(stubTurnOn.called);
     });
 
+    test('Testing accessibility action event', function() {
+      var stubReconfigScreenTimeout = this.sinon.stub(ScreenManager,
+        '_reconfigScreenTimeout');
+      ScreenManager.handleEvent({'type': 'accessibility-action'});
+      assert.isTrue(stubReconfigScreenTimeout.called);
+    });
+
+    suite('Test nfc-tech events', function() {
+      test('if _inTransition is true', function() {
+        var stubTurnScreenOn = this.sinon.stub(ScreenManager, 'turnScreenOn');
+        ScreenManager._inTransition = true;
+
+        ScreenManager.handleEvent({'type': 'nfc-tech-discovered'});
+        assert.isTrue(stubTurnScreenOn.calledOnce, 'nfc-tech-discovered');
+
+        ScreenManager.handleEvent({'type': 'nfc-tech-lost'});
+        assert.isTrue(stubTurnScreenOn.calledTwice, 'nfc-tech-lost');
+      });
+
+      test('if _intransition is false', function() {
+        var stubReconfigScreenTimeout = this.sinon.stub(
+                                           ScreenManager,
+                                           '_reconfigScreenTimeout');
+
+        ScreenManager.handleEvent({'type': 'nfc-tech-discovered'});
+        assert.isTrue(stubReconfigScreenTimeout.calledOnce,
+                     'nfc-tech-discovered');
+
+        ScreenManager.handleEvent({'type': 'nfc-tech-lost'});
+        assert.isTrue(stubReconfigScreenTimeout.calledTwice, 'nfc-tech-lost');
+      });
+    });
+
     suite('Testing userproximity event', function() {
       var stubTelephony, stubBluetooth, stubStatusBar, stubTurnOn, stubTurnOff;
 
@@ -255,61 +288,77 @@ suite('system/ScreenManager', function() {
     });
 
     suite('Testing callschanged event', function() {
-      var stubTelephony, stubCpuWakeLock, stubAttentionScreen,
-        stubTurnOn, stubRemoveListener;
+      var stubTelephony, stubCpuWakeLock, stubTurnOn, stubRemoveListener;
 
       setup(function() {
         stubTelephony = {};
         stubCpuWakeLock = {};
-        stubAttentionScreen = {};
         stubTurnOn = this.sinon.stub(ScreenManager, 'turnScreenOn');
         stubRemoveListener = this.sinon.stub(window, 'removeEventListener');
 
         stubCpuWakeLock.unlock = this.sinon.stub();
-        stubAttentionScreen.show = this.sinon.stub();
         ScreenManager._cpuWakeLock = stubCpuWakeLock;
 
         switchProperty(navigator, 'mozTelephony', stubTelephony, reals);
-        switchProperty(window, 'AttentionScreen', stubAttentionScreen, reals);
       });
 
       teardown(function() {
         restoreProperty(navigator, 'mozTelephony', reals);
-        restoreProperty(window, 'AttentionScreen', reals);
+        restoreProperty(window, 'dialerAgent', reals);
       });
 
       test('screen off by proximity', function() {
         stubTelephony.calls = [];
+        stubTelephony.conferenceGroup = {calls: []};
         ScreenManager._screenOffBy = 'proximity';
         ScreenManager.handleEvent({'type': 'callschanged'});
+        var stubDispatchEvent = this.sinon.stub(window, 'dispatchEvent');
 
         assert.isTrue(stubTurnOn.called);
         assert.isNull(ScreenManager._cpuWakeLock);
         assert.isTrue(stubCpuWakeLock.unlock.called);
-        assert.isFalse(stubAttentionScreen.show.called);
+        assert.isFalse(stubDispatchEvent.calledWith('open-callscreen'));
       });
 
       test('screen off', function() {
         stubTelephony.calls = [];
+        stubTelephony.conferenceGroup = {calls: []};
         ScreenManager._screenOffBy = '';
         ScreenManager.handleEvent({'type': 'callschanged'});
         assert.isFalse(stubTurnOn.called);
       });
 
       test('with a call', function() {
+        var stubDispatchEvent = this.sinon.stub(window, 'dispatchEvent');
         var stubAddListener = this.sinon.stub();
         stubTelephony.calls = [{'addEventListener': stubAddListener}];
+        stubTelephony.conferenceGroup = {calls: []};
         ScreenManager.handleEvent({'type': 'callschanged'});
-        assert.isTrue(stubAttentionScreen.show.called);
+        assert.isFalse(stubDispatchEvent.calledWith('open-callscreen'));
+        assert.isFalse(stubAddListener.called);
+      });
+
+      test('with a conference call', function() {
+        var stubDispatchEvent = this.sinon.stub(window, 'dispatchEvent');
+        var stubAddListener = this.sinon.stub();
+        stubTelephony.calls = [];
+        stubTelephony.conferenceGroup = {
+          calls: [{'addEventListener': stubAddListener},
+                  {'addEventListener': stubAddListener}]
+        };
+        ScreenManager.handleEvent({'type': 'callschanged'});
+        assert.isFalse(stubDispatchEvent.calledWith('open-callscreen'));
         assert.isFalse(stubAddListener.called);
       });
 
       test('without cpuWakeLock', function() {
+        var stubDispatchEvent = this.sinon.stub(window, 'dispatchEvent');
         var stubAddListener = this.sinon.stub();
         stubTelephony.calls = [{'addEventListener': stubAddListener}];
+        stubTelephony.conferenceGroup = {calls: []};
         ScreenManager._cpuWakeLock = null;
         ScreenManager.handleEvent({'type': 'callschanged'});
-        assert.isFalse(stubAttentionScreen.show.called);
+        assert.isFalse(stubDispatchEvent.calledWith('open-callscreen'));
         assert.isTrue(stubAddListener.called);
       });
     });
@@ -347,12 +396,27 @@ suite('system/ScreenManager', function() {
         assert.isTrue(stubReqWakeLock.called);
       });
     });
+
+    test('Testing shutdown event', function() {
+      var powerOffSpy = this.sinon.spy(MocksleepMenu, 'startPowerOff');
+      powerOffSpy.withArgs(false);
+      this.sinon.stub(ScreenManager, 'turnScreenOn');
+
+      ScreenManager.handleEvent({
+        type: 'requestshutdown',
+        detail: MocksleepMenu
+      });
+
+      assert.isTrue(ScreenManager.turnScreenOn.calledOnce);
+      assert.isTrue(powerOffSpy.withArgs(false).calledOnce);
+    });
   });
 
   suite('turnScreenOff()', function() {
     var stubSetIdle,
         stubRemoveListener,
         stubScnClassListAdd,
+        stubScnClassListRemove,
         stubScreen,
         stubFireEvent,
         stubUnlock,
@@ -362,7 +426,9 @@ suite('system/ScreenManager', function() {
       stubSetIdle = this.sinon.stub(ScreenManager, '_setIdleTimeout');
       stubRemoveListener = this.sinon.stub(window, 'removeEventListener');
       stubScnClassListAdd = this.sinon.stub();
-      stubScreen = {'classList': {'add': stubScnClassListAdd}};
+      stubScnClassListRemove = this.sinon.stub();
+      stubScreen = {'classList': {'add': stubScnClassListAdd,
+                    'remove': stubScnClassListRemove}};
       stubFireEvent = this.sinon.stub(ScreenManager, 'fireScreenChangeEvent');
       stubUnlock = this.sinon.stub();
       stubSetBrightness = this.sinon.stub(ScreenManager, 'setScreenBrightness');
@@ -391,6 +457,19 @@ suite('system/ScreenManager', function() {
       assert.isTrue(stubSetBrightness.calledWith(0, true));
       assert.isFalse(MockMozPower.screenEnabled);
       assert.isTrue(ScreenManager.fireScreenChangeEvent.called);
+    });
+
+    test('turn off instantly then on again', function() {
+      ScreenManager.screenEnabled = true;
+      assert.isTrue(ScreenManager.turnScreenOff(true, 'powerkey'));
+      this.sinon.clock.tick(10);
+      assert.isTrue(ScreenManager.turnScreenOn(true));
+      this.sinon.clock.tick(10);
+      assert.isTrue(ScreenManager.screenEnabled);
+      assert.isTrue(MockMozPower.screenEnabled);
+      assert.isTrue(stubScnClassListAdd.calledWith('screenoff'));
+      assert.isTrue(stubScnClassListRemove.calledWith('screenoff'));
+      sinon.assert.callOrder(stubScnClassListAdd, stubScnClassListRemove);
     });
 
     test('turn off screen wihout instant argument', function() {
@@ -456,6 +535,7 @@ suite('system/ScreenManager', function() {
     test('screen disabled when _deviceLightEnable is true', function() {
       ScreenManager.screenEnabled = false;
       stubTelephony.calls = [];
+      stubTelephony.conferenceGroup = {calls: []};
       ScreenManager._deviceLightEnable = true;
       ScreenManager.turnScreenOn(true);
 
@@ -476,6 +556,19 @@ suite('system/ScreenManager', function() {
     test('screen disabled with a call', function() {
       ScreenManager.screenEnabled = false;
       stubTelephony.calls = [{'state': 'connected'}];
+      stubTelephony.conferenceGroup = {calls: []};
+      ScreenManager.turnScreenOn(true);
+      assert.isTrue(stubReqWakeLock.calledWith('cpu'));
+      assert.isTrue(stubAddListener.calledWith('userproximity'));
+    });
+
+    test('screen disabled with a conference call', function() {
+      ScreenManager.screenEnabled = false;
+      stubTelephony.calls = [];
+      stubTelephony.conferenceGroup = {
+        calls: [{'addEventListener': stubAddListener},
+                {'addEventListener': stubAddListener}]
+      };
       ScreenManager.turnScreenOn(true);
       assert.isTrue(stubReqWakeLock.calledWith('cpu'));
       assert.isTrue(stubAddListener.calledWith('userproximity'));
@@ -483,49 +576,14 @@ suite('system/ScreenManager', function() {
   });
 
   suite('setScreenBrightness()', function() {
-    var stubClearTimeout, stubTransBrightness;
-
-    setup(function() {
-      stubClearTimeout = this.sinon.stub(window, 'clearTimeout');
-      stubTransBrightness = this.sinon.stub(ScreenManager,
-                                            'transitionBrightness');
-    });
-
     test('set brightness with instant argument', function() {
       ScreenManager.setScreenBrightness(0.5, true);
-      assert.isFalse(stubTransBrightness.called);
       assert.equal(MockMozPower.screenBrightness, 0.5);
     });
 
     test('set brightness without instant argument', function() {
       ScreenManager.setScreenBrightness(0.5, false);
-      assert.isTrue(stubTransBrightness.called);
-    });
-  });
-
-  suite('transitionBrightness()', function() {
-    test('same brightness', function() {
-      ScreenManager._transitionBrightnessTimer = 'not null';
-      ScreenManager._targetBrightness = 0.5;
-      MockMozPower.screenBrightness = 0.5;
-      ScreenManager.transitionBrightness();
-      assert.isNull(ScreenManager._transitionBrightnessTimer);
-    });
-
-    test('brightness from 0.9 to 0.4', function() {
-      MockMozPower.screenBrightness = 0.9;
-      ScreenManager._targetBrightness = 0.4;
-      ScreenManager.transitionBrightness();
-      assert.equal(MockMozPower.screenBrightness,
-          0.9 - ScreenManager.BRIGHTNESS_ADJUST_STEP);
-    });
-
-    test('brightness from 0.4 to 0.9', function() {
-      MockMozPower.screenBrightness = 0.4;
-      ScreenManager._targetBrightness = 0.9;
-      ScreenManager.transitionBrightness();
-      assert.equal(MockMozPower.screenBrightness,
-        0.4 + ScreenManager.BRIGHTNESS_ADJUST_STEP);
+      assert.isTrue(stubScreenBrightnessTransition.transitionTo.called);
     });
   });
 
@@ -660,6 +718,67 @@ suite('system/ScreenManager', function() {
       ScreenManager.toggleScreen();
       assert.isTrue(stubTurnOn.called);
       assert.isFalse(stubTurnOff.called);
+    });
+  });
+
+  suite('Attention window openn events', function() {
+    test('handle attentionopening event', function() {
+      // The public interface is event, so we manually fire and forward it to
+      // the handler, to avoid the asynchronous part which is unnecessary in
+      // the test.
+      var stubDispatchEvent = this.sinon.stub(window, 'dispatchEvent',
+        function(e) {
+          ScreenManager.handleEvent(e);
+        });
+      var stubTurnOn = this.sinon.stub(ScreenManager, 'turnScreenOn');
+      ScreenManager.enabled = false;
+      window.dispatchEvent(new CustomEvent('attentionopening'));
+      assert.isTrue(stubTurnOn.called);
+      stubDispatchEvent.restore();
+    });
+
+    test('handle attentionopened event', function() {
+      // The public interface is event, so we manually fire and forward it to
+      // the handler, to avoid the asynchronous part which is unnecessary in
+      // the test.
+      var stubDispatchEvent = this.sinon.stub(window, 'dispatchEvent',
+        function(e) {
+          ScreenManager.handleEvent(e);
+        });
+      var stubTurnOn = this.sinon.stub(ScreenManager, 'turnScreenOn');
+      ScreenManager.enabled = false;
+      window.dispatchEvent(new CustomEvent('attentionopened'));
+      assert.isTrue(stubTurnOn.called);
+      stubDispatchEvent.restore();
+    });
+  });
+
+  suite('unlocking-start/stop events', function() {
+    test('handle unlocking-start event', function() {
+      // The public interface is event, so we manually fire and forward it to
+      // the handler, to avoid the asynchronous part which is unnecessary in
+      // the test.
+      var stubDispatchEvent = this.sinon.stub(window, 'dispatchEvent',
+        function(e) {
+          ScreenManager.handleEvent(e);
+        });
+      window.dispatchEvent(new CustomEvent('unlocking-start'));
+      assert.isTrue(ScreenManager._unlocking);
+      stubDispatchEvent.restore();
+    });
+
+    test('handle unlocking-stop event', function() {
+      var stubDispatchEvent = this.sinon.stub(window, 'dispatchEvent',
+        function(e) {
+          ScreenManager.handleEvent(e);
+        });
+      var stubReconfigScreenTimeout = this.sinon.stub(ScreenManager,
+        '_reconfigScreenTimeout');
+      window.dispatchEvent(new CustomEvent('unlocking-stop'));
+      assert.isFalse(ScreenManager._unlocking);
+      assert.isTrue(stubReconfigScreenTimeout.called);
+      stubDispatchEvent.restore();
+      stubReconfigScreenTimeout.restore();
     });
   });
 });

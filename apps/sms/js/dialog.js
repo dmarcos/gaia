@@ -1,3 +1,7 @@
+/*global WeakMap */
+
+/* exported Dialog */
+
 (function(exports) {
 'use strict';
 
@@ -43,9 +47,9 @@
 function createLocalizedElement(tagName, param) {
   var element = document.createElement(tagName);
 
-  // if we passed an l10nId, use the l10n `localize' method
+  // if we passed an l10nId, use the l10n `setAttributes' method
   if (param.l10nId) {
-    navigator.mozL10n.localize(element, param.l10nId, param.l10nArgs);
+    navigator.mozL10n.setAttributes(element, param.l10nId, param.l10nArgs);
 
   // if we passed in a HTML Fragment, it is already localized
   } else if (param.value.nodeType) {
@@ -98,16 +102,26 @@ var Dialog = function(params) {
   if (params.options.confirm) {
     var confirmOption = params.options.confirm;
     var confirmButton = createLocalizedElement('button', confirmOption.text);
-    cancelButton.className = 'recommend';
+    confirmButton.className = params.options.confirm.className || 'recommend';
     handlers.set(confirmButton, confirmOption);
+
+    menu.appendChild(cancelButton);
     menu.appendChild(confirmButton);
   } else {
     // If there is only one item, we take the 100% of the space available
     cancelButton.style.width = '100%';
+    menu.appendChild(cancelButton);
   }
-  menu.appendChild(cancelButton);
+
   this.form.addEventListener('submit', function(event) {
     event.preventDefault();
+  });
+
+  this.form.addEventListener('transitionend', function(event) {
+    if (!event.target.classList.contains('visible') &&
+        event.target.parentNode) {
+      document.body.removeChild(event.target);
+    }
   });
 
   menu.addEventListener('click', function(event) {
@@ -133,12 +147,19 @@ var Dialog = function(params) {
 
 // We prototype functions to show/hide the UI of action-menu
 Dialog.prototype.show = function() {
-  document.body.appendChild(this.form);
+  if (!this.form.parentNode) {
+    document.body.appendChild(this.form);
+
+    // Flush style on form so that the show transition plays once we add
+    // the visible class.
+    this.form.clientTop;
+  }
+  this.form.classList.add('visible');
   this.form.focus();
 };
 
 Dialog.prototype.hide = function() {
-  document.body.removeChild(this.form);
+  this.form.classList.remove('visible');
 };
 
 exports.Dialog = Dialog;

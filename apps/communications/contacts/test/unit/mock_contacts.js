@@ -1,4 +1,7 @@
 'use strict';
+/* global MockNavigationStack */
+/* global ConfirmDialog */
+/* exported MockContacts */
 
 var MockContacts = {
   getLength: function(prop) {
@@ -9,29 +12,6 @@ var MockContacts = {
   },
   updatePhoto: function(photo, dest) {
     dest.setAttribute('backgroundImage', photo);
-  },
-  getTags: function() {
-    return {
-      'phone-type': [
-        {value: 'mobile'},
-        {value: 'home'},
-        {value: 'work'},
-        {value: 'personal'},
-        {value: 'faxHome'},
-        {value: 'faxOffice'},
-        {value: 'faxOther'},
-        {value: 'another'}
-      ],
-      'email-type': [
-        {value: 'personal'},
-        {value: 'home'},
-        {value: 'work'}
-      ],
-      'address-type': [
-        {value: 'home'},
-        {value: 'work'}
-      ]
-    };
   },
   hideOverlay: function() {
   },
@@ -45,16 +25,13 @@ var MockContacts = {
     importLive: function() {},
     importGmail: function() {}
   },
-  navigation: {
-    go: function() {},
-    home: function() {}
-  },
+  navigation: new MockNavigationStack(),
   checkCancelableActivity: function() {},
   cancel: function() {},
   confirmDialog: function() {
     ConfirmDialog.show.apply(ConfirmDialog, arguments);
   },
-  utility: function(view, callback) {
+  utility: function(view, callback, type) {
     callback();
   },
   view: function(view, callback) {
@@ -68,5 +45,15 @@ var MockContacts = {
       'update': function() {}
     };
   },
-  showStatus: function(status) {}
+  showStatus: function(status) {},
+  updateSelectCountTitle: function(count) {},
+  goBack: function(cb) {
+    if (typeof cb === 'function') {
+      cb();
+    }
+  },
+  setCurrent: function(ct) {
+    
+  },
+  setCancelableHeader: function() {}
 };

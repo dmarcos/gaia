@@ -1,4 +1,6 @@
 'use strict';
+/* global utils */
+/* exported ContactsTag */
 
 var ContactsTag = (function() {
   var originalTag = null;
@@ -9,10 +11,40 @@ var ContactsTag = (function() {
     customTag = element;
   };
 
-  var touchCustomTag = function touchCustomTag(callback) {
-    if (selectedTag) {
-      selectedTag.removeAttribute('class');
+  var setCustomTagVisibility = function setCustomTagVisibility(value) {
+    if (!customTag) {
+      return;
     }
+
+    if (value) {
+      customTag.classList.remove('hide');
+    }
+    else {
+      customTag.classList.add('hide');
+    }
+  };
+
+  var unMarkTag = function unMarkTag(tag) {
+    if (tag) {
+      tag.classList.remove('icon');
+      tag.classList.remove('icon-selected');
+
+      tag.removeAttribute('aria-selected');
+    }
+  };
+
+   var markTag = function markTag(tag) {
+    if (tag) {
+      tag.classList.add('icon');
+      tag.classList.add('icon-selected');
+
+      tag.setAttribute('aria-selected', true);
+    }
+  };
+
+  var touchCustomTag = function touchCustomTag(callback) {
+    unMarkTag(selectedTag);
+
     selectedTag = null;
 
     if (callback !== undefined && typeof callback === 'function') {
@@ -25,12 +57,14 @@ var ContactsTag = (function() {
     originalTag = _originalTag;
 
     var selectedLink;
+    /* jshint loopfunc:true */
     for (var option in options) {
       var tagLink = document.createElement('button');
       tagLink.dataset.index = option;
-      tagLink.textContent = options[option].value;
       tagLink.setAttribute('data-l10n-id', options[option].type);
       tagLink.setAttribute('data-value', options[option].type);
+      tagLink.setAttribute('role', 'option');
+      tagLink.classList.add('tagItem');
 
       tagLink.addEventListener('click', function(event) {
         var tag = event.target;
@@ -43,6 +77,7 @@ var ContactsTag = (function() {
       }
 
       var tagItem = document.createElement('li');
+      tagItem.setAttribute('role', 'presentation');
       tagItem.appendChild(tagLink);
       target.appendChild(tagItem);
     }
@@ -62,10 +97,10 @@ var ContactsTag = (function() {
     //Clean any trace of the custom tag
     customTag.value = '';
 
-    if (selectedTag) {
-      selectedTag.removeAttribute('class');
-    }
-    tag.className = 'icon icon-selected';
+    unMarkTag(selectedTag);
+
+    markTag(tag);
+    
     selectedTag = tag;
   };
 
@@ -85,10 +120,44 @@ var ContactsTag = (function() {
     }
   };
 
+  // Filter tags to be shown when selecting an item type (work, birthday, etc)
+  // This is particularly useful for dates as we cannot have multiple instances
+  // of them (only one birthday, only one anniversary)
+  function filterTags(type, currentNode, tags) {
+    var element = document.querySelector(
+                          '[data-template]' + '.' + type + '-' + 'template');
+    if (!element || !element.dataset.exclusive) {
+      return tags;
+    }
+
+    // If the type is exclusive the tag options are filtered according to
+    // the existing ones
+    var newOptions = tags.slice(0);
+
+    var sameType = document.querySelectorAll('.' + type + '-template');
+    if (sameType.length > 1) {
+      /* jshint loopfunc:true */
+      for (var j = 0; j < sameType.length; j++) {
+        var itemSame = sameType.item(j);
+        var tagNode = itemSame.querySelector('[data-field="type"]');
+        if (tagNode !== currentNode &&
+            !itemSame.classList.contains('facebook')) {
+          newOptions = newOptions.filter(function(ele) {
+            return ele.type != tagNode.dataset.value;
+          });
+        }
+      }
+    }
+
+    return newOptions;
+  }
+
   return {
     'setCustomTag': setCustomTag,
     'touchCustomTag': touchCustomTag,
     'fillTagOptions': fillTagOptions,
-    'clickDone': clickDone
+    'clickDone': clickDone,
+    'setCustomTagVisibility': setCustomTagVisibility,
+    'filterTags': filterTags
   };
 })();

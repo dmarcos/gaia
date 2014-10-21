@@ -1,3 +1,4 @@
+/* exported BlobView */
 'use strict';
 
 var BlobView = (function() {
@@ -8,7 +9,7 @@ var BlobView = (function() {
   // This constructor is for internal use only.
   // Use the BlobView.get() factory function or the getMore instance method
   // to obtain a BlobView object.
-  function BlobView(blob, sliceOffset, sliceLength, slice, 
+  function BlobView(blob, sliceOffset, sliceLength, slice,
                     viewOffset, viewLength, littleEndian)
   {
     this.blob = blob;                  // The parent blob that the data is from
@@ -32,17 +33,19 @@ var BlobView = (function() {
 
   // Async factory function
   BlobView.get = function(blob, offset, length, callback, littleEndian) {
-    if (offset < 0)
+    if (offset < 0) {
       fail('negative offset');
-    if (length < 0)
+    }
+    if (length < 0) {
       fail('negative length');
-    if (offset > blob.size)
+    }
+    if (offset > blob.size) {
       fail('offset larger than blob size');
-
+    }
     // Don't fail if the length is too big; just reduce the length
-    if (offset + length > blob.size)
+    if (offset + length > blob.size) {
       length = blob.size - offset;
-
+    }
     var slice = blob.slice(offset, offset + length);
     var reader = new FileReader();
     reader.readAsArrayBuffer(slice);
@@ -56,6 +59,15 @@ var BlobView = (function() {
     };
   };
 
+  // Synchronous factory function for use when you have an array buffer and want
+  // to treat it as a BlobView (e.g. to use the readXYZ functions). We need
+  // this for the music app, which uses an array buffer to hold
+  // de-unsynchronized ID3 frames.
+  BlobView.getFromArrayBuffer = function(buffer, offset, length, littleEndian) {
+    return new BlobView(null, offset, length, buffer, offset, length,
+                        littleEndian);
+  };
+
   BlobView.prototype = {
     constructor: BlobView,
 
@@ -64,6 +76,11 @@ var BlobView = (function() {
     // range of bytes, they can be passed directly to the callback without
     // going back to the blob to read them
     getMore: function(offset, length, callback) {
+      // If we made this BlobView from an array buffer, there's no blob backing
+      // it, and so it's impossible to get more data.
+      if (!this.blob)
+        fail('no blob backing this BlobView');
+
       if (offset >= this.sliceOffset &&
           offset + length <= this.sliceOffset + this.sliceLength) {
         // The quick case: we already have that region of the blob
@@ -168,24 +185,31 @@ var BlobView = (function() {
     tell: function() {
       return this.index;
     },
+    remaining: function() {
+      return this.byteLength - this.index;
+    },
     seek: function(index) {
-      if (index < 0)
+      if (index < 0) {
         fail('negative index');
-      if (index >= this.byteLength)
+      }
+      if (index > this.byteLength) {
         fail('index greater than buffer size');
+      }
       this.index = index;
     },
     advance: function(n) {
       var index = this.index + n;
-      if (index < 0)
+      if (index < 0) {
         fail('advance past beginning of buffer');
+      }
       // It's usual that when we finished reading one target view,
       // the index is advanced to the start(previous end + 1) of next view,
       // and the new index will be equal to byte length(the last index + 1),
       // we will not fail on it because it means the reading is finished,
       // or do we have to warn here?
-      if (index > this.byteLength)
+      if (index > this.byteLength) {
         fail('advance past end of buffer');
+      }
       this.index = index;
     },
 
@@ -270,42 +294,51 @@ var BlobView = (function() {
         }
         else if (b1 < 224) {
           // 2-byte sequence
-          if (pos + 1 >= end)
+          if (pos + 1 >= end) {
             fail();
+          }
           b2 = this.view.getUint8(pos + 1);
-          if (b2 < 128 || b2 > 191)
+          if (b2 < 128 || b2 > 191) {
             fail();
+          }
           charcode = ((b1 & 0x1f) << 6) + (b2 & 0x3f);
           s += String.fromCharCode(charcode);
           pos += 2;
         }
         else if (b1 < 240) {
           // 3-byte sequence
-          if (pos + 2 >= end)
+          if (pos + 2 >= end) {
             fail();
+          }
           b2 = this.view.getUint8(pos + 1);
-          if (b2 < 128 || b2 > 191)
+          if (b2 < 128 || b2 > 191) {
             fail();
+          }
           b3 = this.view.getUint8(pos + 2);
-          if (b3 < 128 || b3 > 191)
+          if (b3 < 128 || b3 > 191) {
             fail();
+          }
           charcode = ((b1 & 0x0f) << 12) + ((b2 & 0x3f) << 6) + (b3 & 0x3f);
           s += String.fromCharCode(charcode);
           pos += 3;
         }
         else if (b1 < 245) {
           // 4-byte sequence
-          if (pos + 3 >= end)
+          if (pos + 3 >= end) {
             fail();
+          }
           b2 = this.view.getUint8(pos + 1);
-          if (b2 < 128 || b2 > 191)
+          if (b2 < 128 || b2 > 191) {
             fail();
+          }
           b3 = this.view.getUint8(pos + 2);
-          if (b3 < 128 || b3 > 191)
+          if (b3 < 128 || b3 > 191) {
             fail();
+          }
           b4 = this.view.getUint8(pos + 3);
-          if (b4 < 128 || b4 > 191)
+          if (b4 < 128 || b4 > 191) {
             fail();
+          }
           charcode = ((b1 & 0x07) << 18) +
             ((b2 & 0x3f) << 12) +
             ((b3 & 0x3f) << 6) +
@@ -334,6 +367,35 @@ var BlobView = (function() {
       finally {
         this.index += len;
       }
+    },
+
+    // Get UTF16 text.  If le is not specified, expect a BOM to define
+    // endianness.  If le is true, read UTF16LE, if false, UTF16BE.
+    getUTF16Text: function(offset, len, le) {
+      if (len % 2) {
+        fail('len must be a multiple of two');
+      }
+      if (le === null || le === undefined) {
+        var BOM = this.getUint16(offset);
+        len -= 2;
+        offset += 2;
+        if (BOM === 0xFEFF)
+          le = false;
+        else
+          le = true;
+      }
+
+      // We need to support unaligned reads, so we can't use a Uint16Array here.
+      var s = '';
+      for (var i = 0; i < len; i += 2)
+        s += String.fromCharCode(this.getUint16(offset + i, le));
+      return s;
+    },
+
+    readUTF16Text: function(len, le) {
+      var value = this.getUTF16Text(this.index, len, le);
+      this.index += len;
+      return value;
     },
 
     // Read 4 bytes, ignore the high bit and combine them into a 28-bit
@@ -373,26 +435,32 @@ var BlobView = (function() {
     // more than size bytes.  And return as a UTF8 string
     readNullTerminatedUTF8Text: function(size) {
       for (var len = 0; len < size; len++) {
-        if (this.view.getUint8(this.index + len) === 0)
+        if (this.view.getUint8(this.index + len) === 0) {
           break;
+        }
       }
       var s = this.readUTF8Text(len);
-      if (len < size)    // skip the null terminator if we found one
+      if (len < size) {    // skip the null terminator if we found one
         this.advance(1);
+      }
       return s;
     },
 
     // Read UTF16 text.  If le is not specified, expect a BOM to define
     // endianness.  If le is true, read UTF16LE, if false, UTF16BE
-    // Read until we find a null-terminator, but never more than size bytes
+    // Read until we find a null-terminator, but never more than size bytes.
     readNullTerminatedUTF16Text: function(size, le) {
-      if (le == null) {
+      if (size % 2) {
+        fail('size must be a multiple of two');
+      }
+      if (le === null || le === undefined) {
         var BOM = this.readUnsignedShort();
         size -= 2;
-        if (BOM === 0xFEFF)
+        if (BOM === 0xFEFF) {
           le = false;
-        else
+        } else {
           le = true;
+        }
       }
 
       var s = '';
@@ -410,8 +478,11 @@ var BlobView = (function() {
   };
 
   // We don't want users of this library to accidentally call the constructor
-  // instead of using the factory function, so we return a dummy object
+  // instead of using one of the factory functions, so we return a dummy object
   // instead of the real constructor. If someone really needs to get at the
   // real constructor, the contructor property of the prototype refers to it.
-  return { get: BlobView.get };
+  return {
+    get: BlobView.get,
+    getFromArrayBuffer: BlobView.getFromArrayBuffer
+  };
 }());

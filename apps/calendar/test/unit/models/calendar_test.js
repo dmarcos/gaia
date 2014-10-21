@@ -1,11 +1,15 @@
-suiteGroup('Models.Calendar', function() {
+define(function(require) {
+'use strict';
 
+var Calendar = require('models/calendar');
+
+suite('Models.Calendar', function() {
   var subject;
   var remoteCalendar;
   var CalendarModel;
 
   suiteSetup(function() {
-    CalendarModel = Calendar.Models.Calendar;
+    CalendarModel = Calendar;
   });
 
   setup(function() {
@@ -14,7 +18,7 @@ suiteGroup('Models.Calendar', function() {
       syncToken: 'xxx'
     };
 
-    subject = new Calendar.Models.Calendar({
+    subject = new Calendar({
       name: 'foo',
       remote: remoteCalendar
     });
@@ -73,7 +77,6 @@ suiteGroup('Models.Calendar', function() {
 
   test('#toJSON', function() {
     subject._id = '1';
-    var date = subject.firstEventSyncDate = new Date(2012, 0, 1);
 
     var expected = {
       error: undefined,
@@ -112,5 +115,6 @@ suiteGroup('Models.Calendar', function() {
     subject.remote.description = 'foo';
     assert.equal(subject.description, 'foo');
   });
+});
 
 });

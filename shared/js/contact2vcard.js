@@ -1,62 +1,93 @@
-'use strict';
+/* -*- Mode: Java; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- /
+/* vim: set shiftwidth=2 tabstop=2 autoindent cindent expandtab: */
 
-var VCARD_VERSION = '4.0';
-var HEADER = 'BEGIN:VCARD\nVERSION:' + VCARD_VERSION + '\n';
-var FOOTER = 'END:VCARD\n';
-var ContactToVcard;
-var ContactToVcardBlob;
-var VCARD_MAP = {
-  'fax' : 'fax',
-  'faxoffice' : 'fax,work',
-  'faxhome' : 'fax,home',
-  'faxother' : 'fax',
-  'home' : 'home',
-  'mobile' : 'cell',
-  'pager' : 'pager',
-  'personal' : 'home',
-  'pref' : 'pref',
-  'text' : 'text',
-  'textphone' : 'textphone',
-  'voice' : 'voice',
-  'work' : 'work'
-};
-// Field list to be skipped on vcard
-var VCARD_SKIP_FIELD = ['fb_profile_photo'];
+/* global setImmediate */
 
-function ISODateString(d) {
-  function pad(n) {
-    return n < 10 ? '0' + n : n;
-  }
+/**
+ * ContactToVcard provides the functionality necessary to export from
+ * MozContacts to vCard 3.0 (https://www.ietf.org/rfc/rfc2426.txt). The reason
+ * to choose the 3.0 standard instead of the 4.0 one is that some systems
+ * most notoriously Android 4.x don't seem to be able to import vCard 4.0.
+ */
+(function(exports) {
+  'use strict';
 
-  if (typeof d === 'string') { d = new Date(d); }
+  /** Mapping between contact fields and equivalent vCard fields */
+  var VCARD_MAP = {
+    'fax' : 'FAX',
+    'faxoffice' : 'FAX,WORK',
+    'faxhome' : 'FAX,HOME',
+    'faxother' : 'FAX',
+    'home' : 'HOME',
+    'mobile' : 'CELL',
+    'pager' : 'PAGER',
+    'personal' : 'HOME',
+    'pref' : 'PREF',
+    'text' : 'TEXT',
+    'textphone' : 'TEXTPHONE',
+    'voice' : 'VOICE',
+    'work' : 'WORK'
+  };
 
-  return d.getUTCFullYear() + '-' +
-    pad(d.getUTCMonth() + 1) + '-' +
-    pad(d.getUTCDate()) + 'T' +
-    pad(d.getUTCHours()) + ':' +
-    pad(d.getUTCMinutes()) + ':' +
-    pad(d.getUTCSeconds()) + 'Z';
-}
+  var CRLF = '\r\n';
 
-(function() {
+  /** Field list to be skipped when converting to vCard */
+  var VCARD_SKIP_FIELD = ['fb_profile_photo'];
+  var VCARD_VERSION = '3.0';
+  var HEADER = 'BEGIN:VCARD' + CRLF + 'VERSION:' + VCARD_VERSION + CRLF;
+  var FOOTER = 'END:VCARD' + CRLF;
+
   function blobToBase64(blob, cb) {
     var reader = new FileReader();
+
     reader.onload = function() {
       var dataUrl = reader.result;
       var base64 = dataUrl.split(',')[1];
       cb(base64);
     };
+
     reader.readAsDataURL(blob);
   }
 
-  function fromContactField(sourceField, vcardField) {
-    if (!sourceField || !sourceField.length)
-      return [];
+  function ISODateString(d) {
+    if (typeof d === 'string') {
+      d = new Date(d);
+    }
 
+    var str = d.toISOString();
+
+    // Remove the milliseconds field
+    return str.slice(0, str.indexOf('.')) + 'Z';
+  }
+
+  /**
+   * Given an array with contact fields (usually containing only one field),
+   * returns the equivalent vcard field
+   *
+   * @param {Array} sourceField source field from a MozContact
+   * @param {String} vcardField vCard field name
+   * @return {Array} Array of vCard string entries
+   */
+  function fromContactField(sourceField, vcardField) {
+    if (!sourceField || !sourceField.length) {
+      return [];
+    }
+
+    // Goes to the entries in the given field (usually only one but potentially
+    // more) and transforms them into string-based, vCard ones.
     return sourceField.map(function(field) {
       var str = vcardField;
+      /**
+       * If the field doesn't have an equivalent in vcard standard.
+       * Incompatible fields are stored in `VCARD_SKIP_FIELD`.
+       *
+       * @type {boolean}
+       */
       var skipField = false;
       var types = [];
+
+      // Checks existing types and converts them to vcard types if necessary
+      // and fill `types` array with the final types.
       if (Array.isArray(field.type)) {
         var fieldType = field.type.map(function(aType) {
           var out = '';
@@ -78,11 +109,11 @@ function ISODateString(d) {
       }
 
       if (field.pref && field.pref === true) {
-        types.push('pref');
+        types.push('PREF');
       }
 
       if (types.length) {
-        str += ';type=' + types.join(',');
+        str += ';TYPE=' + types.join(',');
       }
 
       return str + ':' + (field.value || '');
@@ -90,52 +121,132 @@ function ISODateString(d) {
   }
 
   function fromStringArray(sourceField, vcardField) {
-    if (!sourceField)
+    if (!sourceField) {
       return '';
+    }
 
     return vcardField + ':' + sourceField.join(',');
   }
 
   function joinFields(fields) {
-    return fields.filter(function(f) { return !!f; }).join('\n');
+    return fields.filter(function(f) { return !!f; }).join(CRLF);
   }
 
   function toBlob(vcard) {
     return new Blob([vcard], {'type': 'text/vcard'});
   }
 
-  ContactToVcardBlob = function(contacts, callback) {
-    ContactToVcard(contacts, function onVcard(vcard) {
-      vcard = vcard ? toBlob(vcard) : null;
-      callback(toBlob(vcard));
+  /**
+   * Convenience function that converts an array of contacts into a text/vcard
+   * blob. The blob is passed to the callback once the conversion is done.
+   *
+   * @param {Array} contacts An array of mozContact objects.
+   * @param {Function} callback A function invoked with the generated blob.
+   */
+  function ContactToVcardBlob(contacts, callback) {
+    if (typeof callback !== 'function') {
+      throw Error('callback() is undefined or not a function');
+    }
+
+    var str = '';
+
+    ContactToVcard(contacts, function append(vcards, nCards) {
+      str += vcards;
+    }, function success() {
+      str = str ? toBlob(str) : null;
+      callback(toBlob(str));
     });
-  };
+  }
 
-  ContactToVcard = function(ctArray, callback) {
-    var numContacts = ctArray.length;
-    var processed = 0;
-    var vcardString = '';
+  /**
+   * Converts an array of contacts to a string of vCards. The conversion is
+   * done in batches. For every batch the append callback is invoked with a
+   * string of vCards and the number of contacts in the batch. Once all
+   * contacts have been processed the success callback is invoked.
+   *
+   * @param {Array} contacts An array of mozContact objects.
+   * @param {Function} append A function taking two parameters, the first one
+   *        will be passed a string of vCards and the second an integer
+   *        representing the number of contacts in the string.
+   * @param {Function} success A function with no parameters that will be
+   *        invoked once all the contacts have been processed.
+   * @param {Number} batchSize An optional parameter specifying the maximum
+   *        number of characters that should be added to the output string
+   *        before invoking the append callback. If this paramter is not
+   *        provided a default value of 1MiB will be used instead.
+   */
+  function ContactToVcard(contacts, append, success, batchSize, skipPhoto) {
+    var vCardsString = '';
+    var nextIndex = 0;
+    var cardsInBatch = 0;
 
-    function appendVcard(vcard) {
-      processed += 1;
-      if (vcard)
-        vcardString += HEADER + vcard + '\n' + FOOTER;
+    batchSize = batchSize || (1024 * 1024);
 
-      if (numContacts === processed) {
-        if (!vcardString || /^\s+$/.test(vcardString))
-          callback(null);
-        else
-          callback(vcardString);
+    if (typeof append !== 'function') {
+      throw Error('append() is undefined or not a function');
+    }
+
+    if (typeof success !== 'function') {
+      throw Error('append() is undefined or not a function');
+    }
+
+    /**
+     * Append the vCard obtained by converting the contact to the string of
+     * vCards and if necessary pass the string to the user-specified callback
+     * function. If we're not done processing all the contacts start processing
+     * the following one.
+     *
+     * @param {String} vcard The string obtained from the previously processed
+     *        contact.
+     */
+    function appendVCard(vcard) {
+      if (vcard.length > 0) {
+        vCardsString += HEADER + vcard + CRLF + FOOTER;
+      }
+
+      nextIndex++;
+      cardsInBatch++;
+
+      /* Invoke the user-provided callback if we've filled the current batch or
+       * if we don't have more contacts to process. */
+      if ((vCardsString.length > batchSize) ||
+          (nextIndex === contacts.length)) {
+        append(vCardsString, cardsInBatch);
+        cardsInBatch = 0;
+        vCardsString = '';
+      }
+
+      if (nextIndex < contacts.length) {
+        processContact(contacts[nextIndex]);
+      } else {
+        success();
       }
     }
 
-    ctArray.forEach(function(ct) {
+    /**
+     * Process a contact and invokes appendVCard with the resulting vCard
+     * string.
+     *
+     * @param {Object} contacts A mozContact object.
+     */
+    function processContact(ct) {
       if (navigator.mozContact && !(ct instanceof navigator.mozContact)) {
         console.error('An instance of mozContact was expected');
-        appendVcard(null);
+        setImmediate(function() { appendVCard(''); });
         return;
       }
 
+      /*
+       * N TYPE
+       * The structured type value corresponds, in
+       * sequence, to the Family Name, Given Name, Additional Names, Honorific
+       * Prefixes, and Honorific Suffixes. The text components are separated
+       * by the SEMI-COLON character (ASCII decimal 59). Individual text
+       * components can include multiple text values (e.g., multiple
+       * Additional Names) separated by the COMMA character (ASCII decimal
+       * 44). This type is based on the semantics of the X.520 individual name
+       * attributes. The property MUST be present in the vCard object.
+       **/
       var n = 'n:' + ([
         ct.familyName,
         ct.givenName,
@@ -147,51 +258,86 @@ function ISODateString(d) {
         return f.join(',') + ';';
       }).join(''));
 
-      // vCard standard does not accept contacts without 'n' or 'fn fields.
+      // vCard standard does not accept contacts without 'n' or 'fn' fields.
       if (n === 'n:;;;;;' || !ct.name) {
-        appendVcard(null);
+        setImmediate(function() { appendVCard(''); });
         return;
       }
 
       var allFields = [
         n,
-        fromStringArray(ct.name, 'fn'),
-        fromStringArray(ct.nickname, 'nickname'),
-        fromStringArray(ct.category, 'category'),
-        fromStringArray(ct.org, 'org'),
-        fromStringArray(ct.jobTitle, 'title'),
-        fromStringArray(ct.note, 'note'),
-        fromStringArray(ct.key, 'key')
+        fromStringArray(ct.name, 'FN'),
+        fromStringArray(ct.nickname, 'NICKNAME'),
+        fromStringArray(ct.category, 'CATEGORY'),
+        fromStringArray(ct.org, 'ORG'),
+        fromStringArray(ct.jobTitle, 'TITLE'),
+        fromStringArray(ct.note, 'NOTE'),
+        fromStringArray(ct.key, 'KEY')
       ];
 
       if (ct.bday) {
-        allFields.push('bday:' + ISODateString(ct.bday));
+        allFields.push('BDAY:' + ISODateString(ct.bday));
+      }
+      if (ct.anniversary) {
+        allFields.push('ANNIVERSARY:' + ISODateString(ct.anniversary));
       }
 
-      allFields.push.apply(allFields, fromContactField(ct.email, 'email'));
-      allFields.push.apply(allFields, fromContactField(ct.url, 'url'));
-      allFields.push.apply(allFields, fromContactField(ct.tel, 'tel'));
+      allFields.push.apply(allFields, fromContactField(ct.email, 'EMAIL'));
+      allFields.push.apply(allFields, fromContactField(ct.url, 'URL'));
+      allFields.push.apply(allFields, fromContactField(ct.tel, 'TEL'));
 
-      var adrs = fromContactField(ct.adr, 'adr');
+      var adrs = fromContactField(ct.adr, 'ADR');
       allFields.push.apply(allFields, adrs.map(function(adrStr, i) {
         var orig = ct.adr[i];
-        return adrStr + (['', '', orig.streetAddress || '', orig.locality ||
-                         '', orig.region || '', orig.postalCode || '',
-                         orig.countryName || ''].join(';'));
+        return adrStr + ([
+          '',
+          '',
+          orig.streetAddress || '', orig.locality || '', orig.region || '',
+          orig.postalCode || '', orig.countryName || ''].join(';'));
       }));
 
-      if (ct.photo && ct.photo.length) {
-        var photoStr = 'photo:';
+      /**
+       * PHOTO TYPE
+       * The encoding MUST be reset to "b" using the ENCODING
+       * parameter in order to specify inline, encoded binary data. If the
+       * value is referenced by a URI value, then the default encoding of 8bit
+       * is used and no explicit ENCODING parameter is needed.
+
+       * Type value: A single value. The default is binary value. It can also
+       * be reset to uri value. The uri value can be used to specify a value
+       * outside of this MIME entity.
+
+       * Type special notes: The type can include the type parameter "TYPE" to
+       * specify the graphic image format type. The TYPE parameter values MUST
+       * be one of the IANA registered image formats or a non-standard image
+       * format.
+      */
+      if (
+        (
+          typeof skipPhoto == 'undefined' ||
+          skipPhoto === false
+        ) &&
+        ct.photo &&
+        ct.photo.length
+      ) {
+        var photoMeta = ['PHOTO', 'ENCODING=b'];
         var blob = ct.photo[0];
-        var mime = blob.type;
+
         blobToBase64(blob, function(b64) {
-          var finalStr = 'data:' + mime + ';base64,' + b64;
-          allFields.push(photoStr + finalStr);
-          appendVcard(joinFields(allFields));
+          if (blob.type) {
+            photoMeta.push('TYPE=' + blob.type);
+          }
+          allFields.push(photoMeta.join(';') + ':' + b64);
+          appendVCard(joinFields(allFields));
         });
       } else {
-        appendVcard(joinFields(allFields));
+        setImmediate(function() { appendVCard(joinFields(allFields)); });
       }
-    });
-  };
-})();
+    }
+
+    processContact(contacts[0]);
+  }
+
+  exports.ContactToVcard = ContactToVcard;
+  exports.ContactToVcardBlob = ContactToVcardBlob;
+})(this);

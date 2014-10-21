@@ -1,11 +1,13 @@
 'use strict';
+/* global Curtain */
+/* global LazyLoader */
 
 var contacts = window.contacts || {};
 
 if (!contacts.MatchingController) {
   contacts.MatchingController = (function() {
 
-    var CONTACTS_APP_ORIGIN = 'app://communications.gaiamobile.org';
+    var CONTACTS_APP_ORIGIN = location.origin;
 
     var contact = null,
         matchings = {};
@@ -26,8 +28,7 @@ if (!contacts.MatchingController) {
      */
     var type = 'matching';
 
-    window.addEventListener('localized', function localized(evt) {
-      window.removeEventListener('localized', localized);
+    navigator.mozL10n.once(function localized(evt) {
       // The controller is started when the literals are available
       start(window.location.search.substring('contactId'.length + 2));
     });
@@ -61,7 +62,7 @@ if (!contacts.MatchingController) {
 
       var matcherDependencies = ['/shared/js/text_normalizer.js',
                                  '/shared/js/simple_phone_matcher.js',
-                                 '/contacts/js/contacts_matcher.js'];
+                                 '/shared/js/contacts/contacts_matcher.js'];
       LazyLoader.load(matcherDependencies, function loaded() {
         parent.contacts.List.getContactById(cid, function success(mContact) {
           // Master contact
@@ -125,7 +126,8 @@ if (!contacts.MatchingController) {
 
     function showUI(results) {
       matchings = results;
-      LazyLoader.load('/contacts/js/contacts_matching_ui.js',
+      LazyLoader.load(['/contacts/js/contacts_matching_ui.js',
+                       '/shared/js/contact_photo_helper.js'],
                         function done() {
         contacts.MatchingUI.load(type, contact, results, function() {
           // We start the open-animation when the UI is ready
@@ -168,7 +170,10 @@ if (!contacts.MatchingController) {
         return;
       }
 
-      LazyLoader.load('/contacts/js/contacts_merger.js', function loaded() {
+      LazyLoader.load(['/shared/js/contacts/contacts_merger.js',
+                       '/shared/js/contacts/utilities/image_thumbnail.js'
+                      ],
+      function loaded() {
         var cb = function cb() {
           Curtain.hide(function() {
             parent.postMessage({

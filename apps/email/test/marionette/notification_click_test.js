@@ -9,12 +9,7 @@ var serverHelper = require('./lib/server_helper');
 
 marionette('email notifications, click', function() {
   var app, sync, notification, evt,
-      client = marionette.client({
-        settings: {
-          // disable keyboard ftu because it blocks our display
-          'keyboard.ftu.enabled': false
-        }
-      }),
+      client = marionette.client(),
       server1 = serverHelper.use({
                   credentials: {
                     username: 'testy1',
@@ -65,8 +60,7 @@ marionette('email notifications, click', function() {
     app.launch();
   });
 
-  test('show message_reader for 1 message notification',
-  function() {
+  test('show message_reader for 1 message notification', function() {
     configureAndSend(1);
 
     sync.triggerSync();

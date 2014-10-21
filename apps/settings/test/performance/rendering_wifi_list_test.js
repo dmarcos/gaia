@@ -1,27 +1,30 @@
 'use strict';
 
-requireCommon('test/synthetic_gestures.js');
-require('/tests/performance/performance_helper.js');
-require('apps/settings/test/integration/app.js');
 
-suite(window.mozTestInfo.appPath + ' >', function() {
-  var device;
+var assert = require('assert');
+var PerformanceHelper = requireGaia('/tests/performance/performance_helper.js');
+var SettingsIntegration = require('./integration.js');
+
+marionette(config.appPath + ' >', function() {
   var app;
-
-  MarionetteHelper.start(function(client) {
-    app = new SettingsIntegration(client);
-    device = app.device;
+  var client = marionette.client({
+    settings: {
+      'ftu.manifestURL': null,
+      'lockscreen.enabled': false
+    }
   });
+  // Do nothing on script timeout. Bug 987383
+  client.onScriptTimeout = null;
+
+  app = new SettingsIntegration(client, config.appPath);
 
   setup(function() {
-    // It affects the first run otherwise
-    yield IntegrationHelper.unlock(device);
+    this.timeout(config.timeout);
+    client.setScriptTimeout(config.scriptTimeout);
+    PerformanceHelper.injectHelperAtom(client);
   });
 
   test('rendering WiFi list >', function() {
-    this.timeout(500000);
-    yield device.setScriptTimeout(50000);
-
     var lastEvent = 'settings-panel-wifi-ready';
 
     var performanceHelper = new PerformanceHelper({
@@ -29,17 +32,30 @@ suite(window.mozTestInfo.appPath + ' >', function() {
       lastEvent: lastEvent
     });
 
-    yield performanceHelper.repeatWithDelay(function(app, next) {
+    performanceHelper.disableScreenTimeout();
+
+    performanceHelper.repeatWithDelay(function(app, next) {
       var waitForBody = true;
-      yield app.launch(waitForBody);
+      app.launch(waitForBody);
 
-      var wifiSubpanel = yield app.element('wifiSelector');
-      yield wifiSubpanel.singleTap();
+      app.element('wifiSelector', function(err, wifiSubpanel) {
+        client.waitFor(function() {
+          return wifiSubpanel.enabled;
+        });
+        wifiSubpanel.tap();
+      });
 
-      var runResults = yield performanceHelper.observe(next);
-      performanceHelper.reportRunDurations(runResults);
-
-      yield app.close();
+      performanceHelper.waitForPerfEvent(function(runResults, error) {
+        if (error) {
+          app.close();
+          throw error;
+        } else {
+          performanceHelper.reportRunDurations(runResults,
+                                              'start-wifi-list-test');
+          assert.ok(Object.keys(runResults).length, 'empty results');
+          app.close();
+        }
+      });
     });
 
     performanceHelper.finish();

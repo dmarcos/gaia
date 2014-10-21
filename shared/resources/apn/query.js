@@ -151,8 +151,13 @@ document.addEventListener('DOMContentLoaded', function onload() {
             var cellBroadcastSearchList =
               otherSettings['cellBroadcastSearchList'];
             if (cellBroadcastSearchList) {
-              operatorVariantSettings.cellBroadcastSearchList =
-                cellBroadcastSearchList;
+              var searchListObj = {};
+              var lists = cellBroadcastSearchList.split('|');
+              lists.forEach(function(list) {
+                var parts = list.split(':');
+                searchListObj[parts[0]] = parts[1];
+              });
+              operatorVariantSettings.cellBroadcastSearchList = searchListObj;
             }
 
             var operatorSizeLimitation =
@@ -239,6 +244,24 @@ document.addEventListener('DOMContentLoaded', function onload() {
       'ril.mms.mmsport': 'mmsport',
       'ril.mms.authtype': 'authtype'
     },
+    'dun': {
+      'ril.dun.carrier': 'carrier',
+      'ril.dun.apn': 'apn',
+      'ril.dun.user': 'user',
+      'ril.dun.passwd': 'password',
+      'ril.dun.httpProxyHost': 'proxy',
+      'ril.dun.httpProxyPort': 'port',
+      'ril.dun.authtype': 'authtype'
+    },
+    'ims': {
+      'ril.ims.carrier': 'carrier',
+      'ril.ims.apn': 'apn',
+      'ril.ims.user': 'user',
+      'ril.ims.passwd': 'password',
+      'ril.ims.httpProxyHost': 'proxy',
+      'ril.ims.httpProxyPort': 'port',
+      'ril.ims.authtype': 'authtype'
+    },
     'operatorvariant': {
       'ril.iccInfo.mbdn': 'voicemail',
       'ril.sms.strict7BitEncoding.enabled': 'enableStrict7BitEncodingForSms',
@@ -270,6 +293,31 @@ document.addEventListener('DOMContentLoaded', function onload() {
           var localApns =
             localAndroidDB.documentElement.querySelectorAll('apn');
           for (var localApn of localApns) {
+            if (localApn.getAttribute('overwrite')) {
+              var pattern = '[carrier="' + localApn.getAttribute('carrier') +
+                            '"]';
+              var androidApns =
+                gAndroidDB.documentElement.querySelectorAll(pattern);
+              for (var androidApn of androidApns) {
+                if (androidApn &&
+                    androidApn.getAttribute('carrier') ===
+                    localApn.getAttribute('carrier')) {
+
+                  if (DEBUG) {
+                    console.log('- replace "' +
+                                androidApn.getAttribute('apn') +
+                                '" to "' + localApn.getAttribute('apn') +
+                                '"');
+                  }
+                  localApn.removeAttribute('overwrite');
+                  var parent = androidApn.parentNode;
+                  parent.insertBefore(localApn, androidApn);
+                  parent.removeChild(androidApn);
+                }
+              }
+              continue;
+            }
+
             // use local apn to patch origin carrier name in the Android DB
             // if the name is not the correct one (see bug 863126).
             // Note: This patch will not function once we get

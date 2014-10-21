@@ -1,5 +1,7 @@
+/* global VivoConfig, MockDateFactory */
 'use strict';
 
+requireApp('costcontrol/shared/js/format.js');
 requireApp('costcontrol/test/unit/mock_date.js');
 requireApp('costcontrol/js/config/vivo/config.js');
 

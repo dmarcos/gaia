@@ -73,6 +73,10 @@ Evme.StaticAppsRenderer = function Evme_StaticAppsRenderer() {
       result = new Evme.CloudAppResult(app.collectionQuery);
     } else {
       result = new Evme.InstalledAppResult();
+      var localizedName = EvmeManager.getIconName(app.appUrl, app.entry_point);
+      if (localizedName) {
+        app.name = localizedName;
+      }
     }
 
     el = result.init(app);
@@ -92,36 +96,30 @@ Evme.StaticAppsRenderer = function Evme_StaticAppsRenderer() {
     containerEl.appendChild(docFrag);
   }
 
+  /**
+   * Create a <style> element for hiding:
+   * 1. cloud apps that are pinned to a collection as static apps
+   * 2. bookmarked cloud apps that were added to the collection
+   */
   function setDedupStyles(apps) {
     if (!filterResults) {
       return;
     }
 
-    var appUrls = [],
-        equivs = [];
+    var appUrls = [];
 
     for (var i = 0, app; app = apps[i++]; ) {
-      if (app.staticType === Evme.STATIC_APP_TYPE.CLOUD) {
+      if (app.bookmarkURL || app.staticType === Evme.STATIC_APP_TYPE.CLOUD) {
         app.appUrl && appUrls.push(app.appUrl);
-      } else if (app.equivCloudAppAPIIds) {
-        equivs = equivs.concat(app.equivCloudAppAPIIds);
       }
     }
 
-    // add cloudapps dedup style
     Evme.Utils.filterProviderResults({
-      'id': 'static-cloudapps',
+      'id': 'staticApps-appUrls',
       'attribute': 'data-url',
       'containerSelector': containerSelector,
       'items': appUrls
     });
-    // add cloudapp equivalent dedup style
-    Evme.Utils.filterProviderResults({
-      'id': 'static-equivs',
-      'attribute': 'id',
-      'value': 'app_{0}',
-      'containerSelector': containerSelector,
-      'items': equivs
-    });
+
   }
 };

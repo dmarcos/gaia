@@ -10,11 +10,11 @@ from gaiatest.apps.messages.app import Messages
 class TestSms(GaiaTestCase):
 
     def test_sms_send(self):
-        """
-        This test sends a text message to itself. It waits for a reply message.
-        https://moztrap.mozilla.org/manage/case/1322/
-        """
+        """This test sends a text message to itself. It waits for a reply message.
 
+        https://moztrap.mozilla.org/manage/case/1322/
+        https://moztrap.mozilla.org/manage/case/1293/
+        """
         _text_message_content = "Automated Test %s" % str(time.time())
 
         # launch the app

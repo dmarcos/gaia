@@ -9,12 +9,7 @@ var serverHelper = require('./lib/server_helper');
 
 marionette('email notifications, disable', function() {
   var app, sync,
-      client = marionette.client({
-        settings: {
-          // disable keyboard ftu because it blocks our display
-          'keyboard.ftu.enabled': false
-        }
-      }),
+      client = marionette.client(),
       server1 = serverHelper.use({
                   credentials: {
                     username: 'testy1',
@@ -55,8 +50,7 @@ marionette('email notifications, disable', function() {
     app.launch();
   });
 
-  test('disable notification, but still sync',
-  function() {
+  test('disable notification, but still sync', function() {
     configureAndSend(1);
 
     // Open the prefs and turn off getting notifications.

@@ -1,13 +1,14 @@
-requireLib('utils/ordered_map.js');
+define(function(require) {
+'use strict';
+
+var OrderedMap = require('utils/ordered_map');
+var compare = require('compare');
 
 suite('ordered_map', function() {
-
   var subject;
 
   setup(function() {
-    subject = new Calendar.Utils.OrderedMap(
-      [[8, 'foo'], [1, 'baz']], Calendar.compare
-    );
+    subject = new OrderedMap([[8, 'foo'], [1, 'baz']], compare);
   });
 
   test('initialization', function() {
@@ -66,7 +67,6 @@ suite('ordered_map', function() {
   });
 
   suite('#set', function() {
-
     test('override', function() {
       subject.set(1, 'foo');
       assert.equal(subject.items[0][1], 'foo');
@@ -74,7 +74,7 @@ suite('ordered_map', function() {
         subject.items[1][0], 8,
         'should not remove unrelated item'
       );
-      assert.length(subject, 2);
+      assert.lengthOf(subject, 2);
     });
 
     test('before', function() {
@@ -103,7 +103,6 @@ suite('ordered_map', function() {
   });
 
   test('benchmark', function() {
-    return;
     var max = 10000;
     var i = 0;
 
@@ -123,7 +122,6 @@ suite('ordered_map', function() {
     now = window.performance.now();
 
     // find
-    var key;
     var getMax = max / 2;
 
     for (i = 0; i < getMax; i++) {
@@ -138,6 +136,6 @@ suite('ordered_map', function() {
       String(window.performance.now() - now) + 'ms'
     );
   });
-
 });
 
+});

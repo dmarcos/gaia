@@ -1,13 +1,13 @@
 'use strict';
+/* exported MockIccHelper */
 
 var MockIccHelper = {
-  mProps: {'enabled': true, 'cardState': null, 'iccInfo': {}, 'retryCount': 0},
+  mProps: {'cardState': null, 'iccInfo': {}, 'retryCount': 0},
 
   mEventListeners: {'cardstatechange': [], 'iccinfochange': []},
 
   mSuiteSetup: function icch_suite_setup() {
     this.mProps = {
-      'enabled': true,
       'cardState': null,
       'iccInfo': {},
       'retryCount': 0};
@@ -24,8 +24,8 @@ var MockIccHelper = {
       if (typeof callback === 'function') {
         callback(evt);
       } else if (typeof callback == 'object' &&
-                 typeof callback['handleEvent'] === 'function') {
-        callback['handleEvent'](evt);
+                 typeof callback.handleEvent === 'function') {
+        callback.handleEvent(evt);
       }
     });
 
@@ -34,20 +34,16 @@ var MockIccHelper = {
     }
   },
 
-  get enabled() {
-    return this.mProps['enabled'];
-  },
-
   get cardState() {
-    return this.mProps['cardState'];
+    return this.mProps.cardState;
   },
 
   get iccInfo() {
-    return this.mProps['iccInfo'];
+    return this.mProps.iccInfo;
   },
 
   getCardLockRetryCount: function(lockType, onresult) {
-    onresult(this.mProps['retryCount']);
+    onresult(this.mProps.retryCount);
   },
 
   setProperty: function _setProperty(property, newState) {

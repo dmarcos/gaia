@@ -1,49 +1,34 @@
 <element name="call" extends="section">
   <template>
 
-    <header>
-      <a href="#root"><span class="icon icon-back">back</span></a>
-      <h1 data-l10n-id="callSettings"> Call Settings </h1>
-    </header>
+    <gaia-header action="back" data-href="#root">
+      <h1 data-l10n-id="callSettings-header"> Call Settings </h1>
+    </gaia-header>
 
     <div>
       <ul>
         <li>
-          <small id="voiceMail-desc"></small>
-          <a data-href="#call-voiceMailSettings" data-l10n-id="voiceMail">Voicemail</a>
+          <a data-href="#call-voiceMailSettings">
+            <span data-l10n-id="voiceMail">Voicemail</span>
+            <small id="voiceMail-desc"></small>
+          </a>
         </li>
         <li id="menuItem-voicePrivacyMode" hidden>
           <label class="pack-switch checkbox-label">
-            <input type="checkbox" data-ignore/>
-            <span></span>
+            <input type="checkbox" data-ignore>
+            <span data-l10n-id="voicePrivacyMode">Voice Privacy Mode</span>
           </label>
-          <a data-l10n-id="voicePrivacyMode">Voice privacy mode</a>
         </li>
-        <li>
-          <label class="pack-switch">
-            <input type="checkbox" name="wap.push.enabled"/>
-            <span></span>
-          </label>
-          <a data-l10n-id="wapPush">WAP Push</a>
-        </li>
-        <li id="menuItem-callWaiting" data-state="off">
+        <li id="menuItem-callWaiting" data-state="off" hidden>
           <label class="pack-switch checkbox-label">
-            <input type="checkbox" data-ignore/>
-            <span></span>
+            <input type="checkbox" data-ignore>
+            <span data-l10n-id="callWaiting">Call Waiting</span>
           </label>
           <label class="alert-label" hidden>
             <span></span>
           </label>
-          <a data-l10n-id="callWaiting">Call Waiting</a>
         </li>
-        <li id="menuItem-cellBroadcast" aria-disabled="true">
-          <label class="pack-switch checkbox-label">
-            <input type="checkbox" data-ignore disabled />
-            <span></span>
-          </label>
-          <a data-l10n-id="callBroadcastService">Cell broadcast service</a>
-        </li>
-        <li id="menuItem-callerId" aria-disabled="true">
+        <li id="menuItem-callerId" aria-disabled="true" hidden>
           <a data-l10n-id="callerId">Caller ID</a>
           <span class="button icon icon-dialog">
             <select id="ril-callerId" data-setting="ril.callerId">
@@ -54,37 +39,45 @@
           </span>
         </li>
         <li>
-          <small id="fdnSettings-desc"></small>
-          <a data-href="#call-fdnSettings" data-l10n-id="fdn">Fixed dialing numbers</a>
+          <a data-href="#call-fdnSettings">
+            <span data-l10n-id="fdnSettings">Fixed Dialing Numbers</span>
+            <small id="fdnSettings-desc"></small>
+          </a>
         </li>
       </ul>
 
-      <header>
+      <header id="header-callForwarding" hidden>
         <h2 data-l10n-id="callForwarding"> Call Forwarding </h2>
       </header>
-      <ul>
+      <ul id="list-callForwarding" hidden>
         <li id="fdnSettingsBlocked" class="description" hidden>
-          <p>
-            <span data-l10n-id="fdn-enabled-warning">
-              Call forwarding is disabled by FDN.
-            </span>
+          <p data-l10n-id="fdn-enabled-warning">
+            Call forwarding is disabled by FDN.
           </p>
         </li>
         <li id="li-cfu-desc" aria-disabled="true">
-          <small id="cfu-desc"></small>
-          <a id="menuItem-callForwardingUnconditional" data-href="#call-cf-unconditionalSettings" data-l10n-id="callForwardingUnconditional">Always forward</a>
+          <a id="menuItem-callForwardingUnconditional" data-href="#call-cf-unconditionalSettings">
+            <span data-l10n-id="callForwardingUnconditional">Always forward</span>
+            <small id="cfu-desc"></small>
+          </a>
         </li>
         <li id="li-cfmb-desc" aria-disabled="true">
-          <small id="cfmb-desc"></small>
-          <a id="menuItem-callForwardingMobileBusy" data-href="#call-cf-mobileBusySettings" data-l10n-id="callForwardingMobileBusy">Forward when busy</a>
+          <a id="menuItem-callForwardingMobileBusy" data-href="#call-cf-mobileBusySettings">
+            <span data-l10n-id="callForwardingMobileBusy">Forward when busy</span>
+            <small id="cfmb-desc"></small>
+          </a>
         </li>
         <li id="li-cfnrep-desc" aria-disabled="true">
-          <small id="cfnrep-desc"></small>
-          <a id="menuItem-callForwardingNoReply" data-href="#call-cf-noReplySettings" data-l10n-id="callForwardingNoReply">Forward when unanswered</a>
+          <a id="menuItem-callForwardingNoReply" data-href="#call-cf-noReplySettings">
+            <span data-l10n-id="callForwardingNoReply">Forward when unanswered</span>
+            <small id="cfnrep-desc"></small>
+          </a>
         </li>
         <li id="li-cfnrea-desc" aria-disabled="true">
-          <small id="cfnrea-desc"></small>
-          <a id="menuItem-callForwardingNotReachable" data-href="#call-cf-notReachableSettings" data-l10n-id="callForwardingNotReachable">Forward when unreachable</a>
+          <a id="menuItem-callForwardingNotReachable" data-href="#call-cf-notReachableSettings">
+            <span data-l10n-id="callForwardingNotReachable">Forward when unreachable</span>
+            <small id="cfnrea-desc"></small>
+          </a>
         </li>
       </ul>
     </div>
@@ -97,10 +90,9 @@
         </p>
         <p class="cw-alert-sub-p">
           <label class="pack-switch cw-alert-checkbox-label">
-            <input type="checkbox" data-ignore/>
-            <span></span>
+            <input type="checkbox" data-ignore>
+            <span data-l10n-id="callWaiting">Call Waiting</span>
           </label>
-          <span data-l10n-id="callWaiting">Call Waiting</span>
         </p>
       </section>
       <menu>
@@ -121,6 +113,7 @@
       </menu>
     </form>
 
+    <script src="shared/js/settings_helper.js"></script>
     <script src="js/call.js"></script>
 
   </template>

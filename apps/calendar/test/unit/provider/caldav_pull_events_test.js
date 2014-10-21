@@ -1,15 +1,15 @@
-requireApp('calendar/test/unit/provider/mock_stream.js');
-requireApp('calendar/js/ext/uuid.js');
-requireApp('calendar/test/unit/service/helper.js');
-requireLib('ext/ical.js');
-requireLib('ext/caldav.js');
-requireLib('service/caldav.js');
-requireLib('service/ical_recur_expansion.js');
-requireLib('models/account.js');
-requireLib('models/calendar.js');
+define(function(require) {
+'use strict';
 
-suiteGroup('Provider.CaldavPullEvents', function() {
+var AccountModel = require('models/account');
+var CalendarModel = require('models/calendar');
+var CaldavPullEvents = require('provider/caldav_pull_events');
+var CaldavService = require('service/caldav');
+var Responder = require('responder');
+var Factory = require('test/support/factory');
+var ServiceSupport = require('test/service/helper');
 
+suite('Provider.CaldavPullEvents', function() {
   var fixtures;
   var ical;
   var subject;
@@ -32,18 +32,14 @@ suiteGroup('Provider.CaldavPullEvents', function() {
       options.account = account;
     }
 
-    stream = new Calendar.Responder();
+    stream = new Responder();
 
     options.app = app;
 
-    return new Calendar.Provider.CaldavPullEvents(
-      stream,
-      options
-    );
+    return new CaldavPullEvents(stream, options);
   }
 
-  suiteSetup(function(done) {
-    this.timeout(10000);
+  setup(function(done) {
     ical = new ServiceSupport.Fixtures('ical');
     ical.load('single_event');
     ical.load('daily_event');
@@ -53,12 +49,10 @@ suiteGroup('Provider.CaldavPullEvents', function() {
 
     ServiceSupport.setExpansionLimit(10);
 
-    service = new Calendar.Service.Caldav(
-      new Calendar.Responder()
-    );
+    service = new CaldavService(new Responder());
   });
 
-  suiteTeardown(function() {
+  teardown(function() {
     ServiceSupport.resetExpansionLimit();
   });
 
@@ -84,7 +78,6 @@ suiteGroup('Provider.CaldavPullEvents', function() {
   }
 
   setup(function(done) {
-    this.timeout(5000);
     app = testSupport.calendar.app();
     db = app.db;
     controller = app.timeController;
@@ -132,8 +125,8 @@ suiteGroup('Provider.CaldavPullEvents', function() {
   test('initializer', function() {
     var subject = createSubject();
 
-    assert.instanceOf(subject.calendar, Calendar.Models.Calendar, '.calendar');
-    assert.instanceOf(subject.account, Calendar.Models.Account, '.account');
+    assert.instanceOf(subject.account, AccountModel, '.account');
+    assert.instanceOf(subject.calendar, CalendarModel, '.calendar');
     assert.equal(subject.app, app);
   });
 
@@ -195,7 +188,6 @@ suiteGroup('Provider.CaldavPullEvents', function() {
 
     test('single event', function() {
       var event = serviceEvent('singleEvent');
-      var result = subject.formatEvent(event);
 
       var remote = serviceEvent('singleEvent');
 
@@ -224,7 +216,7 @@ suiteGroup('Provider.CaldavPullEvents', function() {
         times.length = 0;
 
         event = serviceEvent(name);
-        var stream = new Calendar.Responder();
+        var stream = new Responder();
 
         stream.on('occurrence', function(item) {
           times.push(item);
@@ -515,7 +507,7 @@ suiteGroup('Provider.CaldavPullEvents', function() {
       test('event', function(done) {
         eventStore.findByIds([newEvent._id], function(err, list) {
           done(function() {
-            assert.length(Object.keys(list), 1, 'saved events');
+            assert.lengthOf(Object.keys(list), 1, 'saved events');
             assert.ok(list[newEvent._id], 'saved event id');
           });
         });
@@ -532,13 +524,11 @@ suiteGroup('Provider.CaldavPullEvents', function() {
       event = serviceEvent('dailyEvent');
       addedTimes.length = 0;
 
-      var store = app.store('Busytime');
-
       controller.cacheBusytime = function(given) {
         addedTimes.push(given);
       };
 
-      var stream = new Calendar.Responder();
+      var stream = new Responder();
 
       stream.on('occurrence', function(item) {
         times.push(item);
@@ -567,7 +557,7 @@ suiteGroup('Provider.CaldavPullEvents', function() {
       assert.ok(alarms, 'has alarms');
 
       stream.emit('occurrence', times[0]);
-      assert.length(subject.busytimeQueue, 1);
+      assert.lengthOf(subject.busytimeQueue, 1);
 
       // ids are unique each time
       expected._id = subject.busytimeQueue[0]._id;
@@ -616,7 +606,7 @@ suiteGroup('Provider.CaldavPullEvents', function() {
       expected.calendarId = calendar._id;
 
       stream.emit('component', data);
-      assert.length(subject.icalQueue, 1);
+      assert.lengthOf(subject.icalQueue, 1);
 
       assert.deepEqual(
         subject.icalQueue[0],
@@ -631,7 +621,7 @@ suiteGroup('Provider.CaldavPullEvents', function() {
       };
 
       stream.emit('component', data);
-      assert.length(subject.icalQueue, 1);
+      assert.lengthOf(subject.icalQueue, 1);
 
       assert.ok(
         !('lastRecurrenceId' in subject.icalQueue[0]),
@@ -647,7 +637,7 @@ suiteGroup('Provider.CaldavPullEvents', function() {
       // the results by using the same object during the test.
       var control = serviceEvent('recurringEvent');
       control = subject.formatEvent(control);
-      assert.length(control.remote.exceptions, 2);
+      assert.lengthOf(control.remote.exceptions, 2);
 
       var exceptions = control.remote.exceptions;
       delete control.remote.exceptions;
@@ -659,8 +649,8 @@ suiteGroup('Provider.CaldavPullEvents', function() {
       var event = serviceEvent('recurringEvent');
       stream.emit('event', event);
 
-      assert.length(subject.eventQueue, 3);
-      assert.length(subject.icalQueue, 1);
+      assert.lengthOf(subject.eventQueue, 3);
+      assert.lengthOf(subject.icalQueue, 1);
 
       assert.hasProperties(
         subject.icalQueue[0],
@@ -701,7 +691,7 @@ suiteGroup('Provider.CaldavPullEvents', function() {
 
       stream.emit('event', newEvent);
 
-      assert.length(
+      assert.lengthOf(
         subject.eventQueue,
         1
       );
@@ -727,7 +717,7 @@ suiteGroup('Provider.CaldavPullEvents', function() {
         [subject.formatEvent(event)]
       );
     });
-
   });
+});
 
 });

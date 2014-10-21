@@ -1,86 +1,52 @@
+/* global MocksHelper, HomescreenWindow, MockApplications,
+          MockAppWindow */
+
 'use strict';
 
-mocha.globals(['SettingsListener', 'removeEventListener', 'addEventListener',
-      'dispatchEvent', 'WindowManager', 'Applications', 'ManifestHelper',
-      'HomescreenWindow', 'KeyboardManager', 'StatusBar',
-      'SoftwareButtonManager', 'AttentionScreen', 'OrientationManager',
-      'AppWindow']);
-
-requireApp('system/js/browser_config_helper.js');
-requireApp('system/js/browser_frame.js');
-requireApp('system/js/orientation_manager.js');
 requireApp('system/test/unit/mock_orientation_manager.js');
-requireApp('system/test/unit/mock_statusbar.js');
-requireApp('system/test/unit/mock_software_button_manager.js');
-requireApp('system/test/unit/mock_keyboard_manager.js');
-requireApp('/shared/test/unit/mocks/mock_manifest_helper.js');
-requireApp('system/test/unit/mock_window_manager.js');
+requireApp('system/shared/test/unit/mocks/mock_manifest_helper.js');
+requireApp('system/shared/test/unit/mocks/mock_settings_listener.js');
 requireApp('system/test/unit/mock_applications.js');
-requireApp('system/test/unit/mock_attention_screen.js');
+requireApp('system/test/unit/mock_app_window.js');
 
-function switchProperty(originObject, prop, stub, reals, useDefineProperty) {
-  if (!useDefineProperty) {
-    reals[prop] = originObject[prop];
-    originObject[prop] = stub;
-  } else {
-    Object.defineProperty(originObject, prop, {
-      configurable: true,
-      get: function() { return stub; }
-    });
-  }
-}
-
-function restoreProperty(originObject, prop, reals, useDefineProperty) {
-  if (!useDefineProperty) {
-    originObject[prop] = reals[prop];
-  } else {
-    Object.defineProperty(originObject, prop, {
-      configurable: true,
-      get: function() { return reals[prop]; }
-    });
-  }
-}
+var mocksForHomescreenWindow = new MocksHelper([
+  'OrientationManager',
+  'Applications', 'SettingsListener', 'ManifestHelper'
+]).init();
 
 suite('system/HomescreenWindow', function() {
-  var reals = {};
+  mocksForHomescreenWindow.attachTestHelpers();
   var homescreenWindow;
-  var clock, stubById;
+  var stubById;
+  var realApplications;
 
   setup(function(done) {
-    switchProperty(window, 'OrientationManager', MockOrientationManager, reals);
-    switchProperty(window, 'WindowManager', MockWindowManager, reals);
-    switchProperty(window, 'Applications', MockApplications, reals);
-    switchProperty(window, 'ManifestHelper', MockManifestHelper, reals);
-    switchProperty(window, 'KeyboardManager', MockKeyboardManager, reals);
-    switchProperty(window, 'StatusBar', MockStatusBar, reals);
-    switchProperty(window, 'SoftwareButtonManager',
-        MockSoftwareButtonManager, reals);
-    switchProperty(window, 'AttentionScreen', MockAttentionScreen, reals);
-    clock = sinon.useFakeTimers();
-    stubById = this.sinon.stub(document, 'getElementById');
-    stubById.returns(document.createElement('div'));
-    requireApp('system/js/window.js');
+    this.sinon.useFakeTimers();
+    stubById = this.sinon.stub(document, 'getElementById', function(id) {
+      var element = document.createElement('div');
+      if (id === 'homescreen') {
+        var container = document.createElement('div');
+        container.className = 'browser-container';
+        element.appendChild(container);
+      }
+
+      return element;
+    });
+    requireApp('system/js/system.js');
+    requireApp('system/js/browser_config_helper.js');
+    requireApp('system/js/browser_frame.js');
+    requireApp('system/js/app_window.js');
+    requireApp('system/js/browser_mixin.js');
     requireApp('system/js/homescreen_window.js', done);
+
+    realApplications = window.applications;
+    window.applications = MockApplications;
   });
 
   teardown(function() {
-    MockWindowManager.mTeardown();
-    MockApplications.mTeardown();
-    MockKeyboardManager.mTeardown();
-    MockStatusBar.mTeardown();
-    MockSoftwareButtonManager.mTeardown();
-    MockAttentionScreen.mTeardown();
-    clock.restore();
     stubById.restore();
-
-    restoreProperty(window, 'AttentionScreen', reals);
-    restoreProperty(window, 'SoftwareButtonManager', reals);
-    restoreProperty(window, 'StatusBar', reals);
-    restoreProperty(window, 'KeyboardManager', reals);
-    restoreProperty(window, 'WindowManager', reals);
-    restoreProperty(window, 'Applications', reals);
-    restoreProperty(window, 'ManifestHelper', reals);
-    restoreProperty(window, 'OrientationManager', reals);
+    window.applications = realApplications;
+    realApplications = null;
   });
 
   suite('homescreen window instance.', function() {
@@ -94,12 +60,22 @@ suite('system/HomescreenWindow', function() {
       });
 
       homescreenWindow = new HomescreenWindow('fakeManifestURL');
-      if (!'setVisible' in homescreenWindow.browser.element) {
+      if (!('setVisible' in homescreenWindow.browser.element)) {
         homescreenWindow.browser.element.setVisible = function() {};
       }
     });
     teardown(function() {
     });
+
+    test('should always resize', function() {
+      var stubResize = this.sinon.stub(homescreenWindow, '_resize');
+      var stubIsActive = this.sinon.stub(homescreenWindow, 'isActive');
+      stubIsActive.returns(false);
+
+      homescreenWindow.resize();
+      assert.isTrue(stubResize.calledOnce);
+    });
+
     test('Homescreen browser frame', function() {
       assert.equal(homescreenWindow.browser.element.name, 'main');
       assert.equal(
@@ -109,89 +85,116 @@ suite('system/HomescreenWindow', function() {
     test('homescree is created', function() {
       assert.isTrue(homescreenWindow.isHomescreen);
     });
-    suite('transition test', function() {
-      setup(function() {});
-      teardown(function() {});
 
-      test('close', function() {
-        homescreenWindow._transitionState = 'opened';
-        homescreenWindow.close();
-        clock.tick(homescreenWindow._transitionTimeout * 1.3);
-        assert.isFalse(
-          homescreenWindow.element.classList.contains('active'));
+    test('ensure should change the url', function() {
+      var url = homescreenWindow.browser.element.src;
+      homescreenWindow.ensure(true);
+      assert.notEqual(url, homescreenWindow.browser.element.src);
+    });
+
+    test('ensure should not increase the length of the src', function() {
+      // Initially the url ends in #root. Call ensure() twice to ensure
+      // that we do not continue to increase the length on hash changes.
+      homescreenWindow.ensure(true);
+      var firstEnsure = homescreenWindow.browser.element.src;
+
+      homescreenWindow.ensure(true);
+      var secondEnsure = homescreenWindow.browser.element.src;
+
+      assert.equal(firstEnsure.length, secondEnsure.length);
+    });
+
+    test('ensure should kill front window but not change the url', function() {
+      var fakeFrontWindow = new MockAppWindow({ url: 'fake' });
+      homescreenWindow.frontWindow = fakeFrontWindow;
+      var url = homescreenWindow.browser.element.src;
+      var stubKill = this.sinon.stub(fakeFrontWindow, 'kill');
+      homescreenWindow.ensure(true);
+      assert.isTrue(stubKill.called);
+      assert.equal(url, homescreenWindow.browser.element.src);
+      homescreenWindow.frontWindow = null;
+    });
+
+    suite('handle events', function() {
+      test('mozbrowser events', function() {
+        var stubRestart = this.sinon.stub(homescreenWindow, 'restart');
+        var stubIsActive = this.sinon.stub(homescreenWindow, 'isActive');
+        stubIsActive.returns(true);
+
+        homescreenWindow.handleEvent({
+          type: 'mozbrowserclose'
+        });
+        assert.isTrue(stubRestart.calledOnce);
+
+        homescreenWindow.handleEvent({
+          type: 'mozbrowsererror',
+          detail: {
+            type: 'fatal'
+          }
+        });
+        assert.isTrue(stubRestart.calledTwice);
       });
+      test('_localized event', function() {
+        var stubPublish = this.sinon.stub(homescreenWindow, 'publish');
 
-      test('open', function() {
-        homescreenWindow._transitionState = 'closed';
-        homescreenWindow.open();
-        clock.tick(homescreenWindow._transitionTimeout * 1.3);
-        assert.isTrue(
-          homescreenWindow.element.classList.contains('active'));
-      });
+        homescreenWindow.handleEvent({
+          type: '_localized'
+        });
 
-      test('open twice', function() {
-        homescreenWindow._transitionState = 'closed';
-        homescreenWindow.open();
-        homescreenWindow.open();
-        clock.tick(homescreenWindow._transitionTimeout * 1.3);
-        assert.isTrue(
-          homescreenWindow.element.classList.contains('active'));
-      });
-
-
-      test('close twice', function() {
-        homescreenWindow._transitionState = 'opened';
-        homescreenWindow.close();
-        homescreenWindow.close();
-        clock.tick(homescreenWindow._transitionTimeout * 1.3);
-        assert.isFalse(
-          homescreenWindow.element.classList.contains('active'));
-      });
-
-      test('open than close', function() {
-        homescreenWindow._transitionState = 'closed';
-        homescreenWindow.open();
-        homescreenWindow.close();
-        clock.tick(homescreenWindow._transitionTimeout * 1.3);
-        assert.isTrue(
-          homescreenWindow.element.classList.contains('active'));
-      });
-
-      test('close than open', function() {
-        homescreenWindow._transitionState = 'opened';
-        homescreenWindow.close();
-        homescreenWindow.open();
-        clock.tick(homescreenWindow._transitionTimeout * 1.3);
-        assert.isTrue(
-          homescreenWindow.element.classList.contains('active'));
+        assert.isTrue(stubPublish.calledOnce);
+        assert.isTrue(stubPublish.calledWith('namechanged'));
       });
     });
     suite('homescreen is crashed', function() {
       var stubRender;
-      var stubKill;
+      var spyKill;
       setup(function() {
         stubRender = this.sinon.stub(homescreenWindow, 'render');
-        stubKill = this.sinon.stub(homescreenWindow, 'kill');
+        spyKill = this.sinon.spy(homescreenWindow, 'kill');
       });
 
       teardown(function() {
         stubRender.restore();
-        stubKill.restore();
+        spyKill.restore();
       });
 
       test('Homescreen is crashed at foreground:' +
           'rerender right away.', function() {
-        homescreenWindow._visibilityState = 'foreground';
+        var stubIsActive = this.sinon.stub(homescreenWindow, 'isActive');
+        stubIsActive.returns(true);
         homescreenWindow.restart();
-        assert.isTrue(stubKill.called);
-        clock.tick(1);
+        assert.isTrue(spyKill.called);
+        this.sinon.clock.tick(0);
         assert.isTrue(stubRender.called);
       });
 
       test('Homescreen is crashed at background: killed', function() {
-        homescreenWindow._visibilityState = 'background';
+        var stubIsActive = this.sinon.stub(homescreenWindow, 'isActive');
+        stubIsActive.returns(false);
         homescreenWindow.restart();
-        assert.isTrue(stubKill.called);
+        assert.isTrue(spyKill.called);
+      });
+
+      test('Homescreen should hide its fade-overlay while we call the method',
+      function() {
+        var originalOverlay = homescreenWindow.fadeOverlay,
+            domOverlay = document.createElement('div');
+        homescreenWindow.fadeOverlay = domOverlay;
+        homescreenWindow.hideFadeOverlay();
+        assert.isTrue(homescreenWindow.fadeOverlay
+          .classList.contains('hidden'));
+        homescreenWindow.fadeOverlay = originalOverlay;
+      });
+
+      test('Homescreen should show its fade-overlay while we call the method',
+      function() {
+        var originalOverlay = homescreenWindow.fadeOverlay,
+            domOverlay = document.createElement('div');
+        homescreenWindow.fadeOverlay = domOverlay;
+        homescreenWindow.showFadeOverlay();
+        assert.isFalse(homescreenWindow.fadeOverlay
+          .classList.contains('hidden'));
+        homescreenWindow.fadeOverlay = originalOverlay;
       });
     });
   });

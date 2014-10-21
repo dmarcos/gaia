@@ -1,9 +1,18 @@
-requireLib('models/calendar.js');
-requireLib('models/account.js');
+define(function(require) {
+'use strict';
+
+var CalendarTemplate = require('templates/calendar');
+var Factory = require('test/support/factory');
+var Settings = require('views/settings');
+var View = require('view');
+var nextTick = require('next_tick');
+var suiteGroup = require('test/support/suite_group');
+
 requireCommon('test/synthetic_gestures.js');
 
-suiteGroup('Views.Settings', function() {
-
+suiteGroup('views/settings', function() {
+  /* jshint -W027 */
+  return;
   var subject;
   var app;
   var store;
@@ -11,6 +20,7 @@ suiteGroup('Views.Settings', function() {
   var template;
   var triggerEvent;
   var account;
+  var models;
 
   function stageModels(list) {
     var object = Object.create(null);
@@ -56,10 +66,28 @@ suiteGroup('Views.Settings', function() {
     var div = document.createElement('div');
     div.id = 'test';
     div.innerHTML = [
-      '<div id="time-views"></div>',
       '<div id="settings">',
-        '<button class="sync">sync</button>',
-        '<ul class="calendars"></ul>',
+      '  <header>',
+      '    <button data-l10n-id="back"',
+      '            class="settings-back"></button>',
+      '  </header>',
+      '  <div class="settings-shield"></div>',
+      '  <div class="settings-drawer-container">',
+      '    <div class="settings-drawer">',
+      '      <ol class="calendars">',
+      '      </ol>',
+      '      <div role="toolbar">',
+      '        <button class="settings toolbar-item">',
+      '          <span class="icon"',
+      '                data-l10n-id="advanced-settings-short">Settings</span>',
+      '        </button>',
+      '        <button class="sync update toolbar-item">',
+      '          <span class="icon"',
+      '                data-l10n-id="drawer-sync-button">Sync</span>',
+      '        </button>',
+      '      </div>',
+      '    </div>',
+      '  </div>',
       '</div>'
     ].join('');
 
@@ -68,9 +96,9 @@ suiteGroup('Views.Settings', function() {
     app = testSupport.calendar.app();
     controller = app.timeController;
     store = app.store('Calendar');
-    template = Calendar.Templates.Calendar;
+    template = CalendarTemplate;
 
-    subject = new Calendar.Views.Settings({
+    subject = new Settings({
       app: app,
       syncProgressTarget: div,
       // normally this is higher in production but
@@ -78,13 +106,43 @@ suiteGroup('Views.Settings', function() {
       waitBeforePersist: 10
     });
 
+    subject.calendarList = {
+      first: {
+        localDisplayed: true,
+        _id: 'first',
+        remote: {
+          name: 'first'
+        }
+      },
+      local: {
+        localDisplayed: true,
+        _id: 'local-first',
+        remote: {
+          name: 'this should not be used!!!!'
+        }
+      }
+    };
+
     app.db.open(done);
+
+    models = stageModels({
+      displayed: {
+        localDisplayed: true,
+        _id: 1
+      },
+
+      hidden: {
+        localDisplayed: false,
+        _id: 'hidden'
+      }
+    });
+
   });
 
   teardown(function(done) {
     testSupport.calendar.clearStore(
       app.db,
-      ['calendars'],
+      ['accounts', 'calendars'],
       function() {
         app.db.close();
         done();
@@ -93,15 +151,11 @@ suiteGroup('Views.Settings', function() {
   });
 
   test('initialization', function() {
-    assert.instanceOf(subject, Calendar.View);
+    assert.instanceOf(subject, View);
     assert.equal(subject.app, app);
     assert.equal(
       subject.element, document.querySelector('#settings')
     );
-  });
-
-  test('#time-views', function() {
-    assert.ok(subject.timeViews);
   });
 
   test('#calendars', function() {
@@ -116,28 +170,63 @@ suiteGroup('Views.Settings', function() {
     assert.ok(subject.syncProgressTarget);
   });
 
-  suite('#observeStore', function() {
-    var models = stageModels({
-      first: {
-        localDisplayed: true,
-        _id: 'first',
-        remote: {
-          name: 'first'
-        }
+  suite('#_observeAccountStore', function() {
+    var accounts = testSupport.calendar.dbFixtures(
+      'account',
+      'Account',
+      {
+        sync: { _id: 'sync', providerType: 'Caldav' },
+        nosync: { _id: 'nosync', providerType: 'Local' }
       }
+    );
+
+    var syncAccount;
+    var accountStore;
+    setup(function(done) {
+      accountStore = app.store('Account');
+      syncAccount = accounts.sync;
+
+      subject.render();
+      subject.onrender = done;
     });
 
+    suite('remove', function() {
+      setup(function(done) {
+        accountStore.remove(accounts.sync._id);
+        subject.onupdatesyncbutton = function() {
+          subject.onupdatesyncbutton = null;
+          done();
+        };
+      });
+
+      suite('add', function() {
+        setup(function(done) {
+          delete syncAccount._id;
+
+          accountStore.persist(syncAccount);
+          subject.onupdatesyncbutton = function() {
+            subject.onupdatesyncbutton = null;
+            done();
+          };
+        });
+      });
+    });
+
+  });
+
+  suite('#_observeCalendarStore', function() {
     var children;
     setup(function(done) {
       // we must wait until rendering completes
-      subject.render();
       subject.onrender = function() {
         children = subject.calendars.children;
-        Calendar.nextTick(done);
+        nextTick(done);
       };
+
+      subject.render();
     });
 
-    suite('update / error', function() {
+    suite('calendar update / error', function() {
       var model;
       var container;
 
@@ -174,9 +263,27 @@ suiteGroup('Views.Settings', function() {
 
         store.emit('update', model._id, model);
 
-        assert.equal(children[0].textContent, 'foo');
+        assert.equal(children[0].textContent.trim(), 'foo');
         assert.isFalse(
           check.checked
+        );
+      });
+
+      test('toggle l10n', function() {
+        var check = children[1].querySelector('[type="checkbox"]');
+        assert.ok(
+          check.checked,
+          'should be checked'
+        );
+
+        var model = models.local;
+        model.localDisplayed = false;
+        store.emit('update', model._id, model);
+
+        assert.equal(children[1].textContent.trim(), 'Offline calendar');
+        assert.isFalse(
+          check.checked,
+          'should uncheck'
         );
       });
     });
@@ -184,10 +291,11 @@ suiteGroup('Views.Settings', function() {
     suite('add', function() {
       function addModel() {
         store.emit('add', 'two', model);
-        assert.equal(children.length, 2);
-        assert.equal(children[1].textContent, 'second');
+        assert.equal(children.length, 3);
+        var container = children[2];
+        assert.equal(container.textContent.trim(), 'second');
 
-        return children[1];
+        return container;
       }
 
       var model;
@@ -198,7 +306,7 @@ suiteGroup('Views.Settings', function() {
           remote: { name: 'second' }
         });
 
-        assert.equal(children.length, 1);
+        assert.equal(children.length, 2);
       });
 
       test('success', function() {
@@ -221,16 +329,16 @@ suiteGroup('Views.Settings', function() {
     });
 
     test('remove', function() {
+      assert.equal(children.length, 2);
       store.emit('preRemove', models.first._id);
       store.emit('remove', models.first._id);
-      assert.equal(children.length, 0);
+      assert.equal(children.length, 1);
     });
   });
 
   test('sync', function() {
     var controller = app.syncController;
     var calledWith;
-    var el = subject.syncButton;
 
     controller.all = function() {
       calledWith = arguments;
@@ -241,21 +349,7 @@ suiteGroup('Views.Settings', function() {
   });
 
   suite('#_onCalendarDisplayToggle', function() {
-    var models = stageModels({
-      displayed: {
-        localDisplayed: true,
-        _id: 1
-      },
-
-      hidden: {
-        localDisplayed: false,
-        _id: 'hidden'
-      }
-    });
-
     var checkboxes;
-    var calledWith;
-
     setup(function(done) {
       subject.render();
       subject.onrender = function() {
@@ -272,7 +366,7 @@ suiteGroup('Views.Settings', function() {
     });
 
     function checkAsync(id, value) {
-      Calendar.nextTick(function() {
+      nextTick(function() {
         checkboxes[id].checked = !!value;
         triggerEvent(checkboxes[id], 'change');
       });
@@ -321,96 +415,84 @@ suiteGroup('Views.Settings', function() {
   });
 
   suite('#render', function() {
-    var models = {};
+    testSupport.calendar.dbFixtures(
+      'account',
+      'Account', {
+        one: {
+          _id: 'one',
+          providerType: 'Local'
+        },
 
-    setup(function(done) {
-      models[1] = Factory('calendar', {
-        name: 'First',
-        localDisplayed: true,
-        _id: 1
+        two: {
+          _id: 'two',
+          providerType: 'Caldav'
+        }
+      }
+    );
+
+    var calendars = testSupport.calendar.dbFixtures(
+      'calendar',
+      'Calendar', {
+        one: {
+          accountId: 'one',
+          name: 'First',
+          localDisplayed: true,
+          _id: 1
+        },
+
+        two: {
+          accountId: 'two',
+          name: 'Second',
+          localDisplayed: false,
+          _id: 2,
+          error: {}
+        }
+      }
+    );
+
+    suite('calendars', function() {
+      var one;
+      var two;
+      var children;
+
+      setup(function(done) {
+        subject.onrender = function() {
+          children = subject.calendars.children;
+          one = children[0];
+          two = children[1];
+          done();
+        };
+        subject.render();
       });
 
-      models[2] = Factory('calendar', {
-        name: 'Second',
-        localDisplayed: false,
-        _id: 2,
-        error: {}
+      test('number of calendars', function() {
+        assert.equal(children.length, 2);
       });
 
-      var trans = app.db.transaction('calendars', 'readwrite');
+      test('naming', function() {
+        assert.equal(one.textContent.trim(), calendars.one.name);
+        assert.equal(two.textContent.trim(), calendars.two.name);
+      });
 
-      store.persist(models[1], trans);
-      store.persist(models[2], trans);
+      test('localDisplayed on calendar', function() {
+        assert.isTrue(
+          one.querySelector('*[type="checkbox"]').checked
+        );
 
-      trans.oncomplete = function() {
-        done();
-      };
+        assert.isFalse(
+          two.querySelector('*[type="checkbox"]').checked
+        );
+      });
 
-      trans.onerror = function(e) {
-        done(e);
-      };
-    });
-
-    setup(function(done) {
-      subject.onrender = done;
-      subject.render();
-    });
-
-    test('output', function() {
-      var children = subject.calendars.children;
-      assert.equal(children.length, 2);
-
-      var one = children[0];
-      var two = children[1];
-
-      assert.equal(one.textContent, models[1].name);
-      assert.equal(two.textContent, models[2].name);
-
-      assert.isTrue(
-        one.querySelector('*[type="checkbox"]').checked
-      );
-
-      assert.ok(
-        !one.classList.contains('error'),
-        'error is not added without an .error field'
-      );
-
-      assert.isFalse(
-        two.querySelector('*[type="checkbox"]').checked
-      );
-
-      assert.ok(
-        two.classList.contains('error'),
-        'if error is present in model render shows it'
-      );
+      test('error on calendar', function() {
+        assert.ok(
+          two.classList.contains('error'),
+          'if error is present in model render shows it'
+        );
+      });
     });
 
   });
-
-  suite('tap to navigate away from settings', function() {
-
-    var calledWith;
-
-    setup(function() {
-      calledWith = null;
-      app.resetState = function() {
-        calledWith = arguments;
-      };
-    });
-
-    test('#onactive', function() {
-      subject.onactive();
-      triggerEvent(subject.timeViews, 'click');
-      assert.ok(calledWith, 'navigates away');
-    });
-
-    test('#oninactive', function() {
-      subject.onactive();
-      subject.oninactive();
-      triggerEvent(subject.timeViews, 'click');
-      assert.ok(!calledWith, 'navigates away');
-    });
-
-  });
+});
 
 });

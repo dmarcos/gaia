@@ -1,20 +1,42 @@
+'use strict';
+/* global contacts */
+/* global CORRECT_MATCHED_VALUE */
+/* global dataImage */
+/* global dupContacts */
+/* global matchingDetailsData */
+/* global MockMatchingContactsHtml */
+/* global MockMatchingController */
+/* global MocksHelper */
+/* global MockImageLoader */
+/* global MockMozL10n */
+/* global MockURL */
+
 require('/shared/js/lazy_loader.js');
+require('/shared/js/contacts/utilities/templates.js');
+require('/shared/test/unit/mocks/mock_contact_photo_helper.js');
+
 requireApp('communications/contacts/test/unit/' +
                                         'mock_contacts_matching_controller.js');
 requireApp('communications/contacts/test/unit/mock_matching_contacts.html.js');
 requireApp('communications/contacts/test/unit/mock_l10n.js');
 requireApp('communications/contacts/test/unit/mock_utils.js');
-requireApp('communications/contacts/js/utilities/templates.js');
 requireApp('communications/contacts/test/unit/' +
            'contacts_matching_ui_test_data.js');
 
 requireApp('communications/contacts/js/contacts_matching_ui.js');
 
-if (!this.ImageLoader) {
-  this.ImageLoader = null;
+
+if (!window.ImageLoader) {
+  window.ImageLoader = null;
 }
 
+var mocksHelperForContactMatchingUI = new MocksHelper([
+  'ContactPhotoHelper'
+]).init();
+
 suite('Matching duplicate contacts UI Test Suite', function() {
+
+  mocksHelperForContactMatchingUI.attachTestHelpers();
 
   var wrapper = null,
     realImageLoader, realURL, list, matchingDetails, matchingName, matchingImg,
@@ -79,8 +101,9 @@ suite('Matching duplicate contacts UI Test Suite', function() {
       assert.isFalse(mergeAction.disabled);
 
       // The message is displayed correctly
-      assert.isTrue(wrapper.querySelector('#duplicate-msg > p').textContent.
-                                              indexOf('Manolo García') !== -1);
+      var l10nAttrs = navigator.mozL10n.getAttributes(
+        wrapper.querySelector('#duplicate-msg > p'));
+      assert.deepEqual(l10nAttrs.args.name, 'Manolo García');
 
       // Duplicate contacts list is displayed correctly
       var dupContactsKeys = Object.keys(dupContacts);
@@ -157,7 +180,7 @@ suite('Matching duplicate contacts UI Test Suite', function() {
       matchingImg = matchingDetails.querySelector('img');
       matchingDetailList = matchingDetails.querySelector('#matching-list');
       // Add a photo to the matching contact with id 'user_id_1'.
-      matchingDetailsData['user_id_1'].matchingContact.photo[0] =
+      matchingDetailsData.user_id_1.matchingContact.photo[0] =
         matchingImg.src;
       contacts.MatchingUI.load('matching', masterContact, matchingDetailsData,
         function() {
@@ -229,7 +252,11 @@ suite('Matching duplicate contacts UI Test Suite', function() {
       var checkAssertions = function() {
         observer.disconnect();
         var listItems = matchingDetailList.querySelectorAll('li');
-        assert.equal(listItems[0].textContent, 'type_1, 111111111');
+        var l10nAttrs = navigator.mozL10n.getAttributes(listItems[0]);
+        assert.deepEqual(l10nAttrs.args, {
+          'label': 'type_1',
+          'item': '111111111'
+        });
         assert.isFalse(listItems[0].classList.contains('selected'));
         done();
       };
@@ -242,7 +269,11 @@ suite('Matching duplicate contacts UI Test Suite', function() {
       var checkAssertions = function() {
         observer.disconnect();
         var listItems = matchingDetailList.querySelectorAll('li');
-        assert.equal(listItems[1].textContent, 'type_2, 222222222');
+        var l10nAttrs = navigator.mozL10n.getAttributes(listItems[1]);
+        assert.deepEqual(l10nAttrs.args, {
+          'label': 'type_2',
+          'item': '222222222'
+        });
         assert.isTrue(listItems[1].classList.contains('selected'));
         done();
       };
@@ -255,8 +286,11 @@ suite('Matching duplicate contacts UI Test Suite', function() {
       var checkAssertions = function() {
         observer.disconnect();
         var listItems = matchingDetailList.querySelectorAll('li');
-        assert.equal(listItems[2].textContent,
-                     'email_type_1, email_1@acme.com');
+        var l10nAttrs = navigator.mozL10n.getAttributes(listItems[2]);
+        assert.deepEqual(l10nAttrs.args, {
+          'label': 'email_type_1',
+          'item': 'email_1@acme.com'
+        });
         assert.isFalse(listItems[2].classList.contains('selected'));
         done();
       };
@@ -269,8 +303,11 @@ suite('Matching duplicate contacts UI Test Suite', function() {
       var checkAssertions = function() {
         observer.disconnect();
         var listItems = matchingDetailList.querySelectorAll('li');
-        assert.equal(listItems[3].textContent,
-                     'email_type_2, email_2@acme.com');
+        var l10nAttrs = navigator.mozL10n.getAttributes(listItems[3]);
+        assert.deepEqual(l10nAttrs.args, {
+          'label': 'email_type_2',
+          'item': 'email_2@acme.com'
+        });
         assert.isTrue(listItems[3].classList.contains('selected'));
         done();
       };

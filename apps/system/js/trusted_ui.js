@@ -31,7 +31,13 @@ var TrustedUIManager = {
 
   throbber: document.getElementById('trustedui-throbber'),
 
-  closeButton: document.getElementById('trustedui-close'),
+  header: document.getElementById('trustedui-header'),
+
+  errorTitle: document.getElementById('trustedui-error-title'),
+
+  errorMessage: document.getElementById('trustedui-error-message'),
+
+  errorClose: document.getElementById('trustedui-error-close'),
 
   hasTrustedUI: function trui_hasTrustedUI(origin) {
     return (this._dialogStacks[origin] && this._dialogStacks[origin].length);
@@ -54,7 +60,8 @@ var TrustedUIManager = {
     window.addEventListener('appterminated', this);
     window.addEventListener('keyboardhide', this);
     window.addEventListener('keyboardchange', this);
-    this.closeButton.addEventListener('click', this);
+    this.header.addEventListener('action', this);
+    this.errorClose.addEventListener('click', this);
   },
 
   open: function trui_open(name, frame, chromeEventId, onCancelCB) {
@@ -90,7 +97,7 @@ var TrustedUIManager = {
       // Only one dialog, so transition back to main app.
       var self = this;
       var container = this.popupContainer;
-      if (!CardsView.cardSwitcherIsShown()) {
+      if (!taskManager.isShown()) {
         if (!origin) {
           this._restoreCallerApp(this._lastDisplayedApp);
         }
@@ -139,7 +146,7 @@ var TrustedUIManager = {
   },
 
   _hideCallerApp: function trui_hideCallerApp(origin, callback) {
-    var app = WindowManager.getRunningApps()[origin];
+    var app = appWindowManager.getApp(origin);
     if (app == null || app.isHomescreen) {
       return;
     }
@@ -168,13 +175,13 @@ var TrustedUIManager = {
   },
 
   _restoreCallerApp: function trui_restoreCallerApp(origin) {
-    var frame = WindowManager.getAppFrame(origin);
+    var frame = appWindowManager.getApp(origin).frame;
     frame.style.visibility = 'visible';
     frame.classList.remove('back');
-    if (!WindowManager.getCurrentDisplayedApp().isHomescreen) {
+    if (!System.currentApp.isHomescreen) {
       this.publish('trusteduihide', { origin: origin });
     }
-    if (WindowManager.getDisplayedApp() == origin) {
+    if (System.currentApp.origin == origin) {
       frame.classList.add('restored');
       frame.addEventListener('transitionend', function removeRestored() {
         frame.removeEventListener('transitionend', removeRestored);
@@ -216,12 +223,17 @@ var TrustedUIManager = {
     dataset.frameOrigin = this._lastDisplayedApp;
 
     // Add mozbrowser listeners.
+    this.mozBrowserEventHandler = this.handleBrowserEvent.bind(this);
+    frame.addEventListener('mozbrowsererror',
+                           this.mozBrowserEventHandler);
+    frame.addEventListener('mozbrowserclose',
+                           this.mozBrowserEventHandler);
     frame.addEventListener('mozbrowserloadstart',
-                           this.handleBrowserEvent);
+                           this.mozBrowserEventHandler);
     frame.addEventListener('mozbrowserloadend',
-                           this.handleBrowserEvent);
+                           this.mozBrowserEventHandler);
 
-    // Make a shiny new dialog object.
+    // make a shiny new dialog object.
     var dialog = {
       name: name,
       frame: frame,
@@ -254,8 +266,7 @@ var TrustedUIManager = {
   },
 
   _restoreOrientation: function trui_restoreOrientation() {
-    var app = WindowManager.getDisplayedApp();
-    WindowManager.setOrientationForApp(app);
+    window.dispatchEvent(new Event('trusteduiclose'));
   },
 
   /**
@@ -273,9 +284,13 @@ var TrustedUIManager = {
       if (stack[i].chromeEventId === chromeEventId) {
         var frame = stack.splice(i, 1)[0].frame;
         frame.removeEventListener('mozbrowserloadstart',
-                                  this.handleBrowserEvent);
+                                  this.mozBrowserEventHandler);
         frame.removeEventListener('mozbrowserloadend',
-                                  this.handleBrowserEvent);
+                                  this.mozBrowserEventHandler);
+        frame.removeEventListener('mozbrowsererror',
+                                  this.mozBrowserEventHandler);
+        frame.removeEventListener('mozbrowserclose',
+                                  this.mozBrowserEventHandler);
         this.container.removeChild(frame);
         found = true;
         break;
@@ -335,17 +350,43 @@ var TrustedUIManager = {
     }
   },
 
+  _showError: function trui_showError(errorProperty) {
+    var dialog = this._getTopDialog();
+    var frame = dialog.frame;
+    if (!('error' in frame.dataset)) {
+      this.container.classList.remove('error');
+      return;
+    }
+
+    var name = dialog.name;
+
+    navigator.mozL10n.setAttributes(
+      this.errorTitle,
+      'error-title',
+      { name: name }
+    );
+    navigator.mozL10n.setAttributes(
+      this.errorTitle,
+      errorProperty,
+      { name: name }
+    );
+
+    this.container.classList.add('error');
+  },
+
   handleEvent: function trui_handleEvent(evt) {
     switch (evt.type) {
       case 'home':
       case 'holdhome':
-        if (!this.isVisible())
+        if (!this.isVisible()) {
           return;
-
+        }
         this._hideTrustedApp();
         break;
+      case 'action':
       case 'click':
-        // Close-button clicked
+        // cancel button or error close button
+        this.container.classList.remove('error');
         this._destroyDialog();
         break;
       case 'appterminated':
@@ -362,14 +403,15 @@ var TrustedUIManager = {
         }
         break;
       case 'appwillopen':
+        var app = evt.detail;
         // Hiding trustedUI when coming from Activity
         if (this.isVisible())
           this._hideTrustedApp();
 
         // Ignore homescreen
-        if (evt.target.classList.contains('homescreen'))
+        if (app.isHomescreen)
           return;
-        this._lastDisplayedApp = evt.detail.origin;
+        this._lastDisplayedApp = app.origin;
         if (this.currentStack.length) {
           // Reopening an app with trustedUI
           this.popupContainer.classList.remove('up');
@@ -408,9 +450,17 @@ var TrustedUIManager = {
       case 'mozbrowserloadend':
         TrustedUIManager.throbber.classList.remove('loading');
         break;
+      case 'mozbrowsererror':
+        this._getTopDialog().frame.dataset.error = true;
+        this._showError('crash-banner-app');
+        break;
+      case 'mozbrowserclose':
+        // window.close
+        this.container.classList.remove('error');
+        this._destroyDialog();
+        break;
     }
   }
-
 };
 
 TrustedUIManager.init();

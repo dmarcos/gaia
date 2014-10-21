@@ -6,14 +6,11 @@ var EmailData = require('./lib/email_data');
 var assert = require('assert');
 var serverHelper = require('./lib/server_helper');
 
+var SHARED_PATH = __dirname + '/../../../../shared/test/integration';
+
 marionette('email notifications, set interval', function() {
   var app,
-      client = marionette.client({
-        settings: {
-          // disable keyboard ftu because it blocks our display
-          'keyboard.ftu.enabled': false
-        }
-      }),
+      client = marionette.client(),
       server1 = serverHelper.use({
                   credentials: {
                     username: 'testy1',
@@ -37,9 +34,7 @@ marionette('email notifications, set interval', function() {
 
   setup(function() {
     app = new Email(client);
-
-    client.contentScript.inject(__dirname +
-      '/lib/mocks/mock_navigator_mozalarms.js');
+    client.contentScript.inject(SHARED_PATH + '/mock_navigator_mozalarms.js');
     app.launch();
   });
 

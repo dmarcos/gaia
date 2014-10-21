@@ -1,15 +1,13 @@
-requireLib('provider/abstract.js');
-requireLib('provider/local.js');
+define(function(require) {
+'use strict';
 
-suiteGroup('Models.Account', function() {
+var Account = require('models/account');
+
+suite('Models.Account', function() {
   var subject;
-  var provider;
 
   setup(function() {
-    subject = new Calendar.Models.Account({
-      user: 'foo',
-      providerType: 'Local'
-    });
+    subject = new Account({ user: 'foo', providerType: 'Local' });
   });
 
   test('initialization', function() {
@@ -62,5 +60,6 @@ suiteGroup('Models.Account', function() {
       assert.deepEqual(subject.toJSON(), expected);
     });
   });
+});
 
 });

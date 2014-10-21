@@ -9,10 +9,9 @@ var DockManager = (function() {
   var MAX_NUM_ICONS = notTinyLayout ? 8 : 7;
   var maxNumAppInViewPort = notTinyLayout ? 6 : 4, maxOffsetLeft;
 
-  var windowWidth = window.innerWidth;
   var duration = 300;
 
-  var initialOffsetLeft, initialOffsetRight, numApps, cellWidth;
+  var initialOffsetLeft, initialOffsetRight, numApps, cellWidth = 0;
   var isPanning = false, startEvent, currentX, deltaX, tapThreshold;
 
   var isTouch = 'ontouchstart' in window;
@@ -57,6 +56,7 @@ var DockManager = (function() {
 
         if (deltaX < 0) {
           // Go forward
+          var windowWidth = ScreenHelper.width;
           if (initialOffsetRight === windowWidth) {
             return;
           }
@@ -132,7 +132,7 @@ var DockManager = (function() {
 
   function onTouchEnd(scrollX) {
     if (dock.getNumIcons() <= maxNumAppInViewPort ||
-          dock.getLeft() === 0 || dock.getRight() === windowWidth) {
+          dock.getLeft() === 0 || dock.getRight() === ScreenHelper.width) {
       // No animation
       delete document.body.dataset.transitioning;
       return;
@@ -157,7 +157,7 @@ var DockManager = (function() {
 
   function rePosition(numApps, callback) {
     if (numApps > maxNumAppInViewPort && dock.getLeft() < 0 &&
-          dock.getRight() > windowWidth) {
+          dock.getRight() > ScreenHelper.width) {
       // The dock takes up the screen width.
       callback && setTimeout(callback);
       return;
@@ -188,8 +188,15 @@ var DockManager = (function() {
       container.classList.add('scrollable');
     }
 
-    cellWidth = numIcons ? dock.getFirstIcon().getWidth() : 0;
-    maxOffsetLeft = windowWidth - numIcons * cellWidth;
+    if (numIcons > 0) {
+      cellWidth = dock.getFirstIcon().getWidth();
+    }
+
+    if (cellWidth === 0) {
+      cellWidth = ScreenHelper.width / maxNumAppInViewPort;
+    }
+
+    maxOffsetLeft = ScreenHelper.width - numIcons * cellWidth;
   }
 
   return {
@@ -218,6 +225,9 @@ var DockManager = (function() {
       if (numIcons <= maxNumAppInViewPort) {
         dock.moveBy(maxOffsetLeft / 2);
       }
+
+      // The dock is always visible.
+      container.removeAttribute('aria-hidden');
     },
 
     onDragStop: function dm_onDragStop(callback) {
@@ -247,6 +257,7 @@ var DockManager = (function() {
      * Update display after removing an app.
      */
     afterRemovingApp: function dm_afterRemovingApp() {
+      var windowWidth = ScreenHelper.width;
       maxOffsetLeft = windowWidth - dock.getNumIcons() * cellWidth;
       var numApps = dock.getNumIcons();
       if (numApps > maxNumAppInViewPort && dock.getRight() >= windowWidth) {

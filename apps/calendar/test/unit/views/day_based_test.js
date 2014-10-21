@@ -1,28 +1,21 @@
-requireLib('querystring.js');
-requireLib('timespan.js');
-requireLib('utils/overlap.js');
-requireLib('utils/ordered_map.js');
-requireLib('templates/day.js');
-requireLib('views/day_based.js');
+define(function(require) {
+'use strict';
 
-suiteGroup('Views.DayBased', function() {
+var Calc = require('calc');
+var DayBased = require('views/day_based');
+var Factory = require('test/support/factory');
+var OrderedMap = require('utils/ordered_map');
+var Overlap = require('utils/overlap');
+var QueryString = require('querystring');
+var Timespan = require('timespan');
+var View = require('view');
 
-  var OrderedMap;
-
-  suiteSetup(function() {
-    OrderedMap = Calendar.Utils.OrderedMap;
-  });
-
+suite('Views.DayBased', function() {
   var subject;
   var app;
   var date = new Date(2012, 1, 5);
   var id = 0;
   var hours;
-
-  function eventHolder() {
-    return { remote: {}, _id: id++ };
-  }
-
   var controller;
   var template;
 
@@ -31,10 +24,7 @@ suiteGroup('Views.DayBased', function() {
     app = testSupport.calendar.app();
     controller = app.timeController;
 
-    subject = new Calendar.Views.DayBased({
-      date: date,
-      app: app
-    });
+    subject = new DayBased({ date: date, app: app });
 
     template = subject.template;
 
@@ -51,15 +41,15 @@ suiteGroup('Views.DayBased', function() {
   });
 
   test('initialization', function() {
-    assert.instanceOf(subject, Calendar.View);
+    assert.instanceOf(subject, View);
     assert.equal(subject.app, app);
-    assert.instanceOf(subject.timespan, Calendar.Timespan);
+    assert.instanceOf(subject.timespan, Timespan);
 
-    var expectedSpan = Calendar.Calc.spanOfDay(date);
+    var expectedSpan = Calc.spanOfDay(date);
     assert.deepEqual(subject.timespan, expectedSpan);
 
     assert.instanceOf(subject.hours, OrderedMap);
-    assert.instanceOf(subject.overlaps, Calendar.Utils.Overlap);
+    assert.instanceOf(subject.overlaps, Overlap);
   });
 
   suite('#_loadRecords', function() {
@@ -67,7 +57,6 @@ suiteGroup('Views.DayBased', function() {
     var addCalledWith;
     var list = [];
     var busytimes = [];
-    var start = new Date();
 
     setup(function() {
       list.length = 0;
@@ -101,11 +90,11 @@ suiteGroup('Views.DayBased', function() {
       addCalledWith = [];
 
       subject.add = function() {
-        addCalledWith.push(arguments);
+        addCalledWith.push(Array.slice(arguments));
       };
 
       controller.findAssociated = function() {
-        requestCalledWith.push(arguments);
+        requestCalledWith.push(Array.slice(arguments));
       };
     });
 
@@ -178,7 +167,7 @@ suiteGroup('Views.DayBased', function() {
 
     test('from clean state', function() {
       assert.equal(subject._changeToken, 0);
-      var day = Calendar.Calc.createDay(startTime);
+      var day = Calc.createDay(startTime);
 
       assert.ok(!subject.element.dataset.date, 'does not have a date');
       subject.changeDate(startTime, true);
@@ -198,7 +187,7 @@ suiteGroup('Views.DayBased', function() {
 
       assert.deepEqual(
         subject.timespan,
-        Calendar.Calc.spanOfDay(day)
+        Calc.spanOfDay(day)
       );
 
       var eventIdx = controller.findTimeObserver(
@@ -240,7 +229,7 @@ suiteGroup('Views.DayBased', function() {
         startDate: start,
         endDate: end
       });
-    };
+    }
 
     var el;
 
@@ -254,7 +243,7 @@ suiteGroup('Views.DayBased', function() {
       subject._assignPosition(busy, el);
 
       assert.equal(el.style.top, '83.3333%', 'top');
-      assert.equal(el.style.height, '50%', 'height');
+      assert.equal(el.style.height, 'calc(50% - 0.1rem)', 'height');
       assert.match(el.className, /\bpartial-hour\b/, 'partial-hour found');
     });
 
@@ -263,7 +252,7 @@ suiteGroup('Views.DayBased', function() {
       subject._assignPosition(busy, el);
 
       assert.ok(!el.style.top, 'no top');
-      assert.equal(el.style.height, '150%', 'height');
+      assert.equal(el.style.height, 'calc(150% - 0.1rem)', 'height');
     });
 
     test('25% minutes into hour for 3.25 hours', function() {
@@ -271,16 +260,16 @@ suiteGroup('Views.DayBased', function() {
       subject._assignPosition(busy, el);
 
       assert.equal(el.style.top, '25%', 'top');
-      assert.equal(el.style.height, '325%', 'height');
+      assert.equal(el.style.height, 'calc(325% - 0.1rem)', 'height');
     });
 
     test('cross the next day', function() {
-      var endDate = new Date(2012, 0, 2, 11, 00);
-      var busy = record(time(23, 00), endDate);
+      var endDate = new Date(2012, 0, 2, 11, 0);
+      var busy = record(time(23, 0), endDate);
       subject._assignPosition(busy, el);
 
       assert.ok(!el.style.top, 'no top');
-      assert.equal(el.style.height, '100%', 'height');
+      assert.equal(el.style.height, 'calc(100% - 0.1rem)', 'height');
     });
   });
 
@@ -309,16 +298,12 @@ suiteGroup('Views.DayBased', function() {
       var hour = subject.hours.get(busytime._id);
       assert.ok(hour, 'has hour record');
 
-      // verify the flag
-      var idx = hour.flags.indexOf(subject.calendarId(busytime));
-      assert.ok(idx !== -1, 'has calendar id flag on hour');
-
       // verify its in the dom
       var elements = hour.element.querySelectorAll(
         '[data-id="' + busytime._id + '"]'
       );
 
-      assert.length(elements, 1);
+      assert.lengthOf(elements, 1);
 
       var record = hour.records.get(id);
       assert.isTrue(record);
@@ -332,11 +317,6 @@ suiteGroup('Views.DayBased', function() {
       var max = 24 - intialHour;
       var curHour = intialHour + 1;
       var selector = '[data-id="' + busytime._id + '"]';
-      var initialElement = subject.element.querySelector(
-        selector
-      );
-
-      var calendarId = subject.calendarId(busytime);
 
       for (; curHour < max; curHour++) {
         subject._createRecord(curHour, busytime, event);
@@ -345,7 +325,6 @@ suiteGroup('Views.DayBased', function() {
         // verify we didn't add another element for this hour
         var eventEl = hour.element.querySelector(selector);
         assert.ok(!eventEl, 'did not add additonal event');
-        assert.include(hour.flags, calendarId);
       }
     });
 
@@ -361,11 +340,10 @@ suiteGroup('Views.DayBased', function() {
       );
 
       assert.ok(eventEl);
-      assert.include(hour.flags, subject.calendarId(busytime));
     });
 
     test('all day events', function() {
-      var type = Calendar.Calc.ALLDAY;
+      var type = Calc.ALLDAY;
 
       event = Factory('event');
       busytime = Factory('busytime');
@@ -376,14 +354,6 @@ suiteGroup('Views.DayBased', function() {
 
       // verify hour
       assert.ok(hour, 'has hour');
-
-      // verify flag
-      assert.ok(hour.flags, 'has flags');
-
-      assert.include(
-        hour.flags, subject.calendarId(busytime),
-        'includes calendar id'
-      );
 
       // verify dom element
       var el = hour.element.querySelector(
@@ -469,38 +439,15 @@ suiteGroup('Views.DayBased', function() {
     });
 
     test('remove hourly records', function() {
-      // calendar one
-      var a = add(1, 'one');
       // calendar to
       var b = add(1, 'two');
       var c = add(1, 'two');
 
       var hour = subject.hours.get(1);
-      var hourElement = hour.element;
-      var classList = hourElement.classList;
-      var calendarId = subject.calendarId(b.busytime);
       var records = hour.records;
 
-      assert.isTrue(classList.contains(calendarId), 'starts with id');
       subject.remove(c.busytime);
-
-      assert.isTrue(
-        classList.contains(calendarId),
-        'does not initially remove'
-      );
-
-
-      //XXX: we want to verify that the class
-      //id is not removed until all records
-      //with the classId are removed.
       subject.remove(b.busytime);
-
-      // now it should be removed as there are
-      // no more calendar-id-1 elements
-      assert.ok(
-        !classList.contains(calendarId),
-        'finally removes'
-      );
 
       assert.isFalse(records.has(b.busytime._id), 'remove b');
       assert.isFalse(records.has(c.busytime._id), 'remove c');
@@ -511,10 +458,11 @@ suiteGroup('Views.DayBased', function() {
   });
 
   suite('#createHour', function() {
-    var group;
     var children;
 
     setup(function() {
+      // hour 0 caused Bug 1048953, so it's important to test it as well
+      subject.createHour(0);
       subject.createHour(5);
       subject.createHour(7);
       subject.createHour(6);
@@ -524,7 +472,6 @@ suiteGroup('Views.DayBased', function() {
 
     function hourHTML(hour) {
       return subject.template.hour.render({
-        displayHour: Calendar.Calc.formatHour(hour),
         hour: hour
       });
     }
@@ -550,31 +497,48 @@ suiteGroup('Views.DayBased', function() {
     test('allday', function() {
       subject.createHour('allday');
       var parent = subject.allDayElement;
-      assert.length(parent.children, 1);
+      assert.lengthOf(parent.children, 1);
     });
 
     test('first', function() {
-      hasHour(5);
+      hasHour(0);
 
       var el = children[0];
       assert.ok(el.outerHTML);
-      assert.include(el.outerHTML, hourHTML(5));
+      assert.include(el.outerHTML, hourHTML(0));
+      // this checks bug 1048953!!
+      assert.include(el.outerHTML, 'hour-0');
+      assert.include(el.outerHTML, 'data-hour="0"');
     });
 
-    test('middle', function() {
-      hasHour(6);
+    test('middle1', function() {
+      hasHour(5);
 
       var el = children[1];
       assert.ok(el.outerHTML);
+      assert.include(el.outerHTML, hourHTML(5));
+      assert.include(el.outerHTML, 'hour-5');
+      assert.include(el.outerHTML, 'data-hour="5"');
+    });
+
+    test('middle2', function() {
+      hasHour(6);
+
+      var el = children[2];
+      assert.ok(el.outerHTML);
       assert.include(el.outerHTML, hourHTML(6));
+      assert.include(el.outerHTML, 'hour-6');
+      assert.include(el.outerHTML, 'data-hour="6"');
     });
 
     test('last', function() {
       hasHour(7);
 
-      var el = children[2];
+      var el = children[3];
       assert.ok(el.outerHTML);
       assert.include(el.outerHTML, hourHTML(7));
+      assert.include(el.outerHTML, 'hour-7');
+      assert.include(el.outerHTML, 'data-hour="7"');
     });
 
   });
@@ -644,14 +608,14 @@ suiteGroup('Views.DayBased', function() {
       list.push(item[1].element);
     });
 
-    var displayedHours = Calendar.Calc.hoursOfOccurance(
+    var displayedHours = Calc.hoursOfOccurence(
       subject.date,
       busytime.startDate,
       busytime.endDate
     );
 
     displayedHours.forEach(subject.removeHour, subject);
-    assert.length(subject.hours, 0);
+    assert.lengthOf(subject.hours, 0);
 
     list.forEach(function(el) {
       assert.ok(!el.parentNode, 'removed element');
@@ -662,17 +626,14 @@ suiteGroup('Views.DayBased', function() {
     var date = new Date(2012, 1, 1);
     var calledWith;
 
-    var subject = new Calendar.Views.DayBased({
-      app: app,
-      date: date
-    });
+    var subject = new DayBased({ app: app, date: date });
 
     // stub out the db interaction...
     subject._loadRecords = function() {};
 
     subject.changeDate = function() {
       calledWith = arguments;
-      Calendar.Views.DayBased.prototype.changeDate.apply(
+      DayBased.prototype.changeDate.apply(
         this,
         arguments
       );
@@ -693,15 +654,22 @@ suiteGroup('Views.DayBased', function() {
 
     assert.include(
       subject.allDayElement.innerHTML,
-      Calendar.Calc.formatHour('allday'),
+      'data-l10n-id="hour-allday"',
       'should have all day'
     );
 
+    var today = new Date();
     for (; hour < 24; hour++) {
       assert.include(
         html,
-        Calendar.Calc.formatHour(hour),
+        hour,
         'should have rendered:' + hour
+      );
+      today.setHours(hour, 0, 0, 0);
+      assert.include(
+        html,
+        'data-date="' + today + '"',
+        'should have rendered:' + hour + ' locale data'
       );
     }
   });
@@ -746,7 +714,7 @@ suiteGroup('Views.DayBased', function() {
       var expectation =
         this.sinon.mock(subject.app)
           .expects('go')
-          .withArgs('/event/add/?' + Calendar.QueryString.stringify({
+          .withArgs('/event/add/?' + QueryString.stringify({
             isAllDay: true,
             startDate: startDate.toString(),
             endDate: endDate.toString()
@@ -755,7 +723,7 @@ suiteGroup('Views.DayBased', function() {
 
       subject._onHourClick({}, {
         getAttribute: function(key) {
-          return Calendar.Calc.ALLDAY;
+          return Calc.ALLDAY;
         }
       });
 
@@ -771,7 +739,7 @@ suiteGroup('Views.DayBased', function() {
       var expectation =
         this.sinon.mock(subject.app)
           .expects('go')
-          .withArgs('/event/add/?' + Calendar.QueryString.stringify({
+          .withArgs('/event/add/?' + QueryString.stringify({
             startDate: startDate.toString(),
             endDate: endDate.toString()
           }));
@@ -847,4 +815,66 @@ suiteGroup('Views.DayBased', function() {
       assert.equal(observer, -1, 'removes observer');
     });
   });
+
+  suite('#animatedScroll', function() {
+    var dayEventsWrapper;
+    var maxScrollTop;
+
+    setup(function() {
+      var div = document.createElement('div');
+      div.id = 'test';
+      div.innerHTML = [
+        '<div class="day-events-wrapper"',
+          'style="height: 20px; overflow-y: scroll">',
+          '<div class="day-events">',
+            '<div class="hour-0">0AM</div>',
+            '<div class="hour-8">8AM</div>',
+            '<div class="hour-16">4PM</div>',
+            '<div class="hour-23">11PM</div>',
+          '</div>',
+        '</div>'
+      ].join('');
+      document.body.appendChild(div);
+      subject._element = div;
+
+      dayEventsWrapper = subject.element.querySelector('.day-events-wrapper');
+      maxScrollTop =
+        dayEventsWrapper.scrollHeight - dayEventsWrapper.clientHeight;
+    });
+
+    teardown(function() {
+      var el = document.querySelector('#test');
+      el.parentNode.removeChild(el);
+    });
+
+    test('scroll to bottom from top', function(done) {
+      dayEventsWrapper.scrollTop = 0;
+      subject.animatedScroll(maxScrollTop);
+
+      poll(function() {
+        return dayEventsWrapper.scrollTop === maxScrollTop;
+      }, done);
+    });
+
+    test('scroll to top from bottom', function(done) {
+      dayEventsWrapper.scrollTop = maxScrollTop;
+      subject.animatedScroll(0);
+
+      poll(function() {
+        return dayEventsWrapper.scrollTop === 0;
+      }, done);
+    });
+
+    function poll(check, done) {
+      setTimeout(function() {
+        if (check()) {
+          done();
+        } else {
+          poll(check, done);
+        }
+      }, 10);
+    }
+  });
+});
+
 });

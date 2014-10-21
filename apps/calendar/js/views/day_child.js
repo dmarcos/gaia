@@ -1,53 +1,76 @@
-Calendar.ns('Views').DayChild = (function() {
+define(function(require, exports, module) {
+'use strict';
 
-  var template = Calendar.Templates.Day;
-  var OrderedMap = Calendar.Utils.OrderedMap;
+var CurrentTime = require('./current_time');
+var Parent = require('./day_based');
+var template = require('templates/day');
 
-  function Day(options) {
-    Calendar.Views.DayBased.apply(this, arguments);
+function Day(options) {
+  Parent.apply(this, arguments);
 
-    this.controller = this.app.timeController;
-    this.hourEventsSelector = template.hourEventsSelector;
-  }
+  this.controller = this.app.timeController;
+  this.hourEventsSelector = template.hourEventsSelector;
+}
+module.exports = Day;
 
-  Day.prototype = {
+Day.prototype = {
+  __proto__: Parent.prototype,
 
-    __proto__: Calendar.Views.DayBased.prototype,
+  create: function() {
+    Parent.prototype.create.apply(this, arguments);
 
-    _renderEvent: function(busytime, event) {
-      var remote = event.remote;
-      var attendees;
-      var classes;
+    var container = this.element
+      .querySelector('.day-events-wrapper > .day-events');
+    this._currentTime = new CurrentTime({
+      container: container,
+      timespan: this.timespan
+    });
+  },
 
-      if (event.remote.alarms && event.remote.alarms.length) {
-        classes = 'has-alarms';
-      }
+  activate: function() {
+    Parent.prototype.activate.apply(this, arguments);
 
-      if (event.remote.attendees) {
-        attendees = this._renderAttendees(
-          event.remote.attendees
-        );
-      }
+    this._currentTime.activate();
+  },
 
-      return template.event.render({
-        classes: classes,
-        busytimeId: busytime._id,
-        calendarId: event.calendarId,
-        title: event.remote.title,
-        location: event.remote.location,
-        attendees: attendees
-      });
-    },
+  deactivate: function() {
+    Parent.prototype.deactivate.apply(this, arguments);
 
-    _renderAttendees: function(list) {
-      if (!(list instanceof Array)) {
-        list = [list];
-      }
+    this._currentTime.deactivate();
+  },
 
-      return template.attendee.renderEach(list).join(',');
+  destroy: function() {
+    Parent.prototype.destroy.apply(this, arguments);
+
+    this._currentTime.destroy();
+  },
+
+  _renderEvent: function(busytime, event) {
+    var attendees;
+
+    if (event.remote.attendees) {
+      attendees = this._renderAttendees(
+        event.remote.attendees
+      );
     }
-  };
 
-  return Day;
+    return template.event.render({
+      hasAlarm: !!(event.remote.alarms && event.remote.alarms.length),
+      busytimeId: busytime._id,
+      calendarId: event.calendarId,
+      title: event.remote.title,
+      location: event.remote.location,
+      attendees: attendees
+    });
+  },
 
-}(this));
+  _renderAttendees: function(list) {
+    if (!(list instanceof Array)) {
+      list = [list];
+    }
+
+    return template.attendee.renderEach(list).join(',');
+  }
+};
+
+});

@@ -1,5 +1,9 @@
-Calendar.ns('Service').IcalRecurExpansion = {
+define(function(require, exports, module) {
+'use strict';
 
+var ICAL = require('ext/ical');
+
+module.exports = {
   /**
    * Maximum iterations must be > 0 && < Infinity.
    * Lower values are probably better as we can show progress
@@ -48,10 +52,7 @@ Calendar.ns('Service').IcalRecurExpansion = {
     try {
       iter = this._resumeIteration(event, iterator, each, min, max);
     } catch (e) {
-      console.log(
-        'Iteration Error: ' +
-        e.toString()
-      );
+      console.error('Iteration Error: ' + e.toString());
       iter = this._beginIteration(event, each, min, max);
     }
 
@@ -82,8 +83,9 @@ Calendar.ns('Service').IcalRecurExpansion = {
     do {
       current = iterator.next();
 
-      if (!current)
+      if (!current) {
         break;
+      }
 
       if (!min || current.compare(min) > 0) {
         // sent should be inside the loop to guard against
@@ -95,3 +97,5 @@ Calendar.ns('Service').IcalRecurExpansion = {
     } while (!this._isDone(current, sent, max));
   }
 };
+
+});

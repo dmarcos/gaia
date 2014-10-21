@@ -3,113 +3,97 @@
 
 'use strict';
 
-/*global Utils, ActivityHandler, ThreadUI, ThreadListUI, MessageManager,
-         Settings, LazyLoader, TimeHeaders */
+/*global ActivityHandler, ThreadUI, ThreadListUI, MessageManager,
+         Settings, LazyLoader, TimeHeaders, Information, SilentSms,
+         PerformanceTestingHelper, App, Navigation, EventDispatcher,
+         LocalizationHelper,
+         InterInstanceEventDispatcher
+*/
 
-var lazyLoadFiles = [
-  'shared/js/async_storage.js',
-  'shared/js/l10n_date.js',
-  'shared/js/notification_helper.js',
-  'shared/js/gesture_detector.js',
-  'shared/js/settings_url.js',
-  'shared/js/template.js',
-  'shared/js/mime_mapper.js',
-  'js/dialog.js',
-  'js/blacklist.js',
-  'js/contacts.js',
-  'js/recipients.js',
-  'js/threads.js',
-  'js/message_manager.js',
-  'js/attachment.js',
-  'js/attachment_menu.js',
-  'js/thread_list_ui.js',
-  'js/thread_ui.js',
-  'js/compose.js',
-  'js/waiting_screen.js',
-  'js/utils.js',
-  'js/fixed_header.js',
-  'js/time_headers.js',
-  'js/activity_picker.js',
-  'js/wbmp.js',
-  'js/smil.js',
-  'js/link_helper.js',
-  'js/action_menu.js',
-  'js/link_action_handler.js',
-  'js/settings.js',
-  'js/notify.js',
-  'js/activity_handler.js',
-  'shared/style/input_areas.css',
-  'shared/style/switches.css',
-  'shared/style/confirm.css',
-  'shared/style_unstable/progress_activity.css',
-  'shared/style/action_menu.css',
-  'style/notification.css'
-];
+var Startup = {
+  _lazyLoadScripts: [
+    '/shared/js/settings_listener.js',
+    '/shared/js/sim_picker.js',
+    '/shared/js/mime_mapper.js',
+    '/shared/js/notification_helper.js',
+    '/shared/js/option_menu.js',
+    '/shared/js/gesture_detector.js',
+    '/shared/js/settings_url.js',
+    '/shared/js/mobile_operator.js',
+    '/shared/js/multi_sim_action_button.js',
+    '/shared/js/image_utils.js',
+    'js/waiting_screen.js',
+    'js/errors.js',
+    'js/dialog.js',
+    'js/error_dialog.js',
+    'js/link_helper.js',
+    'js/link_action_handler.js',
+    'js/contact_renderer.js',
+    'js/activity_picker.js',
+    'js/information.js',
+    'js/shared_components.js',
+    'js/task_runner.js',
+    'js/silent_sms.js',
+    'js/recipients.js',
+    'js/attachment.js',
+    'js/attachment_renderer.js',
+    'js/attachment_menu.js',
+    'js/thread_ui.js',
+    'js/subject_composer.js',
+    'js/compose.js',
+    'js/wbmp.js',
+    'js/smil.js',
+    'js/notify.js',
+    'js/activity_handler.js',
+    'js/localization_helper.js'
+  ],
 
-window.addEventListener('localized', function localized() {
-  // This will be called during startup, and any time the languange is changed
+  _lazyLoadInit: function() {
+    LazyLoader.load(this._lazyLoadScripts, function() {
+      LocalizationHelper.init();
 
-  // Set the 'lang' and 'dir' attributes to <html> when the page is translated
-  document.documentElement.lang = navigator.mozL10n.language.code;
-  document.documentElement.dir = navigator.mozL10n.language.direction;
+      InterInstanceEventDispatcher.connect();
 
-  // Look for any iframes and localize them - mozL10n doesn't do this
-  Array.prototype.forEach.call(document.querySelectorAll('iframe'),
-    function forEachIframe(iframe) {
-      var doc = iframe.contentDocument;
-      doc.documentElement.lang = navigator.mozL10n.language.code;
-      doc.documentElement.dir = navigator.mozL10n.language.direction;
-      navigator.mozL10n.translate(doc.body);
-    }
-  );
+      // dispatch moz-content-interactive when all the modules initialized
+      SilentSms.init();
+      ActivityHandler.init();
 
-  // Also look for not-downloaded-message and re-translate the date message.
-  // More complex because the argument to the l10n string is itself a formatted
-  // date using l10n.
-  Array.prototype.forEach.call(
-    document.getElementsByClassName('not-downloaded-message'),
-    function(element) {
-      if (!(element.dataset.l10nArgs && element.dataset.l10nId &&
-            element.dataset.l10nDate)) {
-        return;
-      }
-      var args = JSON.parse(element.dataset.l10nArgs);
-      var format = navigator.mozL10n.get(element.dataset.l10nDateFormat);
-      var date = new Date(element.dataset.l10nDate);
-      args.date = Utils.date.format.localeFormat(date, format);
+      // Init UI Managers
+      TimeHeaders.init();
+      ThreadUI.init();
+      Information.initDefaultViews();
 
-      navigator.mozL10n.localize(element, element.dataset.l10nId, args);
-    }
-  );
+      // Dispatch post-initialize event for continuing the pending action
+      Startup.emit('post-initialize');
+      window.dispatchEvent(new CustomEvent('moz-content-interactive'));
 
-});
+      // Fetch mmsSizeLimitation and max concat
+      Settings.init();
 
-window.addEventListener('load', function() {
-  function initUIApp() {
-    TimeHeaders.init();
-    ActivityHandler.init();
-    // Init UI Managers
-    ThreadUI.init();
-    ThreadListUI.init();
-    // We render the threads
-    MessageManager.getThreads(ThreadListUI.renderThreads);
-    // Fetch mmsSizeLimitation
-    Settings.init();
-  }
-
-  navigator.mozL10n.ready(function waitLocalizedForLoading() {
-    LazyLoader.load(lazyLoadFiles, function() {
-      if (!navigator.mozMobileMessage) {
-        var mocks = [
-          'js/desktop-only/mobilemessage.js',
-          'js/desktop-only/contacts.js'
-        ];
-        LazyLoader.load(mocks, function() {
-          MessageManager.init(initUIApp);
-        });
-        return;
-      }
-      MessageManager.init(initUIApp);
+      PerformanceTestingHelper.dispatch('objects-init-finished');
     });
-  });
-});
+  },
+
+  init: function() {
+    var loaded = function() {
+      window.removeEventListener('DOMContentLoaded', loaded);
+      window.dispatchEvent(new CustomEvent('moz-chrome-dom-loaded'));
+
+      MessageManager.init();
+      Navigation.init();
+      ThreadListUI.init();
+      ThreadListUI.renderThreads(this._lazyLoadInit.bind(this), function() {
+        window.dispatchEvent(new CustomEvent('moz-app-loaded'));
+        App.setReady();
+      });
+
+      // dispatch chrome-interactive when thread list related modules
+      // initialized
+      window.dispatchEvent(new CustomEvent('moz-chrome-interactive'));
+    }.bind(this);
+
+    window.addEventListener('DOMContentLoaded', loaded);
+  }
+};
+
+EventDispatcher.mixin(Startup).init();

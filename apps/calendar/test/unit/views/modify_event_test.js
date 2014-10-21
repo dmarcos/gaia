@@ -1,11 +1,24 @@
-requireLib('provider/abstract.js');
-requireLib('template.js');
-requireLib('querystring.js');
-requireElements('calendar/elements/modify_event.html');
-requireElements('calendar/elements/show_event.html');
+/* global suiteTemplate */
+define(function(require) {
+'use strict';
 
-suiteGroup('Views.ModifyEvent', function() {
+var CalendarError = require('error');
+var EventBase = require('views/event_base');
+var Factory = require('test/support/factory');
+var InputParser = require('shared/input_parser');
+var ModifyEvent = require('views/modify_event');
+var QueryString = require('querystring');
+var Template = require('template');
+var View = require('view');
+var nextTick = require('next_tick');
+var providerFactory = require('provider/provider_factory');
+
+require('dom!modify_event');
+require('dom!show_event');
+
+suite('views/modify_event', function() {
   /** disabled because of intermittent failures see bug 917537 */
+  /* jshint -W027 */
   return;
 
   var subject;
@@ -26,17 +39,14 @@ suiteGroup('Views.ModifyEvent', function() {
     return newDate;
   }
 
-  function hasClass(value) {
-    return subject.element.classList.contains(value);
-  }
-
   function getEl(name) {
     return subject.getEl(name);
   }
 
   function setFieldValue(name, value) {
     var field = getEl(name);
-    return field.value = value;
+    field.value = value;
+    return field.value;
   }
 
   function fieldValue(name) {
@@ -45,38 +55,22 @@ suiteGroup('Views.ModifyEvent', function() {
   }
 
   function escapeHTML(html) {
-    var template = new Calendar.Template(function() {
+    var template = new Template(function() {
       return this.h('value');
     });
 
     return template.render({ value: html });
   }
 
-  function primaryIsEnabled() {
-    assert.ok(
-      !subject.primaryButton.hasAttribute('aria-disabled'),
-      'button is enabled'
-    );
-  }
-
-  function primaryIsDisabled() {
-    assert.ok(
-      subject.primaryButton.hasAttribute('aria-disabled'),
-      'button is disabled'
-    );
-  }
-
   var triggerEvent;
-  var InputParser;
   suiteSetup(function() {
     triggerEvent = testSupport.calendar.triggerEvent;
-    InputParser = Calendar.Utils.InputParser;
   });
 
   var realGo;
 
   teardown(function() {
-    Calendar.App.go = realGo;
+    app.go = realGo;
   });
 
   suiteTemplate('show-event', {
@@ -95,14 +89,14 @@ suiteGroup('Views.ModifyEvent', function() {
     accountStore = app.store('Account');
     calendarStore = app.store('Calendar');
     settingStore = app.store('Setting');
-    provider = app.provider('Mock');
+    provider = providerFactory.get('Mock');
 
     fmt = navigator.mozL10n.DateTimeFormat();
 
     controller = app.timeController;
 
     app.db.open(done);
-    subject = new Calendar.Views.ModifyEvent({
+    subject = new ModifyEvent({
       app: app
     });
   });
@@ -147,8 +141,8 @@ suiteGroup('Views.ModifyEvent', function() {
   });
 
   test('initialization', function() {
-    assert.instanceOf(subject, Calendar.View);
-    assert.instanceOf(subject, Calendar.Views.EventBase);
+    assert.instanceOf(subject, View);
+    assert.instanceOf(subject, EventBase);
     assert.equal(subject._changeToken, 0);
 
     assert.ok(subject._els, 'has fields');
@@ -214,20 +208,19 @@ suiteGroup('Views.ModifyEvent', function() {
         currentCalendar: calendar.remote.name
       };
 
-      var key;
-
       if (overrides) {
-        for (key in overrides) {
+        for (var key in overrides) {
           expected[key] = overrides[key];
         }
       }
 
       function verify() {
+        /*jshint validthis:true */
         if (subject.provider.canCreateEvent) {
           expected.calendarId = this.event.calendarId;
         }
 
-        for (key in expected) {
+        for (var key in expected) {
           if (expected.hasOwnProperty(key)) {
             assert.equal(
               fieldValue(key),
@@ -240,7 +233,7 @@ suiteGroup('Views.ModifyEvent', function() {
         var curCal = getEl('currentCalendar');
         assert.isTrue(curCal.readOnly, 'current calendar readonly');
 
-        var expected = escapeHTML(event.remote.description);
+        expected = escapeHTML(event.remote.description);
 
         assert.equal(
           getEl('description').innerHTML,
@@ -353,7 +346,7 @@ suiteGroup('Views.ModifyEvent', function() {
     });
 
 
-    // this allows to test _updateDateTimeLocale()
+    // this allows to test _setupDateTimeSync() - before user changes value
     test('date/time are displayed according to the locale', function(done) {
       remote.startDate = new Date(2012, 11, 30, 1, 2);
       remote.endDate = new Date(2012, 11, 31, 13, 4);
@@ -374,6 +367,50 @@ suiteGroup('Views.ModifyEvent', function() {
         });
       });
     });
+
+    suite('#_updateDateLocaleOnInput', function() {
+      var clock;
+      var element;
+      var evt;
+
+      setup(function() {
+        element = {};
+        evt = { target: {} };
+      });
+
+      teardown(function() {
+        clock.restore();
+      });
+
+      test('should localize date', function() {
+        var baseTimestamp = (new Date(2014, 0, 20).getTime());
+        clock = sinon.useFakeTimers(baseTimestamp);
+        evt.target.value = '2014-01-21';
+        subject._updateDateLocaleOnInput(element, evt);
+        assert.equal(element.textContent, '01/21/2014');
+      });
+
+      test('display proper month - Bug 966516', function() {
+        // it's really important to mock the Date to be able to reproduce the
+        // Bug 966516, since it only happened if system date was a day higher
+        // than next month end date (eg. Jan 31 and you pick Feb 28)
+        var baseTimestamp = (new Date(2014, 0, 31, 2, 30)).getTime();
+        clock = sinon.useFakeTimers(baseTimestamp);
+        evt.target.value = '2014-02-28';
+        subject._updateDateLocaleOnInput(element, evt);
+        assert.equal(element.textContent, '02/28/2014');
+      });
+    });
+
+    suite('#_updateTimeLocaleOnInput', function() {
+      test('should localize time', function() {
+        var element = {};
+        var evt = { target: { value: '22:31' } };
+        subject._updateTimeLocaleOnInput(element, evt);
+        assert.equal(element.textContent, '10:31 PM');
+      });
+    });
+
   });
 
   suite('#_overrideEvent', function(done) {
@@ -389,12 +426,13 @@ suiteGroup('Views.ModifyEvent', function() {
         endDate: endDate.toString()
       };
 
-      search = '?' + Calendar.QueryString.stringify(queryString);
+      search = '?' + QueryString.stringify(queryString);
       subject.useModel(this.busytime, this.event, done);
     });
 
     test('should set startDate and endDate on the event', function() {
-      assert.notEqual(subject.event.startDate.getTime(), startDate.getTime());
+      assert.notEqual(subject.event.startDate.getTime(),
+                      startDate.getTime());
       assert.notEqual(subject.event.endDate.getTime(), endDate.getTime());
       subject._overrideEvent(search);
       assert.equal(subject.event.startDate.getTime(), startDate.getTime());
@@ -476,8 +514,6 @@ suiteGroup('Views.ModifyEvent', function() {
       setFieldValue('endTime', '01:07:00');
       setFieldValue('startTime', '01:08:00');
 
-      var props = subject.formData();
-
       assert.hasProperties(subject.formData(), {
         startDate: new Date(2012, 0, 1),
         endDate: new Date(2012, 0, 3)
@@ -535,7 +571,6 @@ suiteGroup('Views.ModifyEvent', function() {
 
   suite('#deleteRecord', function() {
     var calledWith;
-    var realGo;
 
     setup(function(done) {
       calledWith = null;
@@ -561,7 +596,7 @@ suiteGroup('Views.ModifyEvent', function() {
     });
 
     test('with an error', function(done) {
-      var err = new Calendar.Error.Authentication();
+      var err = new CalendarError.Authentication();
       subject.showErrors = function(givenErr) {
         done(function() {
           assert.equal(err, givenErr);
@@ -569,7 +604,7 @@ suiteGroup('Views.ModifyEvent', function() {
       };
 
       provider.deleteEvent = function(model, callback) {
-        Calendar.nextTick(callback.bind(null, err));
+        nextTick(callback.bind(null, err));
       };
 
       subject.deleteRecord();
@@ -606,8 +641,7 @@ suiteGroup('Views.ModifyEvent', function() {
 
     function haltsOnError(providerMethod) {
       test('does not persist record when provider fails', function(done) {
-        var dispatchesError;
-        var err = new Calendar.Error.Authentication();
+        var err = new CalendarError.Authentication();
         subject.showErrors = function(gotErr) {
           done(function() {
             assert.equal(err, gotErr, 'dispatches error');
@@ -617,20 +651,19 @@ suiteGroup('Views.ModifyEvent', function() {
         provider[providerMethod] = function() {
           var args = Array.slice(arguments);
           var cb = args.pop();
-          Calendar.nextTick(cb.bind(null, err));
+          nextTick(cb.bind(null, err));
         };
 
         subject.primary();
       });
 
-      test('does not invoke provider when validations fails', function(done) {
+      test('does not invoke provider when validations fails',
+        function(done) {
         provider[providerMethod] = function() {
           done(new Error('should not persist record.'));
         };
 
-        var event = subject.event;
         var errors = [new Error('epic fail')];
-        var displayedErrors;
 
         subject.showErrors = function(givenErrs) {
           done(function() {
@@ -744,7 +777,7 @@ suiteGroup('Views.ModifyEvent', function() {
   });
 
   suite('calendar id handling', function() {
-    var accounts = testSupport.calendar.dbFixtures(
+    testSupport.calendar.dbFixtures(
       'account',
       'Account', {
         one: { _id: 55, providerType: 'Mock' }
@@ -1004,7 +1037,8 @@ suiteGroup('Views.ModifyEvent', function() {
         } else {
           defaultAlarmKey = 'standardAlarmDefault';
         }
-        settingStore.set(defaultAlarmKey, defaultValue, function(err, value) {
+        settingStore.set(defaultAlarmKey, defaultValue,
+          function(err, value) {
           provider.createEvent = function(event, callback) {
             var data = subject.formData();
 
@@ -1057,7 +1091,8 @@ suiteGroup('Views.ModifyEvent', function() {
       testDefaultAlarms(isAllDay, defaultValue, done);
     });
 
-    test('Bug 898242 - when allday alarm default is not none', function(done) {
+    test('Bug 898242 - when allday alarm default is not none',
+      function(done) {
       var isAllDay = true;
       var defaultValue = morning;
       testDefaultAlarms(isAllDay, defaultValue, done);
@@ -1121,7 +1156,6 @@ suiteGroup('Views.ModifyEvent', function() {
       });
 
       test('when start & end are same dates (all day)', function() {
-        var model = subject.event;
         var date = new Date(2012, 0, 1);
         var value = InputParser.exportDate(date);
 
@@ -1169,5 +1203,6 @@ suiteGroup('Views.ModifyEvent', function() {
       };
     });
   });
+});
 
 });

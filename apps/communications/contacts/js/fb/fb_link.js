@@ -1,5 +1,8 @@
 'use strict';
 
+/* global Curtain, FacebookConnector, ImageLoader, Normalizer, utils,
+   ImportStatusData, oauth2 */
+
 var fb = window.fb || {};
 
 if (!fb.link) {
@@ -31,14 +34,20 @@ if (!fb.link) {
     ];
 
     // Conditions
-    var MAIL_COND = ['strpos(email, ' , "'", null, "'", ') >= 0'];
-    var CELL_COND = ['strpos(cell, ' , "'", null, "'", ') >= 0'];
+    var MAIL_COND, CELL_COND;
+    /* jshint ignore:start */
+    MAIL_COND = ['strpos(email, ' , "'", null, "'", ') >= 0'];
+    CELL_COND = ['strpos(cell, ' , "'", null, "'", ') >= 0'];
+    /* jshint ignore:end */
 
     var ALL_QUERY = ['SELECT uid, name, last_name, first_name,',
       ' middle_name, email from user ',
       ' WHERE uid IN (SELECT uid1 FROM friend WHERE uid2=me()) ',
       ' ORDER BY name'
     ];
+
+    var COUNT_QUERY = 'SELECT uid FROM user WHERE uid IN ' +
+                      '(SELECT uid1 FROM friend WHERE uid2=me())';
 
     var SEARCH_ACCENTS_FIELDS = {
       'last_name': 'familyName',
@@ -55,11 +64,17 @@ if (!fb.link) {
     var currentNetworkRequest = null;
     // State can be proposal or view All
     var state;
-    var _ = navigator.mozL10n.get;
     var imgLoader;
 
     // Only needed for testing purposes
     var completedCb;
+
+    function notifyParent(message) {
+      parent.postMessage({
+        type: message.type || '',
+        data: message.data || ''
+      }, fb.CONTACTS_APP_ORIGIN);
+    }
 
     // Builds the first query for finding a contact to be linked to
     function buildQuery(contact) {
@@ -119,21 +134,62 @@ if (!fb.link) {
           doGetRemoteProposal(acc_tk, cdata, query);
         }
         else {
-          throw ('FB: Contact to be linked not found: ', cid);
+          throw new Error(
+                  'FB: Contact to be linked not found in mozContacts: ' + cid);
         }
       };
-      req.onerror = function() {
-        throw ('FB: Error while retrieving contact data: ', cid);
+      req.onerror = function(e) {
+        window.console.error('FB: Error while retrieving contact data: ', cid);
+        throw e;
       };
     };
 
     function getRemoteProposalAll(acc_tk) {
       numQueries++;
-      doGetRemoteProposal(acc_tk, null, ALL_QUERY.join(''));
+      doGetRemoteProposal(acc_tk, null, ALL_QUERY.join(''), true);
+    }
+
+    // This function deals with the response for a proposal
+    // It takes care whether a response with the number of friends is present
+    // and updates the cache accordingly
+    function proposalReadyMultiple(done, error, response) {
+      // If there is an error we just pass it upstream
+      if (response.error) {
+        done(response);
+        return;
+      } else if (!Array.isArray(response.data)) {
+        error({
+          name: 'QueryResponseError'
+        });
+        return;
+      }
+
+      var friendList, totalFriends;
+      if (response.data.length > 0 &&
+          Array.isArray(response.data[0].fql_result_set)) {
+        friendList = response.data[0].fql_result_set;
+        if (response.data[1] &&
+            Array.isArray(response.data[1].fql_result_set)) {
+          totalFriends = response.data[1].fql_result_set.length;
+        }
+      }
+      else {
+        friendList = response.data;
+        totalFriends = friendList.length;
+      }
+
+      if (typeof totalFriends !== 'undefined') {
+        fb.utils.setCachedNumFriends(totalFriends);
+      }
+
+      done({
+        data: friendList
+      });
     }
 
     // Performs all the work to obtain the remote proposal
-    function doGetRemoteProposal(acc_tk, contactData, query) {
+    // the "isAll" parameter indicates that the query will get all friends
+    function doGetRemoteProposal(acc_tk, contactData, query, isAll) {
       /*
         Phone.lookup was analysed but we were not happy about how it worked
 
@@ -144,34 +200,35 @@ if (!fb.link) {
       var sentries = JSON.stringify(entries);
 
       */
+      var theQuery = query;
+      var callback = proposalReadyMultiple.bind(null, fb.link.proposalReady,
+                                              fb.link.errorHandler);
+      // If the query is not going to provide a full list of friends
+      // We count all in order to refresh the total number of friends
+      if (!isAll) {
+        theQuery = JSON.stringify({
+          query1: query,
+          query2: COUNT_QUERY
+        });
+      }
+
       state = 'proposal';
-      currentNetworkRequest = fb.utils.runQuery(query, {
-        success: fb.link.proposalReady,
+      currentNetworkRequest = fb.utils.runQuery(theQuery, {
+        success: callback,
         error: fb.link.errorHandler,
         timeout: fb.link.timeoutHandler
       }, acc_tk);
     }
 
     // Invoked when remoteAll is canceled
-    function cancelCb(notifyParent) {
+    function cancelCb(shouldNotifyParent) {
       if (currentNetworkRequest) {
         currentNetworkRequest.cancel();
         currentNetworkRequest = null;
       }
 
-      Curtain.hide();
-
-      if (notifyParent) {
-        parent.postMessage({
-            type: 'abort',
-            data: ''
-        }, fb.CONTACTS_APP_ORIGIN);
-      }
-    }
-
-    // Invoked when timeout or error and the user cancels all
-    function closeCb() {
-      Curtain.hide();
+      Curtain.hide(shouldNotifyParent ? notifyParent.bind(
+        null, {type: 'abort'}) : null);
     }
 
     // Obtains a proposal with all friends
@@ -227,7 +284,7 @@ if (!fb.link) {
           if (!item.email) {
             item.email = '';
           }
-          var box = importUtils.getPreferredPictureBox();
+          var box = utils.misc.getPreferredPictureBox();
           item.picwidth = box.width;
           item.picheight = box.height;
 
@@ -271,7 +328,7 @@ if (!fb.link) {
             numFriendsProposed = currentRecommendation.length;
           }
         } else {
-          viewButton.textContent = _('viewAll');
+          viewButton.setAttribute('data-l10n-id', 'viewAll');
           viewButton.onclick = UI.viewAllFriends;
         }
 
@@ -291,9 +348,12 @@ if (!fb.link) {
             var data = e.data;
             if (data && data.type === 'dom_transition_end') {
               window.removeEventListener('message', linkOnViewPort);
-              utils.status.show(_('linkProposal', {
-                numFriends: numFriendsProposed
-              }));
+              utils.status.show({
+                id: 'linkProposal',
+                args: {
+                  numFriends: numFriendsProposed
+                }
+              });
             }
           });
         });
@@ -424,7 +484,7 @@ if (!fb.link) {
 
     link.friendsReady = function(response) {
       if (typeof response.error === 'undefined' && response.data) {
-        viewButton.textContent = _('viewRecommend');
+        viewButton.setAttribute('data-l10n-id', 'viewRecommend');
         viewButton.onclick = UI.viewRecommended;
 
         allFriends = response;
@@ -479,7 +539,7 @@ if (!fb.link) {
       setCurtainHandlers();
       clearList();
       imgLoader = new ImageLoader('#mainContent',
-                                  "li:not([data-uuid='#uid#'])");
+                                  'li:not([data-uuid="#uid#"])');
 
       if (!acc_tk) {
         oauth2.getAccessToken(function proposal_new_token(new_acc_tk) {
@@ -508,16 +568,14 @@ if (!fb.link) {
     }
 
     function handleTokenError() {
-      Curtain.hide();
+      Curtain.hide(notifyParent.bind(null, {
+        type: 'token_error'
+      }));
       var cb = function() {
         allFriends = null;
         link.start(contactid);
-        parent.postMessage({
-          type: 'token_error',
-          data: ''
-        }, fb.CONTACTS_APP_ORIGIN);
       };
-      window.asyncStorage.removeItem(fb.utils.TOKEN_DATA_KEY, cb);
+      ImportStatusData.remove(fb.utils.TOKEN_DATA_KEY).then(cb);
     }
 
     UI.selected = function(event) {
@@ -531,11 +589,12 @@ if (!fb.link) {
       req.onsuccess = function() {
         if (req.result) {
           window.setTimeout(function delay() {
-            Curtain.hide(function hide() {
-              notifyParent({
+            Curtain.hide(notifyParent.bind(null, {
+              type: 'item_selected',
+              data: {
                 uid: friendUidToLink
-              });
-            });
+              }
+            }));
           }, 1000);
         }
         else {
@@ -543,9 +602,10 @@ if (!fb.link) {
           var callbacks = { };
 
           callbacks.success = function(data) {
-            Curtain.hide(function() {
-              notifyParent(data);
-            });
+            Curtain.hide(notifyParent.bind(null, {
+              type: 'item_selected',
+              data: data
+            }));
           };
 
           callbacks.error = function(e) {
@@ -566,6 +626,7 @@ if (!fb.link) {
             link.baseHandler('timeout');
           };
 
+          imgLoader.unload(); // Removing listeners
           FacebookConnector.importContact(friendUidToLink, access_token,
                                           callbacks, 'not_match');
         }
@@ -589,18 +650,6 @@ if (!fb.link) {
       parent.postMessage(msg, fb.CONTACTS_APP_ORIGIN);
     };
 
-    function notifyParent(data) {
-      var msg = {
-        type: 'item_selected',
-        data: data
-      };
-
-      parent.postMessage(msg, fb.CONTACTS_APP_ORIGIN);
-
-      // Uncomment this to make this work in B2G-Desktop
-      // parent.postMessage(msg, '*');
-    }
-
     UI.viewAllFriends = function(event) {
       if (!allFriends) {
         getRemoteAll();
@@ -615,7 +664,7 @@ if (!fb.link) {
     UI.viewRecommended = function(event) {
       // event.target === viewButton
       event.target.onclick = UI.viewAllFriends;
-      event.target.textContent = _('viewAll');
+      event.target.setAttribute('data-l10n-id', 'viewAll');
 
       clearList();
       utils.templates.append(friendsList, currentRecommendation);

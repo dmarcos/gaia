@@ -1,12 +1,26 @@
-// Internet Sharing Test
 'use strict';
+/* global asyncStorage */
+/* global IccHelper */
+/* global InternetSharing */
+/* global AirplaneMode */
+/* global MockIccHelper */
+/* global MockL10n */
+/* global MocksHelper */
+/* global MockNavigatorSettings */
 
 requireApp('system/shared/test/unit/mocks/mock_navigator_moz_settings.js');
-requireApp('system/shared/test/unit/mocks/mock_navigator_moz_mobile_connection.js');
+requireApp(
+  'system/shared/test/unit/mocks/mock_navigator_moz_mobile_connection.js');
 requireApp('system/shared/test/unit/mocks/mock_icc_helper.js');
+requireApp('system/test/unit/mock_modal_dialog.js');
+requireApp('system/test/unit/mock_airplane_mode.js');
 requireApp('system/test/unit/mock_asyncStorage.js');
+require('/shared/test/unit/mocks/mock_l10n.js');
+requireApp('system/js/internet_sharing.js');
 
 var mocksForInternetSharing = new MocksHelper([
+  'AirplaneMode',
+  'ModalDialog',
   'asyncStorage',
   'IccHelper'
 ]).init();
@@ -23,21 +37,25 @@ suite('internet sharing > ', function() {
   const TEST_ICCID1 = 'iccid-1';
   const TEST_ICCID2 = 'iccid-2';
 
-  var realSettings;
+  var realSettings, realL10n, subject;
 
-  suiteSetup(function(done) {
+  suiteSetup(function() {
     // Unfortunately, for asyncStorage scoping reasons, we can't simply
     // use 'attachTestHelpers' anywhere in the internet sharing tests.
     mocksForInternetSharing.suiteSetup();
 
     realSettings = navigator.mozSettings;
     navigator.mozSettings = MockNavigatorSettings;
-    requireApp('system/js/internet_sharing.js', done);
+    realL10n = navigator.mozL10n;
+    navigator.mozL10n = MockL10n;
+    subject = new InternetSharing();
+    subject.start();
   });
 
   suiteTeardown(function() {
     mocksForInternetSharing.suiteTeardown();
     navigator.mozSettings = realSettings;
+    navigator.mozL10n = realL10n;
   });
   // helper function for batch assertion of asyncStorage
   function assertAynscStorageEquals(testSet) {
@@ -56,8 +74,8 @@ suite('internet sharing > ', function() {
   }
   // helper to change card state
   function changeCardState(state, iccid) {
-    MockIccHelper.mProps['cardState'] = state;
-    MockIccHelper.mProps['iccInfo'] = {'iccid': iccid};
+    MockIccHelper.mProps.cardState = state;
+    MockIccHelper.mProps.iccInfo = {'iccid': iccid};
     MockIccHelper.mTriggerEventListeners('cardstatechange', {});
   }
   // helper to change single key-value of mozSettings
@@ -84,13 +102,11 @@ suite('internet sharing > ', function() {
       var mObservers = MockNavigatorSettings.mObservers;
 
       assert.ok(
-        mEventListeners['cardstatechange'].length > 0);
+        mEventListeners.cardstatechange.length > 0);
       assert.ok(
-        !mObservers[KEY_USB_TETHERING] ||
-        !mObservers[KEY_USB_TETHERING].length);
+        mObservers[KEY_USB_TETHERING].length > 0);
       assert.ok(
-        !mObservers[KEY_WIFI_HOTSPOT] ||
-        !mObservers[KEY_WIFI_HOTSPOT].length);
+        mObservers[KEY_WIFI_HOTSPOT].length > 0);
     });
     // card state from null to unknown(sim found, but not initialized)
     test('unknown sim no settings', function() {
@@ -98,13 +114,11 @@ suite('internet sharing > ', function() {
       var mEventListeners = MockIccHelper.mEventListeners;
       var mObservers = MockNavigatorSettings.mObservers;
       assert.ok(
-        mEventListeners['cardstatechange'].length > 0);
+        mEventListeners.cardstatechange.length > 0);
       assert.ok(
-        !mObservers[KEY_USB_TETHERING] ||
-        !mObservers[KEY_USB_TETHERING].length);
+        mObservers[KEY_USB_TETHERING].length > 0);
       assert.ok(
-        !mObservers[KEY_WIFI_HOTSPOT] ||
-        !mObservers[KEY_WIFI_HOTSPOT].length);
+        mObservers[KEY_WIFI_HOTSPOT].length > 0);
     });
     // card state from unknown to pinRequired
     test('sim1 pinRequired no settings', function() {
@@ -113,7 +127,7 @@ suite('internet sharing > ', function() {
       var mEventListeners = MockIccHelper.mEventListeners;
       var mObservers = MockNavigatorSettings.mObservers;
       assert.ok(
-        mEventListeners['cardstatechange'].length > 0);
+        mEventListeners.cardstatechange.length > 0);
       assert.ok(
         mObservers[KEY_USB_TETHERING].length > 0);
       assert.ok(
@@ -131,19 +145,19 @@ suite('internet sharing > ', function() {
       // ready state, wait for iccInfo ready.
       var mEventListeners = MockIccHelper.mEventListeners;
       assert.ok(MockIccHelper.oniccinfochange ||
-                mEventListeners['iccinfochange'].length == 1);
+                mEventListeners.iccinfochange.length == 1);
 
       // add iccInfo
-      MockIccHelper.mProps['iccInfo'] = {dummy: 'dummyValue'};
+      MockIccHelper.mProps.iccInfo = {dummy: 'dummyValue'};
       MockIccHelper.mTriggerEventListeners('iccinfochange', {});
       assert.ok(MockIccHelper.oniccinfochange ||
-                mEventListeners['iccinfochange'].length == 1);
+                mEventListeners.iccinfochange.length == 1);
 
       // add iccid
-      MockIccHelper.mProps['iccInfo'] = {iccid: TEST_ICCID1};
+      MockIccHelper.mProps.iccInfo = {iccid: TEST_ICCID1};
       MockIccHelper.mTriggerEventListeners('iccinfochange', {});
       assert.ok(!MockIccHelper.oniccinfochange ||
-                mEventListeners['iccinfochange'].length == 0);
+                mEventListeners.iccinfochange.length === 0);
 
       var testSet = [{'key': KEY_USB_TETHERING, 'result': false},
                      {'key': KEY_WIFI_HOTSPOT, 'result': false}];
@@ -161,9 +175,9 @@ suite('internet sharing > ', function() {
     });
     // user remove sim 1
     test('sim1 removed', function() {
-      changeCardState('absent', null);
-      IccHelper.mProps['cardState'] = 'absent';
-      IccHelper.mProps['iccInfo'] = {};
+      changeCardState(null, null);
+      IccHelper.mProps.cardState = null;
+      IccHelper.mProps.iccInfo = {};
       IccHelper.mTriggerEventListeners('cardstatechange', {});
       var testSet = [{'key': KEY_USB_TETHERING, 'result': false},
                      {'key': KEY_WIFI_HOTSPOT, 'result': false}];
@@ -184,7 +198,7 @@ suite('internet sharing > ', function() {
       // disable usb
       changeSettings(KEY_USB_TETHERING, false);
       // remove sim 1
-      changeCardState('absent', null);
+      changeCardState(null, null);
       // everything is disblaed
       assertSettingsEquals(testSet);
       // insert sim 1
@@ -199,10 +213,10 @@ suite('internet sharing > ', function() {
       // we need to keep asyncStorage under this suite.
       mocksForInternetSharing.setup();
       // setting up:
-      // absent, pinRequired, pukRequired...(non-ready): usb enabled
+      // null, pinRequired, pukRequired...(non-ready): usb enabled
       // sim1: wifi hotspot enabled
       // sim2: nothing enabled
-      changeCardState('absent', null);
+      changeCardState(null, null);
       changeSettings(KEY_USB_TETHERING, true);
       changeSettings(KEY_WIFI_HOTSPOT, false);
 
@@ -246,7 +260,7 @@ suite('internet sharing > ', function() {
     });
     // switch to no sim
     test('switch to no sim, test state', function() {
-      changeCardState('absent', null);
+      changeCardState(null, null);
       var testSet = [{'key': KEY_USB_TETHERING, 'result': true},
                      {'key': KEY_WIFI_HOTSPOT, 'result': false}];
       assertSettingsEquals(testSet);
@@ -264,8 +278,13 @@ suite('internet sharing > ', function() {
                              'pukRequired',
                              'networkLocked',
                              'corporateLocked',
-                             'serviceProviderLocked'];
-      // all states linked with absent simcard.
+                             'serviceProviderLocked',
+                             'network1Locked',
+                             'network2Locked',
+                             'hrpdNetworkLocked',
+                             'ruimCorporateLocked',
+                             'ruimServiceProviderLocked'];
+      // all states linked with null simcard.
       var testSet = [{'key': KEY_USB_TETHERING, 'result': true},
                      {'key': KEY_WIFI_HOTSPOT, 'result': false}];
       lockedCardState.forEach(function(state) {
@@ -274,6 +293,26 @@ suite('internet sharing > ', function() {
       });
     });
   });
-});
-mocha.setup({ignoreLeaks: false});
 
+  suite('wifi hotspot', function() {
+    var testSet = [{'key': KEY_WIFI_HOTSPOT, 'result': false}];
+    test('can\'t turn on hotspot when APM is on', function() {
+      AirplaneMode.enabled = true;
+      subject.internetSharingSettingsChangeHanlder({
+        settingName: 'wifi',
+        settingValue: true
+      });
+      assertSettingsEquals(testSet);
+    });
+
+    test('can\'t turn on hotspot when there is no sim (APM is off)',
+      function() {
+        AirplaneMode.enabled = false;
+        subject.internetSharingSettingsChangeHanlder({
+          settingName: 'wifi',
+          settingValue: true
+        });
+        assertSettingsEquals(testSet);
+    });
+  });
+});

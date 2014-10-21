@@ -1,3 +1,6 @@
+/* exported HtmlImports */
+'use strict';
+
 /**
  * This file is included when we encounter lazy loaded nodes
  * in DEBUG mode.
@@ -10,12 +13,13 @@ var HtmlImports = {
    */
   populate: function(callback) {
     var imports = document.querySelectorAll('link[rel="import"]');
-    if (!imports.length)
+    if (!imports.length) {
       return;
+    }
 
     var pending = imports.length;
 
-    Array.prototype.forEach.call(imports, function eachImport(eachImport) {
+    Array.prototype.forEach.call(imports, function perImport(eachImport) {
       this.getImportContent(eachImport.href, function gotContent(content) {
         // Mapping of all custom element templates
         var elementTemplates = {};
@@ -44,6 +48,9 @@ var HtmlImports = {
   },
 
   getImportContent: function(path, callback) {
+    // bail out if the imported resource isn't in the same origin
+    var parsedURL = new URL(path, location.href);
+    if (parsedURL.origin !== location.origin) { return; }
     var xhr = new XMLHttpRequest();
     xhr.onload = function(o) {
       callback(xhr.responseText);

@@ -1,33 +1,29 @@
 <element name="doNotTrack" extends="section">
   <template>
 
-    <header>
-      <a href="#root"><span class="icon icon-back">back</span></a>
-      <h1 data-l10n-id="doNotTrack"> Do Not Track </h1>
-    </header>
+    <gaia-header action="back" data-href="#root">
+      <h1 data-l10n-id="doNotTrack-header"> Do Not Track </h1>
+    </gaia-header>
 
     <div>
       <ul>
         <li class="description">
           <label class="pack-radio">
-            <input type="radio" name="privacy.donottrackheader.value" value="1"/>
-            <span></span>
+            <input type="radio" name="privacy.donottrackheader.value" value="1">
+            <span data-l10n-id="doNotTrackActions">Tell websites and apps that I do not want to be tracked</span>
           </label>
-          <p data-l10n-id="doNotTrackActions">Tell websites and apps that I do not want to be tracked</p>
         </li>
         <li class="description">
           <label class="pack-radio">
-            <input type="radio" name="privacy.donottrackheader.value" value="0"/>
-            <span></span>
+            <input type="radio" name="privacy.donottrackheader.value" value="0">
+            <span data-l10n-id="allowTracking">Tell websites and apps that I want to be tracked</span>
           </label>
-          <p data-l10n-id="allowTracking">Tell websites and apps that I want to be tracked</p>
         </li>
         <li class="description">
           <label class="pack-radio">
-            <input type="radio" name="privacy.donottrackheader.value" value="-1"/>
-            <span></span>
+            <input type="radio" name="privacy.donottrackheader.value" value="-1">
+            <span data-l10n-id="doNotHavePrefOnTracking">Do not tell websites and apps anything about my tracking preferences</span>
           </label>
-          <p data-l10n-id="doNotHavePrefOnTracking">Do not tell websites and apps anything about my tracking preferences</p>
         </li>
       </ul>
       <header>
@@ -38,10 +34,10 @@
           <p data-l10n-id="doNotTrack-dd1">
             When you turn on the Do Not Track feature, your device tells every
             website and app (as well as advertisers and other content providers)
-            that you don’t want your behavior tracked.
+            that you do not want your behavior tracked.
           </p>
           <p data-l10n-id="doNotTrack-dd2">
-            Turning on Do Not Track won’t affect your ability to log into
+            Turning on Do Not Track will not affect your ability to log into
             websites, nor cause your device to forget your private information —
             such as the contents of shopping carts, location information, or
             log-in information.
@@ -53,6 +49,6 @@
       </ul>
     </div>
 
-    <script src="js/do_not_track.js"></script>
+    <panel data-path="panels/do_not_track/panel"></panel>
   </template>
 </element>

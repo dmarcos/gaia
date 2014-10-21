@@ -1,0 +1,31 @@
+{
+  "metadata": {
+    "name": "Gaia taskgraph",
+    "description": "Gaia taskgraph generator"
+  },
+  "tags": {},
+  "tasks": [
+    {
+      "task": {
+        "metadata": {
+          "name": "Task graph construction...."
+        },
+        "provisionerId": "aws-provisioner",
+        "workerType": "gaia",
+        "payload": {
+          "image": "lightsofapollo/gaia-taskenv:0.5.2",
+          "command": [
+            "entrypoint",
+            "echo 'what' && make node_modules && node tests/taskcluster/bin/graph > /graph.json && cat /graph.json"
+          ],
+          "graphs": ["/graph.json"]
+        },
+        "extra": {
+          "treeherder": {
+            "symbol": "G"
+          }
+        }
+      }
+    }
+  ]
+}

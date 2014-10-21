@@ -1,5 +1,5 @@
-/*global MocksHelper, MockL10n, MockGestureDetector,
-         loadBodyHTML, ThreadUI, MessageManager, MockNavigatormozMobileMessage,
+/*global MocksHelper, MockL10n, MockGestureDetector, MockDialog,
+         loadBodyHTML, ThreadUI, MessageManager,
          ThreadListUI, Contacts, MockContact, MockThreadList,
          MockThreadMessages, getMockupedDate, Utils */
 /*
@@ -9,21 +9,29 @@
 
 
 require('/shared/js/lazy_loader.js');
-require('/shared/js/l10n.js');
-require('/shared/js/l10n_date.js');
 require('/shared/js/gesture_detector.js');
+require('/shared/js/sticky_header.js');
 
-requireApp('system/test/unit/mock_gesture_detector.js');
+require('/shared/test/unit/mocks/mock_gesture_detector.js');
+require('/shared/test/unit/mocks/mock_l10n.js');
 requireApp('sms/test/unit/mock_contact.js');
-requireApp('sms/test/unit/mock_l10n.js');
-requireApp('sms/test/unit/mock_navigatormoz_sms.js');
+requireApp('sms/test/unit/mock_time_headers.js');
 requireApp('sms/test/unit/mock_attachment_menu.js');
+requireApp('sms/test/unit/mock_information.js');
+requireApp('sms/test/unit/mock_dialog.js');
+require('/shared/test/unit/mocks/mock_contact_photo_helper.js');
+require('/shared/test/unit/mocks/mock_async_storage.js');
+require('/test/unit/mock_settings.js');
+require('/test/unit/mock_inter_instance_event_dispatcher.js');
 
+require('/js/event_dispatcher.js');
+require('/js/navigation.js');
 requireApp('sms/js/link_helper.js');
+requireApp('sms/js/drafts.js');
 requireApp('sms/js/contacts.js');
-requireApp('sms/js/fixed_header.js');
 requireApp('sms/js/utils.js');
-requireApp('sms/js/compose.js');
+require('/js/subject_composer.js');
+require('/js/compose.js');
 requireApp('sms/js/threads.js');
 requireApp('sms/test/unit/utils_mockup.js');
 requireApp('sms/test/unit/messages_mockup.js');
@@ -34,10 +42,18 @@ requireApp('sms/js/thread_list_ui.js');
 requireApp('sms/js/recipients.js');
 requireApp('sms/js/thread_ui.js');
 requireApp('sms/js/waiting_screen.js');
+require('/shared/js/performance_testing_helper.js');
 requireApp('sms/js/startup.js');
 
 var MocksHelperForSmsUnitTest = new MocksHelper([
-  'AttachmentMenu'
+  'asyncStorage',
+  'Settings',
+  'AttachmentMenu',
+  'TimeHeaders',
+  'Information',
+  'ContactPhotoHelper',
+  'Dialog',
+  'InterInstanceEventDispatcher'
 ]).init();
 
 suite('SMS App Unit-Test', function() {
@@ -63,8 +79,6 @@ suite('SMS App Unit-Test', function() {
   }
 
   var nativeMozL10n = navigator.mozL10n;
-  var realMozMobileMessage;
-  var boundOnHashChange;
   var realGestureDetector;
 
   suiteSetup(function() {
@@ -111,27 +125,29 @@ suite('SMS App Unit-Test', function() {
     // ...And render
     ThreadUI.init();
     ThreadListUI.init();
-    boundOnHashChange = MessageManager.onHashChange.bind(MessageManager);
-    window.addEventListener(
-      'hashchange', boundOnHashChange
-    );
-    realMozMobileMessage = ThreadUI._mozMobileMessage;
-    ThreadUI._mozMobileMessage = MockNavigatormozMobileMessage;
   });
 
   suiteTeardown(function() {
-    ThreadUI._mozMobileMessage = realMozMobileMessage;
     // cleanup
     window.document.body.innerHTML = '';
-    window.removeEventListener('hashchange', boundOnHashChange);
   });
 
   setup(function() {
     // We mockup the method for retrieving the threads
     this.sinon.stub(MessageManager, 'getThreads',
-      function(callback, extraArg) {
+      function(options) {
         var threadsMockup = new MockThreadList();
-        callback(threadsMockup, extraArg);
+
+        var each = options.each;
+        var end = options.end;
+        var done = options.done;
+
+        for (var i = 0; i < threadsMockup.length; i++) {
+          each && each(threadsMockup[i]);
+        }
+
+        end && end();
+        done && done();
       });
 
     this.sinon.stub(MessageManager, 'getMessages',
@@ -178,8 +194,7 @@ suite('SMS App Unit-Test', function() {
     // Setup. We need an async. way due to threads are rendered
     // async.
     setup(function(done) {
-      this.sinon.spy(navigator.mozL10n, 'localize');
-      MessageManager.getThreads(ThreadListUI.renderThreads, done);
+      ThreadListUI.renderThreads(done);
       _tci = ThreadListUI.checkInputs;
     });
     // We are gonna review the HTML structure with this suite
@@ -187,20 +202,28 @@ suite('SMS App Unit-Test', function() {
 
       test('properly updates in response to an arriving message of a ' +
         'different type', function() {
+        ThreadListUI.container.textContent = '';
+
         var container = ThreadListUI.container;
-        MessageManager.getThreads(function(threads) {
-          threads.forEach(function(thread, idx) {
-            var newMessage = {
-              threadId: thread.id,
-              sender: thread.participants[0],
-              timestamp: thread.timestamp,
-              type: thread.lastMessageType === 'mms' ? 'sms' : 'mms'
-            };
-            MessageManager.onMessageReceived({
-              message: newMessage
-            });
+
+        var each = function(thread) {
+          var newMessage = {
+            threadId: thread.id,
+            sender: thread.participants[0],
+            delivery: 'received',
+            timestamp: +thread.timestamp,
+            type: thread.lastMessageType === 'mms' ? 'sms' : 'mms'
+          };
+          MessageManager.onMessageReceived({
+            message: newMessage
           });
-        });
+        };
+
+        var options = {
+          each: each
+        };
+
+        MessageManager.getThreads(options);
         var mmsThreads = container.querySelectorAll(
           '[data-last-message-type="mms"]'
         );
@@ -239,7 +262,7 @@ suite('SMS App Unit-Test', function() {
         var date = getMockupedDate(2);
         var threadsContainer =
           document.getElementById('threadsContainer_' +
-            Utils.getDayDate(date.getTime()));
+            Utils.getDayDate(+date));
         assertNumberOfElementsInContainerByTag(threadsContainer, 2, 'li');
       });
 
@@ -248,17 +271,22 @@ suite('SMS App Unit-Test', function() {
         assertNumOfElementsByClass(ThreadListUI.container, 1, 'unread');
       });
 
-      test('Update thread with contact name localized', function() {
+      test('Update thread with contact name', function() {
         // Given a number, we should retrieve the contact and update the info
         var threadWithContact = document.getElementById('thread-1');
-        var contactName = threadWithContact.getElementsByClassName('name')[0];
-        assert.deepEqual(navigator.mozL10n.localize.args[0],
-          [contactName, 'thread-header-text', {name: 'Pepito O\'Hare', n: 0}]);
+        assert.equal(
+          threadWithContact.querySelector('.name').textContent,
+          'Pepito O\'Hare'
+        );
       });
     });
 
     // Review the edit-mode functionality and markup
     suite('Threads-list edit mode', function() {
+
+      setup(function() {
+        this.sinon.stub(ThreadListUI, 'setContact');
+      });
 
       test('Check edit mode form', function() {
         var container = ThreadListUI.container;
@@ -276,27 +304,32 @@ suite('SMS App Unit-Test', function() {
         for (i = inputs.length - 1; i >= 0; i--) {
           inputs[i].checked = true;
         }
-
-        var checkAllButton =
-          document.getElementById('threads-check-all-button');
-        var uncheckAllButton =
-          document.getElementById('threads-uncheck-all-button');
+        var checkUncheckAllButton =
+          document.getElementById('threads-check-uncheck-all-button');
 
         ThreadListUI.checkInputs();
-        assert.isTrue(checkAllButton.disabled);
-        assert.isFalse(uncheckAllButton.disabled);
+        assert.equal(
+          checkUncheckAllButton.getAttribute('data-l10n-id'),
+          'deselect-all'
+        );
         // Deactivate all inputs
         for (i = inputs.length - 1; i >= 0; i--) {
           inputs[i].checked = false;
         }
         ThreadListUI.checkInputs();
-        assert.isFalse(checkAllButton.disabled);
-        assert.isTrue(uncheckAllButton.disabled);
+        assert.equal(
+          checkUncheckAllButton.getAttribute('data-l10n-id'),
+          'select-all'
+        );
+        assert.isFalse(checkUncheckAllButton.disabled);
         // Activate only one
         inputs[0].checked = true;
         ThreadListUI.checkInputs();
-        assert.isFalse(checkAllButton.disabled);
-        assert.isFalse(uncheckAllButton.disabled);
+        assert.equal(
+          checkUncheckAllButton.getAttribute('data-l10n-id'),
+          'select-all'
+        );
+        assert.isFalse(checkUncheckAllButton.disabled);
       });
 
       test('Select all while receiving new thread', function(done) {
@@ -305,6 +338,8 @@ suite('SMS App Unit-Test', function() {
 
         var checkboxes =
           ThreadListUI.container.querySelectorAll('input[type=checkbox]');
+        var checkUncheckAllButton =
+          document.getElementById('threads-check-uncheck-all-button');
         assert.equal(5,
           [].slice.call(checkboxes).filter(function(i) {
             return i.checked;
@@ -315,7 +350,7 @@ suite('SMS App Unit-Test', function() {
           participants: ['287138'],
           body: 'Recibidas!',
           id: 9999,
-          timestamp: new Date(),
+          timestamp: Date.now(),
           type: 'sms',
           channel: 'sms'
         });
@@ -331,11 +366,9 @@ suite('SMS App Unit-Test', function() {
         // new checkbox should have been added
         assert.equal(checkboxes[0].checked, false);
 
-        // Select all and Deselect all should both be enabled
-        assert.isFalse(document.getElementById('threads-check-all-button')
-          .hasAttribute('disabled'), 'Check all enabled');
-        assert.isFalse(document.getElementById('threads-uncheck-all-button')
-          .hasAttribute('disabled'), 'Uncheck all enabled');
+        // Select-Deselect all should both be enabled
+        assert.isFalse(checkUncheckAllButton
+          .hasAttribute('disabled'), 'Check-Uncheck all enabled');
 
         done();
       });
@@ -348,7 +381,7 @@ suite('SMS App Unit-Test', function() {
           participants: ['287138'],
           body: 'Recibidas!',
           id: 9999,
-          timestamp: new Date(),
+          timestamp: Date.now(),
           type: 'sms',
           channel: 'sms'
         });
@@ -365,7 +398,7 @@ suite('SMS App Unit-Test', function() {
           participants: ['287138'],
           body: 'Recibidas!',
           id: 9999,
-          timestamp: new Date(),
+          timestamp: Date.now(),
           channel: 'sms'
         });
 
@@ -410,6 +443,7 @@ suite('SMS App Unit-Test', function() {
       // Setup for getting all messages rendered before every test
       setup(function(done) {
         this.sinon.spy(ThreadUI, 'checkInputs');
+        this.sinon.stub(ThreadListUI, 'setContact');
         ThreadUI.renderMessages(1, function() {
           done();
         });
@@ -428,14 +462,11 @@ suite('SMS App Unit-Test', function() {
           ThreadUI.chooseMessage(inputs[i]);
         }
 
-        var checkAllButton =
-          document.getElementById('messages-check-all-button');
-        var uncheckAllButton =
-          document.getElementById('messages-uncheck-all-button');
+        var checkUncheckAllButton =
+          document.getElementById('messages-check-uncheck-all-button');
 
         ThreadUI.checkInputs();
-        assert.isTrue(checkAllButton.disabled);
-        assert.isFalse(uncheckAllButton.disabled);
+        assert.isFalse(checkUncheckAllButton.disabled);
 
         // Deactivate all inputs
         for (i = inputs.length - 1; i >= 0; i--) {
@@ -443,15 +474,13 @@ suite('SMS App Unit-Test', function() {
           ThreadUI.chooseMessage(inputs[i]);
         }
         ThreadUI.checkInputs();
-        assert.isFalse(checkAllButton.disabled);
-        assert.isTrue(uncheckAllButton.disabled);
+        assert.isFalse(checkUncheckAllButton.disabled);
 
         // Activate only one
         inputs[0].checked = true;
         ThreadUI.chooseMessage(inputs[0]);
         ThreadUI.checkInputs();
-        assert.isFalse(checkAllButton.disabled);
-        assert.isFalse(uncheckAllButton.disabled);
+        assert.isFalse(checkUncheckAllButton.disabled);
       });
 
       test('Select all while receiving new message', function(done) {
@@ -460,6 +489,8 @@ suite('SMS App Unit-Test', function() {
 
         var checkboxes =
           ThreadUI.container.querySelectorAll('input[type=checkbox]');
+        var checkUncheckAllButton =
+          document.getElementById('messages-check-uncheck-all-button');
         assert.equal(checkboxes.length, 5);
         assert.equal(checkboxes.length,
           [].slice.call(checkboxes).filter(function(i) {
@@ -472,7 +503,7 @@ suite('SMS App Unit-Test', function() {
           body: 'Recibidas!',
           delivery: 'received',
           id: 9999,
-          timestamp: new Date(),
+          timestamp: Date.now(),
           type: 'sms',
           channel: 'sms'
         };
@@ -485,18 +516,14 @@ suite('SMS App Unit-Test', function() {
         assert.equal(checkboxes[2].checked, true);
         assert.equal(checkboxes[5].checked, false);
 
-        // Select all and Deselect all should both be enabled
-        assert.isFalse(document.getElementById('messages-check-all-button')
-          .hasAttribute('disabled'), 'Check all enabled');
-        assert.isFalse(document.getElementById('messages-uncheck-all-button')
-          .hasAttribute('disabled'), 'Uncheck all enabled');
+        // Select-Deselect all should both be enabled
+        assert.isFalse(checkUncheckAllButton
+          .hasAttribute('disabled'), 'Check-Uncheck all enabled');
 
         // now delete the selected messages...
-        MessageManager.deleteMessage = stub(function(list, itCb) {
+        MessageManager.deleteMessages = stub(function(list, itCb) {
           setTimeout(itCb);
         });
-
-        window.confirm = stub(true);
 
         var getMessageReq = {};
         this.sinon.stub(MessageManager, 'getMessage').returns(getMessageReq);
@@ -504,9 +531,9 @@ suite('SMS App Unit-Test', function() {
 
         setTimeout(function() {
           getMessageReq.onsuccess();
-          assert.equal(window.confirm.callCount, 1);
-          assert.equal(MessageManager.deleteMessage.callCount, 1);
-          assert.equal(MessageManager.deleteMessage.calledWith[0].length, 5);
+          assert.isTrue(MockDialog.triggers.confirm.called);
+          assert.equal(MessageManager.deleteMessages.callCount, 1);
+          assert.equal(MessageManager.deleteMessages.calledWith[0].length, 5);
           assert.equal(ThreadUI.container.querySelectorAll('li').length, 1,
             'correct number of Thread li');
           assert.equal(
@@ -516,6 +543,7 @@ suite('SMS App Unit-Test', function() {
         }, 1500); // only the last one is slow. What is blocking?
 
         ThreadUI.delete();
+        MockDialog.triggers.confirm();
       });
 
       test('checkInputs should fire in edit mode', function() {
@@ -527,7 +555,7 @@ suite('SMS App Unit-Test', function() {
           body: 'Recibidas!',
           delivery: 'received',
           id: 9999,
-          timestamp: new Date(),
+          timestamp: Date.now(),
           channel: 'sms'
         });
 
@@ -544,7 +572,7 @@ suite('SMS App Unit-Test', function() {
           body: 'Recibidas!',
           delivery: 'received',
           id: 9999,
-          timestamp: new Date(),
+          timestamp: Date.now(),
           channel: 'sms'
         });
 

@@ -1,9 +1,9 @@
 'use strict';
+/* exported MockOauthflow */
 
 var MockOauthflow = {
   params: {
     'facebook': {
-      'appOrigin': 'app://communications.gaiamobile.org',
       'redirectURI': 'https://www.facebook.com/connect/login_success.html',
       'loginPage': 'https://m.facebook.com/dialog/oauth/?',
       'applicationId': '123456',
@@ -23,7 +23,6 @@ var MockOauthflow = {
       'imgThumbSize': 120
     },
     'live': {
-      'appOrigin': 'app://communications.gaiamobile.org',
       'redirectURI': 'https://www.mozilla.org/',
       'loginPage': 'https://login.live.com/oauth20_authorize.srf?',
       'applicationId': '123456',
@@ -37,7 +36,6 @@ var MockOauthflow = {
       'logoutUrl': 'https://login.live.com/logout.srf'
     },
     'gmail': {
-      'appOrigin': 'app://communications.gaiamobile.org',
       'redirectURI':
 'https://serene-cove-3587.herokuapp.com/liveowd/oauth2_new/flow_live.html',
       'loginPage': 'https://accounts.google.com/o/oauth2/auth?',

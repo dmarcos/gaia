@@ -11,7 +11,7 @@ class Settings(Base):
     _settings_iframe_locator = (By.ID, 'settings-view-placeholder')
     _settings_title_locator = (By.CSS_SELECTOR, 'section#settings-view h1')
 
-    _data_alert_label_locator = (By.XPATH, "//ul[preceding-sibling::header[@id='data-usage-settings']]/li[2]/label")
+    _data_alert_label_locator = (By.XPATH, "//ul[preceding-sibling::gaia-subheader[@id='data-usage-settings']]/li[2]/label")
     _data_alert_switch_locator = (By.CSS_SELECTOR, 'input[data-option="dataLimit"]')
     _when_use_is_above_button_locator = (By.CSS_SELECTOR, 'button[data-widget-type="data-limit"]')
     _unit_button_locator = (By.CSS_SELECTOR, '#data-limit-dialog form button')
@@ -19,7 +19,9 @@ class Settings(Base):
     _usage_done_button_locator = (By.ID, 'data-usage-done-button')
 
     _reset_button_locator = (By.ID, 'reset-data-usage')
-    _reset_confirm_locator = (By.CSS_SELECTOR, 'section#reset-confirmation-dialog button.danger')
+    _reset_dialog_locator = (By.ID, 'reset-data-dialog')
+    _reset_wifi_usage_button_locator = (By.ID, 'reset-data-wifi-usage')
+    _reset_mobile_usage_button_locator = (By.ID, 'reset-data-mobile-usage')
     _done_button_locator = (By.CSS_SELECTOR, 'section#settings-view button#close-settings')
 
     def __init__(self, marionette):
@@ -30,7 +32,6 @@ class Settings(Base):
         self.wait_for_element_displayed(*self._settings_title_locator)
 
     def toggle_data_alert_switch(self, value):
-        self.wait_for_element_displayed(*self._data_alert_label_locator)
         switch = self.marionette.find_element(*self._data_alert_switch_locator)
         if switch.is_selected() != value:
             label = self.marionette.find_element(*self._data_alert_label_locator)
@@ -59,16 +60,19 @@ class Settings(Base):
         done = self.marionette.find_element(*self._usage_done_button_locator)
         done.tap()
 
-    def reset_data_usage(self):
-        self.wait_for_element_displayed(*self._settings_title_locator)
+    def reset_wifi_usage(self):
         self.marionette.find_element(*self._reset_button_locator).tap()
-        self.wait_for_element_displayed(*self._reset_confirm_locator)
-        self.marionette.find_element(*self._reset_confirm_locator).tap()
-        self.wait_for_element_displayed(*self._settings_title_locator)
+        self.wait_for_element_displayed(*self._reset_wifi_usage_button_locator)
+        self.marionette.find_element(*self._reset_wifi_usage_button_locator).tap()
+        self.wait_for_element_not_displayed(*self._reset_dialog_locator)
+
+    def reset_mobile_usage(self):
+        self.marionette.find_element(*self._reset_button_locator).tap()
+        self.wait_for_element_displayed(*self._reset_mobile_usage_button_locator)
+        self.marionette.find_element(*self._reset_mobile_usage_button_locator).tap()
+        self.wait_for_element_not_displayed(*self._reset_dialog_locator)
 
     def tap_done(self):
-        self.wait_for_element_displayed(*self._done_button_locator)
         self.marionette.find_element(*self._done_button_locator).tap()
-        # Switch back to Cos Control app frame
-        from gaiatest.apps.cost_control.app import CostControl
-        CostControl(self.marionette).launch()
+        # Switch back to Cost Control app frame
+        self.apps.switch_to_displayed_app()

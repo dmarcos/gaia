@@ -12,16 +12,21 @@ suite('KeyboardHelper', function() {
   mocksHelper.attachTestHelpers();
   var realMozSettings;
   var realMozApps;
-  var appEvents = ['applicationinstallsuccess', 'applicationuninstall'];
+  var appEvents = ['applicationinstall', 'applicationinstallsuccess',
+    'applicationuninstall'];
   var DEFAULT_KEY = 'keyboard.default-layouts';
   var ENABLED_KEY = 'keyboard.enabled-layouts';
-  var keyboardAppOrigin = 'http://keyboard.gaiamobile.org:8080';
+  var CURRENT_ACTIVE = 'keyboard.current-active-layouts';
+  var THIRD_PARTY_APP_ENABLED_KEY = 'keyboard.3rd-party-app.enabled';
+  var keyboardAppOrigin = 'app://keyboard.gaiamobile.org';
+  var keyboardAppManifestURL =
+      'app://keyboard.gaiamobile.org/manifest.webapp';
   var standardKeyboards = [
     {
-      origin: keyboardAppOrigin,
+      manifestURL: keyboardAppManifestURL,
       manifest: {
-        role: 'keyboard',
-        entry_points: {
+        role: 'input',
+        inputs: {
           en: {
             types: ['url', 'text'],
             launch_path: '/index.html#en'
@@ -78,8 +83,34 @@ suite('KeyboardHelper', function() {
     'default': {}
   };
 
-  defaultSettings['default'][keyboardAppOrigin] = {en: true, number: true};
+  defaultSettings['default'][keyboardAppManifestURL] = {en: true, number: true};
   defaultSettings.enabled = defaultSettings['default'];
+
+  var DEPRECATE_KEYBOARD_SETTINGS = {
+    en: 'keyboard.layouts.english',
+    'en-Dvorak': 'keyboard.layouts.dvorak',
+    cs: 'keyboard.layouts.czech',
+    fr: 'keyboard.layouts.french',
+    de: 'keyboard.layouts.german',
+    hu: 'keyboard.layouts.hungarian',
+    nb: 'keyboard.layouts.norwegian',
+    my: 'keyboard.layouts.myanmar',
+    sl: 'keyboard.layouts.slovak',
+    tr: 'keyboard.layouts.turkish',
+    ro: 'keyboard.layouts.romanian',
+    ru: 'keyboard.layouts.russian',
+    ar: 'keyboard.layouts.arabic',
+    he: 'keyboard.layouts.hebrew',
+    'zh-Hant-Zhuyin': 'keyboard.layouts.zhuyin',
+    'zh-Hans-Pinyin': 'keyboard.layouts.pinyin',
+    el: 'keyboard.layouts.greek',
+    'jp-kanji': 'keyboard.layouts.japanese',
+    pl: 'keyboard.layouts.polish',
+    'pt-BR': 'keyboard.layouts.portuguese',
+    sr: 'keyboard.layouts.serbian',
+    es: 'keyboard.layouts.spanish',
+    ca: 'keyboard.layouts.catalan'
+  };
 
   function trigger(event) {
     var evt = document.createEvent('CustomEvent');
@@ -92,7 +123,6 @@ suite('KeyboardHelper', function() {
     navigator.mozApps = MockNavigatormozApps;
 
     realMozSettings = navigator.mozSettings;
-    MockNavigatorSettings.mSyncRepliesOnly = true;
     navigator.mozSettings = MockNavigatorSettings;
 
     // ensure the default settings are indeed default
@@ -101,12 +131,12 @@ suite('KeyboardHelper', function() {
   });
 
   suiteTeardown(function() {
-    MockNavigatorSettings.mSyncRepliesOnly = false;
     navigator.mozApps = realMozApps;
     navigator.mozSettings = realMozSettings;
   });
 
   setup(function() {
+    MockNavigatorSettings.mSyncRepliesOnly = true;
     // reset KeyboardHelper each time
     KeyboardHelper.settings.enabled = {};
     KeyboardHelper.settings['default'] = defaultSettings['default'];
@@ -125,9 +155,20 @@ suite('KeyboardHelper', function() {
 
   test('requests initial settings', function() {
     var requests = MockNavigatorSettings.mRequests;
-    assert.equal(requests.length, 2);
+    assert.equal(requests.length, 27);
     assert.ok(DEFAULT_KEY in requests[0].result, 'requested defaults');
     assert.ok(ENABLED_KEY in requests[1].result, 'requested enabled');
+    assert.ok(CURRENT_ACTIVE in requests[2].result, 'active enabled');
+    assert.ok(THIRD_PARTY_APP_ENABLED_KEY in requests[3].result,
+      'requested 3rd-party keyboard app enabled');
+
+    var i = 0;
+    for (var key in DEPRECATE_KEYBOARD_SETTINGS) {
+      assert.ok(DEPRECATE_KEYBOARD_SETTINGS[key] in requests[4 + i].result,
+                'requested deprecated settings - ' +
+                DEPRECATE_KEYBOARD_SETTINGS[key]);
+      i++;
+    }
   });
 
   suite('getApps', function() {
@@ -135,36 +176,102 @@ suite('KeyboardHelper', function() {
       this.apps = [
         {
           origin: 'app://keyboard.gaiamobile.org',
+          manifestURL: 'app://keyboard.gaiamobile.org/manifest.webapp',
           manifest: {
-            role: 'keyboard',
-            entry_points: {}
+            type: 'privileged',
+            role: 'input',
+            inputs: {},
+            permissions: {
+              input: {}
+            }
           }
         }, {
           origin: 'app://keyboard2.gaiamobile.org',
+          manifestURL: 'app://keyboard2.gaiamobile.org/manifest.webapp',
           manifest: {
-            role: 'keyboard',
-            entry_points: {}
+            type: 'certified',
+            role: 'input',
+            inputs: {},
+            permissions: {
+              input: {}
+            }
           }
         },
-        // invalid because it's system
+        // vaild only if 3rd-party keyboard app support is enabled
         {
-          origin: 'app://system.gaiamobile.org',
+          origin: 'app://keyboard.notgaiamobile.org',
+          manifestURL: 'app://keyboard.notgaiamobile.org/manifest.webapp',
           manifest: {
-            role: 'keyboard',
-            entry_points: {}
+            type: 'privileged',
+            role: 'input',
+            inputs: {},
+            permissions: {
+              input: {}
+            }
           }
         },
-        // invalid because there aren't entry_points
+        // vaild only if 3rd-party keyboard app support is enabled
         {
-          origin: 'app://keyboard.gaiamobile.org',
-          manifest: { role: 'keyboard' }
-        },
-        // invalid because it's not keyboard role
-        {
-          origin: 'app://keyboard.gaiamobile.org',
+          origin: 'app://keyboard.notgaiamobile.org',
+          manifestURL:
+            'app://keyboard.example.com/hello.gaiamobile.org/manifest.webapp',
           manifest: {
-            role: 'notkeyboard',
-            entry_points: {}
+            type: 'privileged',
+            role: 'input',
+            inputs: {},
+            permissions: {
+              input: {}
+            }
+          }
+        },
+        // invalid because there aren't inputs
+        {
+          origin: 'app://keyboard.gaiamobile.org',
+          manifestURL: 'app://keyboard.gaiamobile.org/manifest.webapp',
+          manifest: {
+            type: 'certified',
+            role: 'input',
+            permissions: {
+              input: {}
+            }
+          }
+        },
+        // invalid because it's not input role
+        {
+          origin: 'app://keyboard.gaiamobile.org',
+          manifestURL: 'app://keyboard.gaiamobile.org/manifest.webapp',
+          manifest: {
+            type: 'privileged',
+            role: 'notinput',
+            inputs: {},
+            permissions: {
+              input: {}
+            }
+          }
+        },
+        // invalid because it's not privileged, nor certified
+        {
+          origin: 'app://keyboard-no.gaiamobile.org',
+          manifestURL: 'app://keyboard-no.gaiamobile.org/manifest.webapp',
+          manifest: {
+            role: 'input',
+            inputs: {},
+            permissions: {
+              input: {}
+            }
+          }
+        },
+        // invalid because it does not have input permission
+        {
+          origin: 'app://keyboard-no.gaiamobile.org',
+          manifestURL: 'app://keyboard-no.gaiamobile.org/manifest.webapp',
+          manifest: {
+            type: 'privileged',
+            role: 'input',
+            inputs: {},
+            permissions: {
+              notinput: {}
+            }
           }
         }
       ];
@@ -194,8 +301,8 @@ suite('KeyboardHelper', function() {
         request.onsuccess({ target: request });
       });
       test('correctly filters test data', function() {
-        // only the first 2 are valid
-        var filtered = this.apps.slice(0, 2);
+        // only the first 4 are valid (including 2 third-party keyboard apps).
+        var filtered = this.apps.slice(0, 4);
         var results = this.callback.args[0][0];
         assert.deepEqual(results, filtered);
       });
@@ -296,9 +403,10 @@ suite('KeyboardHelper', function() {
       this.sinon.spy(window, 'ManifestHelper');
       this.apps = [{
         origin: keyboardAppOrigin,
+        manifestURL: keyboardAppManifestURL,
         manifest: {
-          role: 'keyboard',
-          entry_points: {
+          role: 'input',
+          inputs: {
             en: {
               types: ['text', 'url']
             },
@@ -310,9 +418,10 @@ suite('KeyboardHelper', function() {
         }
       }, {
         origin: 'app://keyboard2.gaiamobile.org',
+        manifestURL: 'app://keyboard2.gaiamobile.org/manifest.webapp',
         manifest: {
-          role: 'keyboard',
-          entry_points: {
+          role: 'input',
+          inputs: {
             number: {
               types: ['number', 'url']
             }
@@ -392,10 +501,10 @@ suite('KeyboardHelper', function() {
           if (!inOrder) {
             return false;
           }
-          if (layout.entryPoint.types.length < inOrder) {
+          if (layout.inputManifest.types.length < inOrder) {
             return false;
           }
-          return layout.entryPoint.types.length;
+          return layout.inputManifest.types.length;
         }, 1));
       });
     });
@@ -433,7 +542,7 @@ suite('KeyboardHelper', function() {
       });
       test('only number keyboards', function() {
         assert.ok(this.result.every(function(layout) {
-          return layout.entryPoint.types.indexOf('number') !== -1;
+          return layout.inputManifest.types.indexOf('number') !== -1;
         }));
       });
     });
@@ -452,9 +561,65 @@ suite('KeyboardHelper', function() {
       });
       test('only url keyboards', function() {
         assert.ok(this.result.every(function(layout) {
-          return layout.entryPoint.types.indexOf('url') !== -1;
+          return layout.inputManifest.types.indexOf('url') !== -1;
         }));
       });
+    });
+  });
+
+  suite('Fallback layout with getLayouts', function() {
+    var oldFallbackLayoutNames;
+    var oldFallbackLayouts;
+    setup(function() {
+      MockNavigatorSettings.mRequests[0].result[DEFAULT_KEY] =
+        defaultSettings['default'];
+      MockNavigatorSettings.mRequests[1].result[ENABLED_KEY] =
+        defaultSettings.enabled;
+      this.sinon.stub(KeyboardHelper, 'getApps');
+      this.sinon.spy(window, 'ManifestHelper');
+      // since defaultSettings.default does not include fr layout,
+      // fallback with password-type should be set with fr layout
+      this.apps = [{
+        origin: keyboardAppOrigin,
+        manifestURL: keyboardAppManifestURL,
+        manifest: {
+          role: 'input',
+          inputs: {
+            en: {
+              types: ['text', 'url']
+            },
+            fr: {
+              types: ['password']
+            },
+            number: {
+              types: ['number']
+            }
+          }
+        }
+      }];
+
+      MockNavigatorSettings.mReplyToRequests();
+
+      oldFallbackLayoutNames = KeyboardHelper.fallbackLayoutNames;
+      oldFallbackLayouts = KeyboardHelper.fallbackLayouts;
+      KeyboardHelper.fallbackLayoutNames = {
+        password: 'fr'
+      };
+      KeyboardHelper.getLayouts({ 'default': true }, function() {}.bind(this));
+      KeyboardHelper.settings.enabled = defaultSettings.enabled;
+      KeyboardHelper.getApps.yield(this.apps);
+    });
+
+    teardown(function() {
+      KeyboardHelper.fallbackLayoutNames = oldFallbackLayoutNames;
+      KeyboardHelper.fallbackLayouts = oldFallbackLayouts;
+    });
+
+    test('fallback layout test', function() {
+      assert.isTrue('password' in KeyboardHelper.fallbackLayouts,
+                    '"password" type is not in fallback layouts');
+      assert.equal('fr', KeyboardHelper.fallbackLayouts.password.layoutId,
+                   'fallback layout for "password" is not "fr"');
     });
   });
 
@@ -605,21 +770,23 @@ suite('KeyboardHelper', function() {
       assert.isFalse(KeyboardHelper.saveToSettings.called);
     });
     test('es layout disabled (sanity check)', function() {
-      assert.isFalse(KeyboardHelper.getLayoutEnabled(keyboardAppOrigin, 'es'));
+      assert.isFalse(KeyboardHelper.getLayoutEnabled(keyboardAppManifestURL,
+                                                     'es'));
     });
     suite('setLayoutEnabled', function() {
       setup(function() {
-        KeyboardHelper.setLayoutEnabled(keyboardAppOrigin, 'es', true);
+        KeyboardHelper.setLayoutEnabled(keyboardAppManifestURL, 'es', true);
         KeyboardHelper.saveToSettings();
       });
       test('es layout enabled', function() {
-        assert.isTrue(KeyboardHelper.getLayoutEnabled(keyboardAppOrigin, 'es'));
+        assert.isTrue(KeyboardHelper.getLayoutEnabled(keyboardAppManifestURL,
+                                                      'es'));
       });
       test('saves', function() {
         assert.isTrue(KeyboardHelper.saveToSettings.called);
         // with the right data
         var data = {};
-        data[keyboardAppOrigin] = { en: true, es: true, number: true };
+        data[keyboardAppManifestURL] = { en: true, es: true, number: true };
         assert.deepEqual(MockNavigatorSettings.mSettings[ENABLED_KEY],
           data);
         assert.deepEqual(MockNavigatorSettings.mSettings[DEFAULT_KEY],
@@ -642,6 +809,59 @@ suite('KeyboardHelper', function() {
     });
   });
 
+  suite('migrate old settings', function() {
+    var expectedSettings = {
+      'default': {},
+      enabled: {}
+    };
+
+    suite('old settings: cs enabled', function() {
+      setup(function() {
+        this.sinon.stub(KeyboardHelper, 'saveToSettings');
+        MockNavigatorSettings.mRequests[4].
+          result[DEPRECATE_KEYBOARD_SETTINGS.en] = false;
+        MockNavigatorSettings.mRequests[6].
+          result[DEPRECATE_KEYBOARD_SETTINGS.cs] = true;
+        MockNavigatorSettings.mReplyToRequests();
+      });
+
+      test('default settings loaded with cs', function() {
+        expectedSettings['enabled'][keyboardAppManifestURL] =
+          {cs: true, number: true};
+
+        assert.deepEqual(KeyboardHelper.settings.enabled,
+                         expectedSettings.enabled);
+      });
+
+      test('saves settings', function() {
+        assert.isTrue(KeyboardHelper.saveToSettings.called);
+      });
+    });
+
+    suite('old settings: serbian enabled', function() {
+      setup(function() {
+        this.sinon.stub(KeyboardHelper, 'saveToSettings');
+        MockNavigatorSettings.mRequests[4].
+          result[DEPRECATE_KEYBOARD_SETTINGS.en] = false;
+        MockNavigatorSettings.mRequests[24].
+          result[DEPRECATE_KEYBOARD_SETTINGS.sr] = true;
+        MockNavigatorSettings.mReplyToRequests();
+      });
+
+      test('default settings loaded with cs', function() {
+        expectedSettings['enabled'][keyboardAppManifestURL] =
+          {'sr-Cyrl': true, 'sr-Latn': true, number: true};
+
+        assert.deepEqual(KeyboardHelper.settings.enabled,
+                         expectedSettings.enabled);
+      });
+
+      test('saves settings', function() {
+        assert.isTrue(KeyboardHelper.saveToSettings.called);
+      });
+    });
+  });
+
   suite('default settings', function() {
     setup(function() {
       this.sinon.spy(KeyboardHelper, 'saveToSettings');
@@ -655,6 +875,76 @@ suite('KeyboardHelper', function() {
     });
     test('does not save settings', function() {
       assert.isFalse(KeyboardHelper.saveToSettings.called);
+    });
+  });
+
+  suite('change default settings', function() {
+    var expectedSettings = {
+      'default': {},
+      enabled: {}
+    };
+
+    suiteSetup(function(done) {
+      KeyboardHelper.getDefaultLayoutConfig(function(configData) {
+        done();
+      });
+    });
+
+    setup(function() {
+      // reset KeyboardHelper each time
+      KeyboardHelper.settings['default'] = defaultSettings['default'];
+      KeyboardHelper.settings['enabled'] = defaultSettings['default'];
+    });
+
+    test('change default settings, keeping the enabled layouts', function() {
+      expectedSettings['default'][keyboardAppManifestURL] = {fr: true,
+                                                             number: true};
+      expectedSettings['enabled'][keyboardAppManifestURL] = {en: true, fr: true,
+                                                        number: true};
+
+      KeyboardHelper.changeDefaultLayouts('fr', false);
+      assert.deepEqual(KeyboardHelper.settings.default,
+                       expectedSettings['default']);
+
+      assert.deepEqual(KeyboardHelper.settings.enabled,
+                       expectedSettings.enabled);
+    });
+
+    test('change default settings and reset enabled layouts', function() {
+      expectedSettings['default'][keyboardAppManifestURL] = {es: true,
+                                                             number: true};
+      expectedSettings['enabled'][keyboardAppManifestURL] = {es: true,
+                                                             number: true};
+
+      KeyboardHelper.changeDefaultLayouts('es', true);
+      assert.deepEqual(KeyboardHelper.settings.default,
+                       expectedSettings['default']);
+
+      assert.deepEqual(KeyboardHelper.settings.enabled,
+                       expectedSettings.enabled);
+    });
+
+    test('change default settings and reset for nonLatin', function() {
+      expectedSettings['default'][keyboardAppManifestURL] = {
+        'zh-Hant-Zhuyin': true, en: true, number: true};
+      expectedSettings['enabled'][keyboardAppManifestURL] = {
+        'zh-Hant-Zhuyin': true, en: true, number: true};
+
+      KeyboardHelper.changeDefaultLayouts('zh-TW', true);
+      assert.deepEqual(KeyboardHelper.settings.default,
+                       expectedSettings['default']);
+
+      assert.deepEqual(KeyboardHelper.settings.enabled,
+                       expectedSettings.enabled);
+    });
+  });
+
+  suite('Active layouts', function() {
+    test('save layout stores in settings', function() {
+      KeyboardHelper.saveCurrentActiveLayout('yolo', 'en', 'app://something');
+
+      assert.deepEqual(KeyboardHelper.settings.active,
+        { 'yolo': { id: 'en', manifestURL: 'app://something' } });
     });
   });
 });
